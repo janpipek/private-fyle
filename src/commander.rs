@@ -4,7 +4,9 @@
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -24,6 +26,7 @@ use crate::palette_view::PaletteDelegate;
 use crate::panel::{Activate, FolderView};
 use crate::preview::Registry as PreviewRegistry;
 use crate::preview_view::PreviewPane;
+use crate::search::{self, Query};
 use crate::settings::{self, Settings};
 use crate::theme_picker::{self, ThemePickerDelegate};
 use crate::themes::ThemePicker;
@@ -54,6 +57,7 @@ actions!(
         Filter,
         EditFile,
         SelectTheme,
+        FindFiles,
         ToolsMenu,
         CommandPalette,
         Expand,
@@ -84,6 +88,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("insert", ToggleMark, table),
         KeyBinding::new("space", ToggleMark, table),
         KeyBinding::new("f2", ToolsMenu, table),
+        KeyBinding::new("alt-f7", FindFiles, table),
+        KeyBinding::new("secondary-shift-f", FindFiles, table),
         KeyBinding::new("f3", TogglePreview, ctx),
         KeyBinding::new("/", Filter, table),
         KeyBinding::new("ctrl-f", Filter, table),
@@ -122,6 +128,10 @@ pub struct Commander {
     programs: Arc<Programs>,
     /// Planning or running a tool in the background.
     _tool_task: Task<()>,
+    /// Set to stop the running search.
+    search_cancel: Option<Arc<AtomicBool>>,
+    _search_task: Task<()>,
+    _search_inputs: Vec<Subscription>,
     /// Open editor, shown in place of the inactive panel (before the preview).
     editor: Option<Entity<EditorPane>>,
     _editor_subscription: Option<Subscription>,
@@ -192,6 +202,9 @@ impl Commander {
             tools: Arc::new(tools_registry),
             programs: Arc::new(Programs::from_env()),
             _tool_task: Task::ready(()),
+            search_cancel: None,
+            _search_task: Task::ready(()),
+            _search_inputs: Vec::new(),
             editor: None,
             _editor_subscription: None,
             theme: settings.theme.clone(),
@@ -283,6 +296,176 @@ impl Commander {
         self.set_active(1 - self.active, cx);
         self.focus_active(window, cx);
         self.update_preview(window, cx);
+    }
+
+    /// Alt-F7: find files by name and/or containing text, below the
+    /// active panel's directory.
+    fn find_files(&mut self, _: &FindFiles, window: &mut Window, cx: &mut Context<Self>) {
+        let root = self.folders[self.active].read(cx).path().to_path_buf();
+        if root.as_os_str().is_empty() {
+            return;
+        }
+        let name = cx.new(|cx| InputState::new(window, cx).placeholder("e.g. *.rs or report"));
+        let content = cx.new(|cx| InputState::new(window, cx).placeholder("optional"));
+        let this = cx.entity().downgrade();
+        // Enter in either field starts the search.
+        self._search_inputs = [&name, &content]
+            .into_iter()
+            .map(|input| {
+                let (name, content, root) = (name.clone(), content.clone(), root.clone());
+                cx.subscribe_in(
+                    input,
+                    window,
+                    move |this, _, event: &InputEvent, window, cx| {
+                        if let InputEvent::PressEnter { .. } = event {
+                            window.close_dialog(cx);
+                            let query = this.search_query(&root, &name, &content, cx);
+                            this.start_search(query, window, cx);
+                        }
+                    },
+                )
+            })
+            .collect();
+        let (dialog_name, dialog_content) = (name.clone(), content.clone());
+        let location = fs_ops::display_path(&root);
+        window.open_alert_dialog(cx, move |dialog, _, cx| {
+            let muted = cx.theme().muted_foreground;
+            let (this, name, content, root) = (
+                this.clone(),
+                dialog_name.clone(),
+                dialog_content.clone(),
+                root.clone(),
+            );
+            dialog
+                .title("Find files")
+                .description(
+                    v_flex()
+                        .gap_3()
+                        .w_full()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(muted)
+                                .child(format!("In {location}")),
+                        )
+                        .child(v_flex().gap_1().child("File name").child(Input::new(&name)))
+                        .child(
+                            v_flex()
+                                .gap_1()
+                                .child("Containing text")
+                                .child(Input::new(&content)),
+                        ),
+                )
+                .ok_text("Find")
+                .show_cancel(true)
+                .on_ok(move |_, window, cx| {
+                    let (name, content, root) = (name.clone(), content.clone(), root.clone());
+                    let _ = this.update(cx, |this, cx| {
+                        let query = this.search_query(&root, &name, &content, cx);
+                        this.start_search(query, window, cx);
+                    });
+                    true
+                })
+        });
+        name.update(cx, |input, cx| input.focus(window, cx));
+    }
+
+    fn search_query(
+        &self,
+        root: &Path,
+        name: &Entity<InputState>,
+        content: &Entity<InputState>,
+        cx: &App,
+    ) -> Query {
+        Query {
+            root: root.to_path_buf(),
+            name: name.read(cx).value().to_string(),
+            content: content.read(cx).value().to_string(),
+            hidden: self.show_hidden,
+            ignore_files: true,
+        }
+    }
+
+    /// Shows results in the active panel as they arrive.
+    fn start_search(&mut self, query: Query, window: &mut Window, cx: &mut Context<Self>) {
+        self._search_inputs.clear();
+        if let Some(previous) = self.search_cancel.take() {
+            previous.store(true, Ordering::Relaxed);
+        }
+        let mut title = match (query.name.trim(), query.content.trim()) {
+            ("", "") => "all files".to_string(),
+            (name, "") => format!("\"{name}\""),
+            ("", text) => format!("containing \"{text}\""),
+            (name, text) => format!("\"{name}\" containing \"{text}\""),
+        };
+        title = format!("Search {title}");
+        let ix = self.active;
+        self.folders[ix].update(cx, |folder, cx| {
+            folder.show_results(query.root.clone(), title.clone());
+            cx.notify();
+        });
+        self.status = "Searching… (Esc stops)".into();
+        cx.notify();
+
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.search_cancel = Some(cancel.clone());
+        let found: Arc<Mutex<Vec<fs_ops::Entry>>> = Arc::default();
+        let (bg_found, bg_cancel) = (found.clone(), cancel.clone());
+        self._search_task = cx.spawn_in(window, async move |this, cx| {
+            let mut search = cx.background_spawn(async move {
+                search::run(&query, &bg_cancel, |hit| {
+                    bg_found.lock().unwrap().push(hit.entry)
+                })
+            });
+            loop {
+                let timer = cx.background_executor().timer(Duration::from_millis(120));
+                let finished = first_of(&mut search, timer).await;
+                let batch: Vec<_> = found.lock().unwrap().drain(..).collect();
+                let keep_going = this
+                    .update(cx, |this, cx| {
+                        let folder = &this.folders[ix];
+                        // Stop if the user left the results.
+                        if folder.read(cx).results() != Some(title.as_str()) {
+                            cancel.store(true, Ordering::Relaxed);
+                            return false;
+                        }
+                        if !batch.is_empty() {
+                            folder.update(cx, |folder, cx| {
+                                folder.add_results(batch);
+                                cx.notify();
+                            });
+                        }
+                        let count = folder.read(cx).unfiltered_count();
+                        match &finished {
+                            None => {
+                                this.status =
+                                    format!("Searching… {count} found (Esc stops)").into();
+                            }
+                            Some(Ok(summary)) => {
+                                let note = if summary.cancelled {
+                                    " (stopped)"
+                                } else if summary.truncated {
+                                    " (limit reached)"
+                                } else {
+                                    ""
+                                };
+                                this.status = format!("{title}: {count} found{note}").into();
+                                this.search_cancel = None;
+                            }
+                            Some(Err(e)) => {
+                                this.status = format!("Search: {e}").into();
+                                this.search_cancel = None;
+                            }
+                        }
+                        cx.notify();
+                        finished.is_none()
+                    })
+                    .unwrap_or(false);
+                if !keep_going {
+                    break;
+                }
+            }
+        });
     }
 
     /// What the tools see: the active panel and the other panel's directory.
@@ -612,6 +795,7 @@ impl Commander {
             ("Refresh", Box::new(Refresh)),
             ("Select theme", Box::new(SelectTheme)),
             ("Tools…", Box::new(ToolsMenu)),
+            ("Find files / search contents…", Box::new(FindFiles)),
             ("Quit", Box::new(Quit)),
         ]
     }
@@ -815,8 +999,13 @@ impl Commander {
         self.update_folder(cx, Folder::toggle_mark);
     }
 
-    /// Esc in a panel: clears the filter if one is set, else the marks.
+    /// Esc in a panel: stops a running search, else clears the filter if
+    /// one is set, else the marks.
     fn unmark(&mut self, _: &Unmark, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(cancel) = self.search_cancel.take() {
+            cancel.store(true, Ordering::Relaxed);
+            return;
+        }
         self.update_folder(cx, |folder| {
             if folder.filter().is_empty() {
                 folder.clear_marks();
@@ -1131,6 +1320,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::select_theme))
             .on_action(cx.listener(Self::command_palette))
             .on_action(cx.listener(Self::tools_menu))
+            .on_action(cx.listener(Self::find_files))
             .on_action(cx.listener(Self::expand))
             .on_action(cx.listener(Self::collapse))
             .on_action(cx.listener(Self::quit))
@@ -1225,4 +1415,23 @@ fn show_log(title: &str, log: String, window: &mut Window, cx: &mut App) {
                 ),
         )
     });
+}
+
+/// Waits for `task` or `timer`, whichever comes first; returns the task's
+/// result if it finished.
+async fn first_of<T: Unpin + 'static>(task: &mut Task<T>, timer: Task<()>) -> Option<T> {
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::task::Poll;
+    let mut timer = timer;
+    std::future::poll_fn(|cx| {
+        if let Poll::Ready(value) = Pin::new(&mut *task).poll(cx) {
+            return Poll::Ready(Some(value));
+        }
+        if Pin::new(&mut timer).poll(cx).is_ready() {
+            return Poll::Ready(None);
+        }
+        Poll::Pending
+    })
+    .await
 }

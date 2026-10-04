@@ -161,6 +161,12 @@ impl Render for FolderView {
         let theme = cx.theme();
         let folder = self.folder.read(cx);
         let mut footer = format!("{} dirs, {} files", folder.dir_count(), folder.file_count());
+        if let Some(title) = folder.results() {
+            footer = format!(
+                "{title}: {} found · Enter shows a hit in its folder",
+                folder.unfiltered_count()
+            );
+        }
         if !folder.filter().is_empty() {
             let shown = folder.dir_count() + folder.file_count();
             footer = format!(
@@ -193,7 +199,10 @@ impl Render for FolderView {
                             .truncate()
                             .child(fs_ops::display_path(folder.path())),
                     )
-                    .when(folder.is_tree(), |d| {
+                    .when(folder.results().is_some(), |d| {
+                        d.child(div().flex_none().text_xs().child("RESULTS"))
+                    })
+                    .when(folder.is_tree() && folder.results().is_none(), |d| {
                         d.child(div().flex_none().text_xs().child("TREE"))
                     }),
             )

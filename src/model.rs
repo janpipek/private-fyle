@@ -55,6 +55,9 @@ pub struct Folder {
     all: Vec<Row>,
     /// Case-insensitive substring the shown names must contain.
     filter: String,
+    /// Set while showing search results instead of a directory listing;
+    /// `path` is then the search root.
+    results: Option<String>,
     cursor: usize,
     marked: BTreeSet<PathBuf>,
     sort: Sort,
@@ -71,6 +74,7 @@ impl Folder {
             entries: Vec::new(),
             all: Vec::new(),
             filter: String::new(),
+            results: None,
             cursor: 0,
             marked: BTreeSet::new(),
             sort: Sort::default(),
@@ -154,8 +158,55 @@ impl Folder {
         changed
     }
 
+    /// Title of the search whose results are shown, if any.
+    pub fn results(&self) -> Option<&str> {
+        self.results.as_deref()
+    }
+
+    /// Switches to showing search results under `root` (initially none;
+    /// see [`Folder::add_results`]). ".." leads back to `root`.
+    pub fn show_results(&mut self, root: PathBuf, title: String) {
+        self.all = vec![Row {
+            entry: Entry {
+                name: "..".into(),
+                path: root.clone(),
+                is_dir: true,
+                is_parent: true,
+                size: 0,
+                modified: None,
+            },
+            depth: 0,
+        }];
+        self.path = root;
+        self.results = Some(title);
+        self.marked.clear();
+        self.filter.clear();
+        self.cursor = 0;
+        self.apply_filter();
+    }
+
+    /// Appends search hits, keeping the cursor on its entry.
+    pub fn add_results(&mut self, entries: Vec<Entry>) {
+        let selected = self.current().map(|e| e.path.clone());
+        self.all
+            .extend(entries.into_iter().map(|entry| Row { entry, depth: 0 }));
+        self.apply_filter();
+        self.select_path(selected.as_deref());
+    }
+
     /// Re-reads the current directory, keeping cursor entry and marks.
+    /// Search results are not re-run; entries that disappeared are dropped.
     pub fn load(&mut self) -> Result<(), String> {
+        if self.results.is_some() {
+            let selected = self.current().map(|e| e.path.clone());
+            self.all.retain(|r| r.is_parent || r.path.exists());
+            self.marked.retain(|p| p.exists());
+            self.apply_filter();
+            if !self.select_path(selected.as_deref()) {
+                self.set_cursor(self.cursor);
+            }
+            return Ok(());
+        }
         let selected = self.current().map(|e| e.path.clone());
         self.replace(self.path.clone(), selected)
     }
@@ -181,6 +232,9 @@ impl Folder {
     }
 
     pub fn go_up(&mut self) -> Result<(), String> {
+        if self.results.is_some() {
+            return self.replace(self.path.clone(), None);
+        }
         match fs_ops::parent_of(&self.path) {
             Some(parent) => self.navigate(parent),
             None => Ok(()),
@@ -192,7 +246,20 @@ impl Folder {
             return Ok(Activation::Nothing);
         };
         if entry.is_dir {
-            self.navigate(entry.path)?;
+            if self.results.is_some() && entry.is_parent {
+                self.replace(entry.path, None)?;
+            } else {
+                self.navigate(entry.path)?;
+            }
+            Ok(Activation::Entered)
+        } else if self.results.is_some() {
+            // A search hit: show it in its directory.
+            let parent = entry
+                .path
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_default();
+            self.replace(parent, Some(entry.path))?;
             Ok(Activation::Entered)
         } else {
             Ok(Activation::OpenFile(entry.path))
@@ -218,6 +285,18 @@ impl Folder {
     /// Re-sorts, keeping the cursor on the same entry.
     pub fn set_sort(&mut self, sort: Sort) {
         self.sort = sort;
+        if self.results.is_some() {
+            let selected = self.current().map(|e| e.path.clone());
+            let mut entries: Vec<Entry> = self.all.drain(..).map(|r| r.entry).collect();
+            fs_ops::sort_entries(&mut entries, sort.key, sort.descending);
+            self.all = entries
+                .into_iter()
+                .map(|entry| Row { entry, depth: 0 })
+                .collect();
+            self.apply_filter();
+            self.select_path(selected.as_deref());
+            return;
+        }
         self.load_or_ancestor();
     }
 
@@ -318,10 +397,11 @@ impl Folder {
         let mut entries = Vec::new();
         self.list(&path, 0, &mut entries)
             .map_err(|e| format!("{}: {e}", fs_ops::display_path(&path)))?;
-        if path != self.path {
+        if path != self.path || self.results.is_some() {
             self.marked.clear();
             self.filter.clear();
         }
+        self.results = None;
         self.path = path;
         self.all = entries;
         self.marked
@@ -521,6 +601,51 @@ mod tests {
         assert_eq!(names(&folder), [".."]);
         folder.set_filter("");
         assert_eq!(names(&folder), ["..", "sub", "a.txt", "b.txt"]);
+    }
+
+    #[test]
+    fn search_results_mode() {
+        let dir = TempDir::new("results");
+        fs::write(dir.0.join("sub").join("deep.txt"), "").unwrap();
+        let mut folder = loaded(&dir);
+        let entry = |rel: &str| {
+            let path = dir.0.join(rel);
+            Entry {
+                name: rel.into(),
+                is_dir: path.is_dir(),
+                path,
+                is_parent: false,
+                size: 0,
+                modified: None,
+            }
+        };
+
+        folder.show_results(dir.0.clone(), "search".into());
+        assert_eq!(folder.results(), Some("search"));
+        assert_eq!(names(&folder), [".."]);
+        folder.add_results(vec![entry("sub/deep.txt"), entry("b.txt")]);
+        folder.add_results(vec![entry("a.txt")]);
+        assert_eq!(names(&folder), ["..", "sub/deep.txt", "b.txt", "a.txt"]);
+
+        folder.set_sort(Sort::default()); // sorts in place, no re-listing
+        assert_eq!(names(&folder), ["..", "a.txt", "b.txt", "sub/deep.txt"]);
+
+        fs::remove_file(dir.0.join("b.txt")).unwrap();
+        folder.load().unwrap(); // drops vanished hits
+        assert_eq!(names(&folder), ["..", "a.txt", "sub/deep.txt"]);
+
+        // Enter on a hit shows it in its directory.
+        folder.set_cursor(2);
+        assert_eq!(folder.activate(), Ok(Activation::Entered));
+        assert_eq!(folder.results(), None);
+        assert_eq!(folder.path(), dir.0.join("sub"));
+        assert_eq!(folder.current().unwrap().name, "deep.txt");
+
+        // ".." / go up from results returns to the search root.
+        folder.show_results(dir.0.clone(), "again".into());
+        folder.go_up().unwrap();
+        assert_eq!((folder.results(), folder.path()), (None, dir.0.as_path()));
+        assert_eq!(names(&folder), ["..", "sub", "a.txt"]);
     }
 
     #[test]

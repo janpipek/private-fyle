@@ -12,6 +12,7 @@ mod palette_view;
 mod panel;
 mod preview;
 mod preview_view;
+mod search;
 mod settings;
 mod theme_picker;
 mod themes;

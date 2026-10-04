@@ -30,6 +30,7 @@ Defaults: left = current directory, right = home directory.
 | Ctrl-H              | Toggle hidden files                       |
 | Ctrl-T              | Toggle tree mode (per panel)              |
 | F2                  | Tools for the selection / directory (see [`docs/tools.md`](docs/tools.md)) |
+| Alt-F7 / Ctrl-Shift-F | Find files by name (glob or substring) and/or containing text, below the panel directory; results fill the panel (Enter shows a hit in its folder, Backspace returns, Esc stops) |
 | F3                  | Toggle quick preview (replaces the other panel, follows the cursor) |
 | F4                  | Edit the cursor file (UTF-8 text, up to 8 MiB) in place of the other panel; Ctrl-S saves, Esc/Ctrl-W closes (asks before discarding changes) |
 | Ctrl-P              | Command palette: all commands with their keys, filtered by typing |
@@ -98,6 +99,8 @@ files, uv commands in uv projects, convert images, …); see
 `<config dir>/fyle/tools.toml`.
 `src/editor.rs` loads/saves edited files (UTF-8 only, atomic save keeping
 permissions); `src/editor_view.rs` is the editor pane.
+`src/search.rs` finds files and searches contents with ripgrep's libraries
+(`ignore`, `grep-searcher`); results are a mode of the `Folder` model.
 `src/icons.rs` maps names/extensions to semantic icon kinds; the table view
 picks the glyph for each kind.
 
