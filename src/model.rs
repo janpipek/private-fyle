@@ -49,7 +49,12 @@ impl Deref for Row {
 
 pub struct Folder {
     path: PathBuf,
+    /// Rows shown: `all` narrowed by `filter`.
     entries: Vec<Row>,
+    /// Everything listed, before filtering.
+    all: Vec<Row>,
+    /// Case-insensitive substring the shown names must contain.
+    filter: String,
     cursor: usize,
     marked: BTreeSet<PathBuf>,
     sort: Sort,
@@ -64,6 +69,8 @@ impl Folder {
         Self {
             path,
             entries: Vec::new(),
+            all: Vec::new(),
+            filter: String::new(),
             cursor: 0,
             marked: BTreeSet::new(),
             sort: Sort::default(),
@@ -270,6 +277,38 @@ impl Folder {
         None
     }
 
+    pub fn filter(&self) -> &str {
+        &self.filter
+    }
+
+    /// Number of rows before filtering (excluding "..").
+    pub fn unfiltered_count(&self) -> usize {
+        self.all.iter().filter(|r| !r.is_parent).count()
+    }
+
+    /// Shows only rows whose name contains `filter` (case-insensitive); ".."
+    /// stays. Keeps the cursor on the same entry if it is still shown, else
+    /// moves it to the first match.
+    pub fn set_filter(&mut self, filter: &str) {
+        let selected = self.current().map(|e| e.path.clone());
+        self.filter = filter.to_string();
+        self.apply_filter();
+        if !self.select_path(selected.as_deref()) {
+            let first = self.entries.iter().position(|r| !r.is_parent);
+            self.cursor = first.unwrap_or(0);
+        }
+    }
+
+    fn apply_filter(&mut self) {
+        let needle = self.filter.to_lowercase();
+        self.entries = self
+            .all
+            .iter()
+            .filter(|r| r.is_parent || needle.is_empty() || r.name.to_lowercase().contains(&needle))
+            .cloned()
+            .collect();
+    }
+
     pub fn set_show_hidden(&mut self, show_hidden: bool) -> Option<String> {
         self.show_hidden = show_hidden;
         self.load_or_ancestor()
@@ -281,11 +320,13 @@ impl Folder {
             .map_err(|e| format!("{}: {e}", fs_ops::display_path(&path)))?;
         if path != self.path {
             self.marked.clear();
+            self.filter.clear();
         }
         self.path = path;
-        self.entries = entries;
+        self.all = entries;
         self.marked
-            .retain(|p| self.entries.iter().any(|e| &e.path == p));
+            .retain(|p| self.all.iter().any(|e| &e.path == p));
+        self.apply_filter();
         if !self.select_path(select.as_deref()) {
             self.set_cursor(self.cursor);
         }
@@ -454,6 +495,32 @@ mod tests {
         assert_eq!(folder.entries().len(), 4);
         folder.set_tree(true);
         assert_eq!(folder.entries().len(), 5);
+    }
+
+    #[test]
+    fn filter_narrows_rows_until_directory_changes() {
+        let dir = TempDir::new("filter");
+        let mut folder = loaded(&dir);
+        folder.set_cursor(3); // b.txt
+        folder.set_filter("B.T");
+        assert_eq!(names(&folder), ["..", "b.txt"]);
+        assert_eq!(folder.current().unwrap().name, "b.txt");
+        assert_eq!(folder.unfiltered_count(), 3);
+
+        folder.set_filter("su"); // cursor entry hidden: first match
+        assert_eq!(names(&folder), ["..", "sub"]);
+        assert_eq!(folder.current().unwrap().name, "sub");
+
+        folder.load().unwrap(); // reload keeps the filter
+        assert_eq!(names(&folder), ["..", "sub"]);
+        folder.activate().unwrap(); // entering a directory clears it
+        assert_eq!(folder.filter(), "");
+
+        folder.go_up().unwrap();
+        folder.set_filter("nothing");
+        assert_eq!(names(&folder), [".."]);
+        folder.set_filter("");
+        assert_eq!(names(&folder), ["..", "sub", "a.txt", "b.txt"]);
     }
 
     #[test]

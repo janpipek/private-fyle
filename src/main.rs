@@ -45,6 +45,7 @@ fn main() {
             gpui_kit::init(cx);
             commander::bind_keys(cx);
             editor_view::bind_keys(cx);
+            panel::bind_keys(cx);
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     cx.quit();

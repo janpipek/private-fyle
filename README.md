@@ -20,7 +20,8 @@ Defaults: left = current directory, right = home directory.
 | Backspace           | Parent directory                          |
 | Tab                 | Switch active panel                       |
 | Space / Insert      | Mark entry                                |
-| Esc                 | Clear marks                               |
+| / or Ctrl-F         | Filter as you type (Enter keeps the filter, Esc clears it) |
+| Esc                 | Clear the filter, else the marks          |
 | F5                  | Copy marked (or current) to other panel   |
 | F6                  | Move marked (or current) to other panel   |
 | F7                  | New directory                             |

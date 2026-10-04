@@ -15,7 +15,6 @@
         cancel, and a task list; panels stay responsive.
   - [ ] Yank/cut/paste between panels and tabs, besides F5/F6.
   - [ ] Tabs per panel.
-  - [ ] Filter-as-you-type in the current panel; jump to name by typing.
   - [ ] Bulk rename of the selection in the editor (one name per line).
   - [ ] Openers: rules by MIME type/extension choosing which app opens a file
         (incl. "open with…" list).
@@ -44,6 +43,7 @@
 
 ## Done
 
+- [x] Filter as you type (/ or Ctrl-F), kept in the Folder model, cleared on directory change.
 - [x] F8 moves to the system trash (trash crate; Recycle Bin on Windows); Shift-F8 deletes permanently.
 - [x] Natural sort (file2 < file10), case-insensitive.
 - [x] F4 built-in editor (syntax highlighting, atomic save, unsaved-changes prompt).

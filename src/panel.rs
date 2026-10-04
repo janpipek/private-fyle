@@ -1,6 +1,7 @@
 //! Table view of a [`Folder`] model. Holds no file state of its own: it
 //! renders the model and forwards cursor moves, sorting and activation.
 
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::table::{
     Column, ColumnSort, DataTable, TableDelegate, TableEvent, TableState,
 };
@@ -23,10 +24,21 @@ const COLUMNS: [(SortKey, &str, &str, f32); 4] = [
 /// Emitted when the user activates the cursor entry with the mouse.
 pub struct Activate;
 
+actions!(fyle_panel, [CloseFilter]);
+
+const FILTER_CONTEXT: &str = "FilterBar";
+
+pub fn bind_keys(cx: &mut App) {
+    cx.bind_keys([KeyBinding::new("escape", CloseFilter, Some(FILTER_CONTEXT))]);
+}
+
 pub struct FolderView {
     folder: Entity<Folder>,
     table: Entity<TableState<FileTable>>,
     active: bool,
+    /// Filter-as-you-type input, while open.
+    filter_input: Option<Entity<InputState>>,
+    _filter_subscription: Option<Subscription>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -59,6 +71,8 @@ impl FolderView {
             folder,
             table,
             active: false,
+            filter_input: None,
+            _filter_subscription: None,
             _subscriptions: subscriptions,
         };
         this.sync_cursor(cx);
@@ -74,6 +88,50 @@ impl FolderView {
             self.active = active;
             cx.notify();
         }
+    }
+
+    /// Opens the filter bar; typing narrows the listing. Enter keeps the
+    /// filter and returns to the list, Esc clears it.
+    pub fn open_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let current = self.folder.read(cx).filter().to_string();
+        let input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("Filter names…")
+                .default_value(current)
+        });
+        self._filter_subscription = Some(cx.subscribe_in(
+            &input,
+            window,
+            |this, input, event: &InputEvent, window, cx| match event {
+                InputEvent::Change => {
+                    let text = input.read(cx).value();
+                    this.folder.update(cx, |folder, cx| {
+                        folder.set_filter(&text);
+                        cx.notify();
+                    });
+                }
+                InputEvent::PressEnter { .. } => this.close_filter_bar(window, cx),
+                _ => {}
+            },
+        ));
+        input.update(cx, |input, cx| input.focus(window, cx));
+        self.filter_input = Some(input);
+        cx.notify();
+    }
+
+    fn close_filter(&mut self, _: &CloseFilter, window: &mut Window, cx: &mut Context<Self>) {
+        self.folder.update(cx, |folder, cx| {
+            folder.set_filter("");
+            cx.notify();
+        });
+        self.close_filter_bar(window, cx);
+    }
+
+    fn close_filter_bar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.filter_input = None;
+        self._filter_subscription = None;
+        self.table.focus_handle(cx).focus(window, cx);
+        cx.notify();
     }
 
     fn set_cursor(&self, row: usize, cx: &mut Context<Self>) {
@@ -103,6 +161,14 @@ impl Render for FolderView {
         let theme = cx.theme();
         let folder = self.folder.read(cx);
         let mut footer = format!("{} dirs, {} files", folder.dir_count(), folder.file_count());
+        if !folder.filter().is_empty() {
+            let shown = folder.dir_count() + folder.file_count();
+            footer = format!(
+                "filter \"{}\": {shown} of {} · Esc clears",
+                folder.filter(),
+                folder.unfiltered_count()
+            );
+        }
         if folder.marked_count() > 0 {
             footer += &format!(" · {} marked", folder.marked_count());
         }
@@ -137,6 +203,22 @@ impl Render for FolderView {
                     .min_h_0()
                     .child(DataTable::new(&self.table).small()),
             )
+            .when_some(self.filter_input.clone(), |d, input| {
+                d.child(
+                    h_flex()
+                        .key_context(FILTER_CONTEXT)
+                        .on_action(cx.listener(Self::close_filter))
+                        .gap_2()
+                        .px_1()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child("Filter"),
+                        )
+                        .child(div().flex_1().child(Input::new(&input).small())),
+                )
+            })
             .child(
                 div()
                     .px_2()

@@ -44,6 +44,7 @@ actions!(
         ToggleHidden,
         ToggleTree,
         TogglePreview,
+        Filter,
         EditFile,
         SelectTheme,
         Expand,
@@ -74,6 +75,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("insert", ToggleMark, table),
         KeyBinding::new("space", ToggleMark, table),
         KeyBinding::new("f3", TogglePreview, ctx),
+        KeyBinding::new("/", Filter, table),
+        KeyBinding::new("ctrl-f", Filter, table),
         KeyBinding::new("f4", EditFile, table),
         KeyBinding::new("ctrl-k ctrl-t", SelectTheme, ctx),
         KeyBinding::new("f5", Copy, table),
@@ -371,6 +374,10 @@ impl Commander {
         cx.notify();
     }
 
+    fn filter(&mut self, _: &Filter, window: &mut Window, cx: &mut Context<Self>) {
+        self.views[self.active].update(cx, |view, cx| view.open_filter(window, cx));
+    }
+
     fn toggle_preview(&mut self, _: &TogglePreview, window: &mut Window, cx: &mut Context<Self>) {
         self.preview_on = !self.preview_on;
         self.update_preview(window, cx);
@@ -407,8 +414,15 @@ impl Commander {
         self.update_folder(cx, Folder::toggle_mark);
     }
 
+    /// Esc in a panel: clears the filter if one is set, else the marks.
     fn unmark(&mut self, _: &Unmark, _: &mut Window, cx: &mut Context<Self>) {
-        self.update_folder(cx, Folder::clear_marks);
+        self.update_folder(cx, |folder| {
+            if folder.filter().is_empty() {
+                folder.clear_marks();
+            } else {
+                folder.set_filter("");
+            }
+        });
     }
 
     fn refresh(&mut self, _: &Refresh, _: &mut Window, cx: &mut Context<Self>) {
@@ -711,6 +725,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::toggle_hidden))
             .on_action(cx.listener(Self::toggle_tree))
             .on_action(cx.listener(Self::toggle_preview))
+            .on_action(cx.listener(Self::filter))
             .on_action(cx.listener(Self::edit_file))
             .on_action(cx.listener(Self::select_theme))
             .on_action(cx.listener(Self::expand))
