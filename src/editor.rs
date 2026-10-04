@@ -4,6 +4,7 @@
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use crate::preview::text::language_for;
 
@@ -15,6 +16,22 @@ pub struct Document {
     /// Content as last loaded or saved.
     saved: String,
     language: Option<&'static str>,
+    /// Modification time when loaded or last saved, to detect outside edits.
+    disk_mtime: Option<SystemTime>,
+}
+
+fn mtime(path: &Path) -> Option<SystemTime> {
+    fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+/// Creates an empty file (refusing to overwrite) and opens it.
+pub fn create(path: &Path) -> Result<Document, String> {
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    Document::open(path)
 }
 
 impl Document {
@@ -49,6 +66,7 @@ impl Document {
             path: path.to_path_buf(),
             saved,
             language: language_for(&name, &ext),
+            disk_mtime: mtime(path),
         })
     }
 
@@ -78,6 +96,12 @@ impl Document {
 
     /// Writes `text` via a temporary file in the same directory and a rename,
     /// so a failed save never leaves a truncated file. Keeps permissions.
+    /// Whether the file was modified (or removed) by something else since it
+    /// was loaded or last saved.
+    pub fn changed_on_disk(&self) -> bool {
+        mtime(&self.path) != self.disk_mtime
+    }
+
     pub fn save(&mut self, text: &str) -> Result<(), String> {
         let error = |e: std::io::Error| format!("{}: {e}", self.path.display());
         let dir = self.path.parent().unwrap_or(Path::new("."));
@@ -96,6 +120,7 @@ impl Document {
         }
         result.map_err(error)?;
         self.saved = text.to_string();
+        self.disk_mtime = mtime(&self.path);
         Ok(())
     }
 }
@@ -129,6 +154,31 @@ mod tests {
         assert!(err("latin1.txt").ends_with("not UTF-8 text"));
         assert!(err("missing").contains("missing"));
         assert!(Document::open(&dir).is_err()); // a directory
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn detects_outside_changes_and_creates_files() {
+        let dir = temp("disk");
+        let path = dir.join("f.txt");
+        let mut doc = create(&path).unwrap();
+        assert_eq!(doc.text(), "");
+        assert!(create(&path).is_err()); // never overwrites
+        assert!(!doc.changed_on_disk());
+
+        // Someone else writes the file (with a different mtime).
+        let later = SystemTime::now() + std::time::Duration::from_secs(5);
+        fs::write(&path, "theirs").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(later)
+            .unwrap();
+        assert!(doc.changed_on_disk());
+
+        doc.save("mine").unwrap(); // the UI asks first; saving resets
+        assert!(!doc.changed_on_disk());
         fs::remove_dir_all(&dir).unwrap();
     }
 

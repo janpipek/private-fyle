@@ -75,7 +75,33 @@ impl EditorPane {
         self.state.update(cx, |state, cx| state.focus(window, cx));
     }
 
-    fn save(&mut self, _: &SaveFile, _: &mut Window, cx: &mut Context<Self>) {
+    fn save(&mut self, _: &SaveFile, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.doc.changed_on_disk() {
+            self.write(cx);
+            return;
+        }
+        // Someone else changed the file since it was opened.
+        let this = cx.entity().downgrade();
+        let description = format!(
+            "\"{}\" was changed on disk since it was opened. Overwrite it with your version?",
+            self.doc.name()
+        );
+        window.open_alert_dialog(cx, move |dialog, _, _| {
+            let this = this.clone();
+            dialog
+                .title("File changed on disk")
+                .description(description.clone())
+                .ok_text("Overwrite")
+                .ok_variant(ButtonVariant::Danger)
+                .show_cancel(true)
+                .on_ok(move |_, _, cx| {
+                    let _ = this.update(cx, |this, cx| this.write(cx));
+                    true
+                })
+        });
+    }
+
+    fn write(&mut self, cx: &mut Context<Self>) {
         let text = self.state.read(cx).value();
         match self.doc.save(&text) {
             Ok(()) => {

@@ -60,6 +60,7 @@ actions!(
         TogglePreview,
         Filter,
         EditFile,
+        NewFile,
         SelectTheme,
         Help,
         Rename,
@@ -154,6 +155,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("/", Filter, table),
         KeyBinding::new("ctrl-f", Filter, table),
         KeyBinding::new("f4", EditFile, table),
+        KeyBinding::new("shift-f4", NewFile, table),
         KeyBinding::new("ctrl-k ctrl-t", SelectTheme, ctx),
         KeyBinding::new("secondary-p", CommandPalette, ctx),
         KeyBinding::new("secondary-shift-p", CommandPalette, ctx),
@@ -208,6 +210,8 @@ pub struct Commander {
     search_cancel: Option<Arc<AtomicBool>>,
     _search_task: Task<()>,
     _search_inputs: Vec<Subscription>,
+    /// External editor command; empty for the built-in editor.
+    editor_command: Vec<String>,
     /// Open editor, shown in place of the inactive panel (before the preview).
     editor: Option<Entity<EditorPane>>,
     _editor_subscription: Option<Subscription>,
@@ -295,6 +299,7 @@ impl Commander {
             _search_task: Task::ready(()),
             _search_inputs: Vec::new(),
             editor: None,
+            editor_command: settings.editor.command.clone(),
             _editor_subscription: None,
             theme: settings.theme.clone(),
             active: 0,
@@ -1048,6 +1053,7 @@ impl Commander {
             ("Move to trash", Box::new(Delete)),
             ("Delete permanently", Box::new(DeletePermanently)),
             ("Edit file", Box::new(EditFile)),
+            ("New file", Box::new(NewFile)),
             ("Toggle preview", Box::new(TogglePreview)),
             ("Toggle tree mode", Box::new(ToggleTree)),
             ("Expand directory (tree)", Box::new(Expand)),
@@ -1200,7 +1206,65 @@ impl Commander {
         if entry.is_dir {
             return;
         }
-        let doc = match Document::open(&entry.path) {
+        self.open_in_editor(entry.path.clone(), Document::open(&entry.path), window, cx);
+    }
+
+    /// Shift-F4: asks for a name, creates an empty file and edits it.
+    fn new_file(&mut self, _: &NewFile, window: &mut Window, cx: &mut Context<Self>) {
+        let dir = self.folders[self.active].read(cx).path().to_path_buf();
+        if dir.as_os_str().is_empty() {
+            return;
+        }
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("File name"));
+        let this = cx.entity().downgrade();
+        let dialog_input = input.clone();
+        window.open_alert_dialog(cx, move |dialog, _, _| {
+            let (this, input, dir) = (this.clone(), dialog_input.clone(), dir.clone());
+            dialog
+                .title("New file")
+                .description(Input::new(&dialog_input))
+                .ok_text("Create")
+                .show_cancel(true)
+                .on_ok(move |_, window, cx| {
+                    let name = input.read(cx).value().trim().to_string();
+                    if name.is_empty() || name.contains(['/', '\\']) {
+                        return false;
+                    }
+                    let path = dir.join(&name);
+                    let _ = this.update(cx, |this, cx| {
+                        let doc = crate::editor::create(&path);
+                        this.reload_all(cx);
+                        this.update_folder(cx, |f| f.select_path(Some(&path)));
+                        this.open_in_editor(path, doc, window, cx);
+                    });
+                    true
+                })
+        });
+        input.update(cx, |input, cx| input.focus(window, cx));
+    }
+
+    /// Opens `path` in the external editor if configured, else in the
+    /// built-in one (`doc` is the loaded document or why it can't be).
+    fn open_in_editor(
+        &mut self,
+        path: PathBuf,
+        doc: Result<Document, String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let [program, args @ ..] = self.editor_command.as_slice() {
+            self.status = match std::process::Command::new(program)
+                .args(args)
+                .arg(&path)
+                .spawn()
+            {
+                Ok(_) => format!("Opened {} in {program}", path.display()).into(),
+                Err(e) => format!("{program}: {e}").into(),
+            };
+            cx.notify();
+            return;
+        }
+        let doc = match doc {
             Ok(doc) => doc,
             Err(e) => {
                 self.status = e.into();
@@ -1229,6 +1293,16 @@ impl Commander {
                 cx.notify();
             },
         ));
+        // A dialog that led here restores focus 250 ms after closing
+        // (gpui-component's close animation); take it back after that.
+        let focus_target = editor.downgrade();
+        cx.spawn_in(window, async move |_, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(300))
+                .await;
+            let _ = focus_target.update_in(cx, |editor, window, cx| editor.focus(window, cx));
+        })
+        .detach();
         self.editor = Some(editor);
         cx.notify();
     }
@@ -1679,6 +1753,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::toggle_preview))
             .on_action(cx.listener(Self::filter))
             .on_action(cx.listener(Self::edit_file))
+            .on_action(cx.listener(Self::new_file))
             .on_action(cx.listener(Self::select_theme))
             .on_action(cx.listener(Self::command_palette))
             .on_action(cx.listener(Self::help))

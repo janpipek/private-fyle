@@ -42,3 +42,8 @@ sort_descending = false
 
 [preview]
 open_on_start = false     # open the F3 quick preview at startup
+
+[editor]
+# External editor for F4 / Shift-F4, e.g. ["code"]; the file path is appended.
+# Empty uses the built-in editor.
+command = []

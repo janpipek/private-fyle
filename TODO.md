@@ -3,7 +3,6 @@
 - [ ] More preview types (pluggable via `preview::Previewer`): PDF, archives
       (list contents), audio/video metadata, Markdown rendered, CSV as table,
       EXIF next to images.
-- [ ] Editor: optional external editor (`$EDITOR` / setting), Shift-F4 new file, warn when the file changed on disk.
 - [ ] Icon themes: loadable icon sets (e.g. Zed icon themes), optional per-type colours.
 - [ ] Search: show the matching line of content hits (preview could scroll to it); regex option.
 - [ ] Windows Quick Access pins in Go to (needs the shell API).
@@ -28,6 +27,7 @@
 
 ## Done
 
+- [x] Editor: Shift-F4 new file, overwrite prompt when changed on disk, optional external editor ([editor] command).
 - [x] Configurable columns (panels.columns): name, ext, size, modified, permissions, owner.
 - [x] Configurable keymap ([[keymap]] in config.toml) and F1 help listing all commands with keys.
 - [x] Rename / bulk rename (Shift-F6): one name per line, validated, swap-safe (rename.rs).

@@ -27,6 +27,15 @@ pub struct Settings {
     pub window: WindowSettings,
     pub panels: PanelSettings,
     pub preview: PreviewSettings,
+    pub editor: EditorSettings,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct EditorSettings {
+    /// External editor command, e.g. `["code"]` or `["gnome-text-editor"]`;
+    /// the file path is appended. Empty: the built-in editor.
+    pub command: Vec<String>,
 }
 
 /// `[[keymap]] keys = "ctrl-shift-c", action = "Copy", context = "panel"`.
@@ -102,6 +111,7 @@ impl Default for Settings {
             window: WindowSettings::default(),
             panels: PanelSettings::default(),
             preview: PreviewSettings::default(),
+            editor: EditorSettings::default(),
         }
     }
 }
