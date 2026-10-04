@@ -1,10 +1,13 @@
 # TODO
 
+- [ ] Tools: conversions (image, CSV, ...) as their own "Convert" group
+      rather than under the file type's group.
+- [ ] Embedded terminal (idea, undecided): alacritty_terminal + PTY rendered
+      in gpui as Zed does, vs. libghostty; see discussion.
 - [ ] More preview types (pluggable via `preview::Previewer`): PDF,
       audio/video metadata, EXIF next to images.
 - [ ] Icon themes: loadable icon sets (e.g. Zed icon themes), optional per-type colours.
 - [ ] Search: show the matching line of content hits (preview could scroll to it); regex option.
-- [ ] Windows Quick Access pins in Go to (needs the shell API).
 - [ ] Ideas from yazi (terminal file manager):
   - [ ] Tabs per panel.
   - [ ] Richer previews: PDF, video thumbnails, scrolling
@@ -45,3 +48,8 @@
 - [x] F3 quick preview: text with syntax highlighting, images, directories, hex dump.
 - [x] Previews: rendered Markdown, CSV/TSV as a table, zip/tar/tar.gz listings.
 - [x] Tree mode (toggleable per panel, Ctrl-T).
+
+## Later
+
+- Windows (paused): Quick Access pins in Go to (needs the shell API), CI, cross-checks.
+- macOS.
