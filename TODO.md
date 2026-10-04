@@ -10,7 +10,6 @@
 - [ ] Ideas from yazi (terminal file manager):
   - [ ] Yank/cut/paste between panels and tabs, besides F5/F6.
   - [ ] Tabs per panel.
-  - [ ] Bulk rename of the selection in the editor (one name per line).
   - [ ] Openers: rules by MIME type/extension choosing which app opens a file
         (incl. "open with…" list).
   - [ ] Richer previews: PDF, video thumbnails, archive listing, scrolling
@@ -33,6 +32,7 @@
 
 ## Done
 
+- [x] Rename / bulk rename (Shift-F6): one name per line, validated, swap-safe (rename.rs).
 - [x] Quick jump: frecency-ranked directory history and bookmarks (Ctrl-G, Ctrl-D).
 - [x] Places from the desktop: XDG/known user folders, GTK bookmarks, KDE Places, Windows drives (in Go to, Ctrl-G).
 - [x] Background jobs for copy/move/trash/delete with progress bar, current file and cancel (jobs.rs).

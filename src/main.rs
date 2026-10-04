@@ -14,6 +14,7 @@ mod panel;
 mod places;
 mod preview;
 mod preview_view;
+mod rename;
 mod search;
 mod settings;
 mod theme_picker;

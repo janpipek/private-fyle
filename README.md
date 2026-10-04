@@ -24,6 +24,7 @@ Defaults: left = current directory, right = home directory.
 | Esc                 | Clear the filter, else the marks          |
 | F5                  | Copy marked (or current) to other panel   |
 | F6                  | Move marked (or current) to other panel   |
+| Shift-F6            | Rename; with several marked, edit one name per line (bulk rename, swaps allowed) |
 | F7                  | New directory                             |
 | F8 / Delete         | Move to trash (with confirmation)         |
 | Shift-F8 / Shift-Delete | Delete permanently (with confirmation) |

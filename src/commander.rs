@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::component::list::{List, ListState};
 use gpui_kit::component::progress::Progress as ProgressBar;
 use gpui_kit::component::{
@@ -29,6 +29,7 @@ use crate::panel::{Activate, FolderView};
 use crate::places::{self, History};
 use crate::preview::Registry as PreviewRegistry;
 use crate::preview_view::PreviewPane;
+use crate::rename;
 use crate::search::{self, Query};
 use crate::settings::{self, Settings};
 use crate::theme_picker::{self, ThemePickerDelegate};
@@ -60,6 +61,7 @@ actions!(
         Filter,
         EditFile,
         SelectTheme,
+        Rename,
         GoTo,
         AddBookmark,
         CancelJobs,
@@ -94,6 +96,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("insert", ToggleMark, table),
         KeyBinding::new("space", ToggleMark, table),
         KeyBinding::new("f2", ToolsMenu, table),
+        KeyBinding::new("shift-f6", Rename, table),
         KeyBinding::new("ctrl-g", GoTo, table),
         KeyBinding::new("alt-f1", GoTo, table),
         KeyBinding::new("ctrl-d", AddBookmark, table),
@@ -331,6 +334,92 @@ impl Commander {
         self.set_active(1 - self.active, cx);
         self.focus_active(window, cx);
         self.update_preview(window, cx);
+    }
+
+    /// Shift-F6: renames the cursor entry, or all marked entries at once
+    /// by editing one name per line.
+    fn rename(&mut self, _: &Rename, window: &mut Window, cx: &mut Context<Self>) {
+        let sources = Rc::new(self.folders[self.active].read(cx).targets());
+        if sources.is_empty() {
+            return;
+        }
+        let names: Vec<String> = sources.iter().map(|p| tools::file_name(p)).collect();
+        enum Field {
+            One(Entity<InputState>),
+            Many(Entity<TextareaState>),
+        }
+        let field = Rc::new(if sources.len() == 1 {
+            Field::One(cx.new(|cx| InputState::new(window, cx).default_value(names[0].clone())))
+        } else {
+            Field::Many(cx.new(|cx| {
+                let mut state = TextareaState::new(window, cx);
+                state.set_value(names.join("\n"), window, cx);
+                state
+            }))
+        });
+        let this = cx.entity().downgrade();
+        let dialog_field = field.clone();
+        let title = if sources.len() == 1 {
+            "Rename".to_string()
+        } else {
+            format!("Rename {} entries", sources.len())
+        };
+        window.open_alert_dialog(cx, move |dialog, _, cx| {
+            let muted = cx.theme().muted_foreground;
+            let control = match &*dialog_field {
+                Field::One(input) => Input::new(input).into_any_element(),
+                Field::Many(area) => v_flex()
+                    .gap_1()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(muted)
+                            .child("One name per line, in the same order"),
+                    )
+                    .child(Textarea::new(area).h(px(260.)))
+                    .into_any_element(),
+            };
+            let (this, field, sources) = (this.clone(), dialog_field.clone(), sources.clone());
+            dialog
+                .title(title.clone())
+                .width(px(520.))
+                .description(div().w_full().child(control))
+                .ok_text("Rename")
+                .show_cancel(true)
+                .on_ok(move |_, window, cx| {
+                    let text = match &*field {
+                        Field::One(input) => input.read(cx).value().to_string(),
+                        Field::Many(area) => area.read(cx).value().to_string(),
+                    };
+                    let mut close = true;
+                    let _ = this.update(cx, |this, cx| {
+                        match rename::plan(&sources, &text) {
+                            Ok(renames) => {
+                                let (done, errors) = rename::apply(&renames);
+                                this.update_folder(cx, Folder::clear_marks);
+                                this.reload_all(cx);
+                                if let [only] = renames.as_slice() {
+                                    let to = only.to.clone();
+                                    this.update_folder(cx, |f| f.select_path(Some(&to)));
+                                }
+                                this.status = summarize("Renamed", done, &errors).into();
+                                this.focus_active(window, cx);
+                            }
+                            Err(e) => {
+                                // Keep the dialog open so the text can be fixed.
+                                this.status = format!("Rename: {e}").into();
+                                close = false;
+                            }
+                        }
+                        cx.notify();
+                    });
+                    close
+                })
+        });
+        match &*field {
+            Field::One(input) => input.update(cx, |input, cx| input.focus(window, cx)),
+            Field::Many(area) => area.update(cx, |area, cx| area.focus(window, cx)),
+        }
     }
 
     /// Remembers directories the active panel shows, for frecency.
@@ -918,6 +1007,7 @@ impl Commander {
             ("Tools…", Box::new(ToolsMenu)),
             ("Find files / search contents…", Box::new(FindFiles)),
             ("Cancel running jobs", Box::new(CancelJobs)),
+            ("Rename (bulk when several are marked)", Box::new(Rename)),
             ("Go to… (bookmarks, places, frequent)", Box::new(GoTo)),
             ("Bookmark this directory", Box::new(AddBookmark)),
             ("Quit", Box::new(Quit)),
@@ -1534,6 +1624,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::tools_menu))
             .on_action(cx.listener(Self::find_files))
             .on_action(cx.listener(Self::cancel_jobs))
+            .on_action(cx.listener(Self::rename))
             .on_action(cx.listener(Self::go_to))
             .on_action(cx.listener(Self::add_bookmark))
             .on_action(cx.listener(Self::expand))
