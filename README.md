@@ -55,6 +55,16 @@ All keys are optional; see [`config.example.toml`](config.example.toml) for
 every key with its default. Errors (including unknown keys) are shown in the
 status line and the defaults are used. Settings are read at startup.
 
+### Themes
+
+`theme = "Tokyo Night"` selects a theme by name (case-insensitive);
+`"system"`, `"light"` and `"dark"` use the built-in themes. 36 themes from
+GPUI Kit are bundled (Ayu, Catppuccin, Everforest, Flexoki, Gruvbox, Solarized,
+Tokyo Night, …; full list and attribution in [`themes/README.md`](themes/README.md)).
+More can be added as gpui-component theme files (`*.json`) in a `themes`
+folder next to `config.toml`; a user theme with the same name as a bundled
+one replaces it.
+
 ## Build dependencies
 
 - Linux (Debian/Ubuntu): `libxkbcommon-dev libxkbcommon-x11-dev libfontconfig1-dev libxcb1-dev libwayland-dev`,
@@ -79,3 +89,9 @@ plain `Content` data; the first previewer whose `matches` accepts the file's
 in the background and has one render arm per `Content` variant. A new file
 type is a new `Previewer` registered before the fallbacks; only a new kind of
 display needs a new `Content` variant and render arm.
+
+## License
+
+fyle is licensed under the GNU General Public License v3.0 or later
+([`LICENSE`](LICENSE)). The bundled themes in `themes/` are from GPUI Kit under
+the Apache License 2.0 (see [`themes/README.md`](themes/README.md)).

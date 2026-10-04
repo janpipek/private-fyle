@@ -6,7 +6,11 @@
 # Unknown keys are an error (shown in the status line; defaults are used).
 
 show_hidden = false
-theme = "system"          # "system" | "light" | "dark"
+# "system" (follow OS light/dark), "light", "dark", or a theme name
+# (case-insensitive), e.g. "Tokyo Night", "Catppuccin Mocha", "Gruvbox Dark".
+# Bundled themes: see themes/README.md. Extra themes: put gpui-component
+# theme files (*.json) into the "themes" folder next to this file.
+theme = "system"
 
 [window]
 width = 1200

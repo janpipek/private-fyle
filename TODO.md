@@ -5,7 +5,7 @@
       EXIF next to images.
 - [ ] F4 editor: built-in text editor (gpui-component's code editor), or external `$EDITOR`.
 - [ ] File-type icons (Zed-style icon theme keyed by extension/name).
-- [ ] Themes: light/dark and Zed-compatible theme files.
+- [ ] Zed theme import (converter from Zed's theme JSON), runtime theme switcher.
 - [ ] Favourite locations from the desktop environment
       (Windows Quick Access / known folders, KDE Places `user-places.xbel`,
       GTK bookmarks `~/.config/gtk-3.0/bookmarks`, XDG user dirs).
@@ -16,5 +16,6 @@
 
 ## Done
 
+- [x] Themes: 36 bundled (GPUI Kit), user theme folder, `theme` setting.
 - [x] F3 quick preview: text with syntax highlighting, images, directories, hex dump.
 - [x] Tree mode (toggleable per panel, Ctrl-T).

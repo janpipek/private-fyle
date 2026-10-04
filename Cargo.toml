@@ -2,6 +2,7 @@
 name = "fyle"
 version = "0.1.0"
 edition = "2024"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
@@ -9,4 +10,5 @@ dirs = "5"
 gpui-kit = { version = "0.7.0", features = ["tree-sitter-languages"] }
 open = "5"
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
 toml = "0.9"

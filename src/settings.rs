@@ -18,19 +18,11 @@ use crate::model::Sort;
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
     pub show_hidden: bool,
-    pub theme: ThemeSetting,
+    /// "system", "light", "dark", or the name of a bundled or user theme.
+    pub theme: String,
     pub window: WindowSettings,
     pub panels: PanelSettings,
     pub preview: PreviewSettings,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum ThemeSetting {
-    #[default]
-    System,
-    Light,
-    Dark,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -73,7 +65,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             show_hidden: false,
-            theme: ThemeSetting::System,
+            theme: "system".into(),
             window: WindowSettings::default(),
             panels: PanelSettings::default(),
             preview: PreviewSettings::default(),
@@ -195,7 +187,7 @@ mod tests {
         )
         .unwrap();
         assert!(settings.show_hidden);
-        assert_eq!(settings.theme, ThemeSetting::Dark);
+        assert_eq!(settings.theme, "dark");
         assert_eq!(settings.window.width, 800.);
         assert_eq!(settings.panels.left, Some(PathBuf::from("/tmp")));
         let right = settings.panels.right.as_ref().unwrap();
@@ -221,7 +213,7 @@ mod tests {
     #[test]
     fn rejects_unknown_keys_and_bad_values() {
         assert!(Settings::parse("show_hiden = true").is_err());
-        assert!(Settings::parse("theme = \"blue\"").is_err());
+        assert!(Settings::parse("theme = 1").is_err());
         assert!(Settings::parse("[panels]\nsort = \"color\"").is_err());
     }
 

@@ -8,14 +8,15 @@ mod panel;
 mod preview;
 mod preview_view;
 mod settings;
+mod themes;
 
 use std::path::PathBuf;
 
 use gpui_kit::*;
 
 use commander::Commander;
-use gpui_kit::component::{Theme, ThemeMode};
-use settings::{Settings, ThemeSetting};
+use settings::Settings;
+use themes::ThemeChoice;
 
 fn main() {
     let (settings, settings_error) = Settings::load();
@@ -55,14 +56,16 @@ fn main() {
                 }),
                 ..Default::default()
             };
+            let mut errors: Vec<String> = settings_error.into_iter().collect();
+            errors.extend(themes::register_all(cx));
             gpui_kit::open_window(options, cx, |window, cx| {
-                match settings.theme {
-                    ThemeSetting::System => Theme::sync_system_appearance(Some(window), cx),
-                    ThemeSetting::Light => Theme::change(ThemeMode::Light, Some(window), cx),
-                    ThemeSetting::Dark => Theme::change(ThemeMode::Dark, Some(window), cx),
+                let choice = ThemeChoice::parse(&settings.theme);
+                if let Err(e) = themes::apply(&choice, window, cx) {
+                    errors.push(e);
                 }
-                let commander = cx
-                    .new(|cx| Commander::new([left, right], &settings, settings_error, window, cx));
+                let error = (!errors.is_empty()).then(|| errors.join("; "));
+                let commander =
+                    cx.new(|cx| Commander::new([left, right], &settings, error, window, cx));
                 commander.update(cx, |commander, cx| commander.init(window, cx));
                 commander
             })
