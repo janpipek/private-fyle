@@ -4,7 +4,8 @@
       (list contents), audio/video metadata, Markdown rendered, CSV as table,
       EXIF next to images.
 - [ ] F4 editor: built-in text editor (gpui-component's code editor), or external `$EDITOR`.
-- [ ] File-type icons (Zed-style icon theme keyed by extension/name).
+- [ ] Icon themes: loadable icon sets (e.g. Zed icon themes), optional per-type colours.
+- [ ] Ctrl-P command palette: fuzzy list of all commands with their key bindings.
 - [ ] Zed theme import (converter from Zed's theme JSON).
 - [ ] Favourite locations from the desktop environment
       (Windows Quick Access / known folders, KDE Places `user-places.xbel`,
@@ -16,6 +17,7 @@
 
 ## Done
 
+- [x] File-type icons (Lucide), mapped by name/extension in `icons.rs`.
 - [x] Runtime theme picker with live preview (Ctrl-K Ctrl-T).
 - [x] Themes: 36 bundled (GPUI Kit), user theme folder, `theme` setting.
 - [x] F3 quick preview: text with syntax highlighting, images, directories, hex dump.

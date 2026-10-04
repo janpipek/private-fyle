@@ -1,8 +1,10 @@
 // Release builds on Windows should not open a console window.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod assets;
 mod commander;
 mod fs_ops;
+mod icons;
 mod model;
 mod panel;
 mod preview;
@@ -36,7 +38,7 @@ fn main() {
         .unwrap_or(cwd);
 
     gpui_kit::application()
-        .with_assets(gpui_kit::assets::Assets)
+        .with_assets(assets::Assets)
         .run(move |cx| {
             gpui_kit::init(cx);
             commander::bind_keys(cx);

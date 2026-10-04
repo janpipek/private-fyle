@@ -9,7 +9,9 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::fs_ops::{self, SortKey};
+use crate::icons::{self, FileIcon};
 use crate::model::{Folder, Sort};
+use gpui_kit::assets::IconName as Lucide;
 
 const COLUMNS: [(SortKey, &str, &str, f32); 4] = [
     (SortKey::Name, "name", "Name", 280.),
@@ -219,11 +221,12 @@ impl TableDelegate for FileTable {
         match COLUMNS[col_ix].0 {
             SortKey::Name => {
                 let expanded = folder.is_expanded(&entry.path);
-                let icon = match (entry.is_dir, expanded) {
-                    (true, true) => IconName::FolderOpen,
-                    (true, false) => IconName::Folder,
-                    (false, _) => IconName::File,
-                };
+                let icon = glyph(icons::icon_for(
+                    &entry.name,
+                    entry.is_dir,
+                    entry.is_parent,
+                    expanded,
+                ));
                 // Tree mode: indentation plus a clickable expand chevron.
                 let chevron = folder.is_tree().then(|| {
                     let toggle = (entry.is_dir && !entry.is_parent).then(|| {
@@ -272,5 +275,30 @@ impl TableDelegate for FileTable {
                 .when_some(entry.modified, |d, t| d.child(fs_ops::format_time(t)))
                 .into_any_element(),
         }
+    }
+}
+
+/// The Lucide glyph drawing each kind of [`FileIcon`].
+fn glyph(icon: FileIcon) -> Lucide {
+    match icon {
+        FileIcon::ParentDir => Lucide::FolderUp,
+        FileIcon::Folder => Lucide::Folder,
+        FileIcon::FolderOpen => Lucide::FolderOpen,
+        FileIcon::FolderGit => Lucide::FolderGit2,
+        FileIcon::File => Lucide::File,
+        FileIcon::Code => Lucide::FileCode,
+        FileIcon::Data => Lucide::FileBraces,
+        FileIcon::Text => Lucide::FileText,
+        FileIcon::Image => Lucide::FileImage,
+        FileIcon::Audio => Lucide::FileMusic,
+        FileIcon::Video => Lucide::FileVideoCamera,
+        FileIcon::Archive => Lucide::FileArchive,
+        FileIcon::Spreadsheet => Lucide::FileSpreadsheet,
+        FileIcon::Config => Lucide::FileCog,
+        FileIcon::Lock => Lucide::FileLock,
+        FileIcon::Key => Lucide::FileKey,
+        FileIcon::Script => Lucide::FileTerminal,
+        FileIcon::Font => Lucide::FileType,
+        FileIcon::Diff => Lucide::FileDiff,
     }
 }
