@@ -1,12 +1,15 @@
-use std::collections::BTreeSet;
-use std::path::PathBuf;
+//! Table view of a [`Folder`] model. Holds no file state of its own: it
+//! renders the model and forwards cursor moves, sorting and activation.
 
-use gpui_kit::component::table::{Column, ColumnSort, TableDelegate, TableState};
-use gpui_kit::component::{ActiveTheme as _, IconName, h_flex};
+use gpui_kit::component::table::{
+    Column, ColumnSort, DataTable, TableDelegate, TableEvent, TableState,
+};
+use gpui_kit::component::{ActiveTheme as _, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::fs_ops::{self, Entry, SortKey};
+use crate::fs_ops::{self, SortKey};
+use crate::model::{Folder, Sort};
 
 const COLUMNS: [(SortKey, &str, &str, f32); 4] = [
     (SortKey::Name, "name", "Name", 280.),
@@ -15,49 +18,127 @@ const COLUMNS: [(SortKey, &str, &str, f32); 4] = [
     (SortKey::Modified, "modified", "Modified", 140.),
 ];
 
-/// Table delegate holding one panel's directory listing.
-pub struct FileTable {
-    pub path: PathBuf,
-    pub entries: Vec<Entry>,
-    pub marked: BTreeSet<PathBuf>,
-    sort_col: usize,
-    sort: ColumnSort,
+/// Emitted when the user activates the cursor entry with the mouse.
+pub struct Activate;
+
+pub struct FolderView {
+    folder: Entity<Folder>,
+    table: Entity<TableState<FileTable>>,
+    active: bool,
+    _subscriptions: Vec<Subscription>,
 }
 
-impl FileTable {
-    pub fn new(path: PathBuf) -> Self {
-        Self {
-            path,
-            entries: Vec::new(),
-            marked: BTreeSet::new(),
-            sort_col: 0,
-            sort: ColumnSort::Ascending,
-        }
-    }
+impl EventEmitter<Activate> for FolderView {}
 
-    /// Replaces the listing, keeping marks that still exist.
-    pub fn set_entries(&mut self, path: PathBuf, entries: Vec<Entry>) {
-        if path != self.path {
-            self.marked.clear();
-        }
-        self.path = path;
-        self.entries = entries;
-        self.marked
-            .retain(|p| self.entries.iter().any(|e| &e.path == p));
-        self.sort_entries();
-    }
-
-    fn sort_entries(&mut self) {
-        let (key, descending) = match self.sort {
-            ColumnSort::Default => (SortKey::Name, false),
-            sort => (COLUMNS[self.sort_col].0, sort == ColumnSort::Descending),
+impl FolderView {
+    pub fn new(folder: Entity<Folder>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let delegate = FileTable {
+            folder: folder.clone(),
         };
-        fs_ops::sort_entries(&mut self.entries, key, descending);
+        let table = cx.new(|cx| {
+            TableState::new(delegate, window, cx)
+                .row_header(false)
+                .col_selectable(false)
+                .col_movable(false)
+                .loop_selection(false)
+        });
+        let subscriptions = vec![
+            cx.observe(&folder, |this, _, cx| this.sync_cursor(cx)),
+            cx.subscribe(&table, |this, _, event: &TableEvent, cx| match event {
+                TableEvent::SelectRow(row) => this.set_cursor(*row, cx),
+                TableEvent::DoubleClickedRow(row) => {
+                    this.set_cursor(*row, cx);
+                    cx.emit(Activate);
+                }
+                _ => {}
+            }),
+        ];
+        let this = Self {
+            folder,
+            table,
+            active: false,
+            _subscriptions: subscriptions,
+        };
+        this.sync_cursor(cx);
+        this
     }
 
-    pub fn position(&self, path: &PathBuf) -> Option<usize> {
-        self.entries.iter().position(|e| &e.path == path)
+    pub fn focus_handle(&self, cx: &App) -> FocusHandle {
+        self.table.focus_handle(cx)
     }
+
+    pub fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
+        if self.active != active {
+            self.active = active;
+            cx.notify();
+        }
+    }
+
+    fn set_cursor(&self, row: usize, cx: &mut Context<Self>) {
+        self.folder.update(cx, |folder, cx| {
+            if folder.set_cursor(row) {
+                cx.notify();
+            }
+        });
+    }
+
+    /// Pushes the model's cursor into the table and repaints it.
+    fn sync_cursor(&self, cx: &mut Context<Self>) {
+        let folder = self.folder.read(cx);
+        let (cursor, rows) = (folder.cursor(), folder.entries().len());
+        self.table.update(cx, |table, cx| {
+            if rows > 0 && table.selected_row() != Some(cursor) {
+                table.set_selected_row(cursor, cx);
+            }
+            cx.notify();
+        });
+        cx.notify();
+    }
+}
+
+impl Render for FolderView {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let folder = self.folder.read(cx);
+        let mut footer = format!("{} dirs, {} files", folder.dir_count(), folder.file_count());
+        if folder.marked_count() > 0 {
+            footer += &format!(" · {} marked", folder.marked_count());
+        }
+
+        v_flex()
+            .size_full()
+            .gap_1()
+            .child(
+                div()
+                    .px_2()
+                    .py_1()
+                    .rounded(theme.radius)
+                    .truncate()
+                    .when(self.active, |d| {
+                        d.bg(theme.primary).text_color(theme.primary_foreground)
+                    })
+                    .when(!self.active, |d| d.bg(theme.muted))
+                    .child(fs_ops::display_path(folder.path())),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .child(DataTable::new(&self.table).small()),
+            )
+            .child(
+                div()
+                    .px_2()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child(footer),
+            )
+    }
+}
+
+/// Adapts a [`Folder`] to gpui-component's table.
+pub struct FileTable {
+    folder: Entity<Folder>,
 }
 
 impl TableDelegate for FileTable {
@@ -65,21 +146,23 @@ impl TableDelegate for FileTable {
         COLUMNS.len()
     }
 
-    fn rows_count(&self, _: &App) -> usize {
-        self.entries.len()
+    fn rows_count(&self, cx: &App) -> usize {
+        self.folder.read(cx).entries().len()
     }
 
-    fn column(&self, col_ix: usize, _: &App) -> Column {
-        let (_, key, name, width) = COLUMNS[col_ix];
-        let sort = if col_ix == self.sort_col {
-            self.sort
-        } else {
-            ColumnSort::Default
+    fn column(&self, col_ix: usize, cx: &App) -> Column {
+        let (key, id, name, width) = COLUMNS[col_ix];
+        let sort = self.folder.read(cx).sort();
+        let column_sort = match sort.key == key {
+            true if sort.descending => ColumnSort::Descending,
+            true => ColumnSort::Ascending,
+            false => ColumnSort::Default,
         };
-        let column = Column::new(key, name).width(px(width)).sort(sort);
-        match col_ix {
-            2 => column.text_right(),
-            _ => column,
+        let column = Column::new(id, name).width(px(width)).sort(column_sort);
+        if key == SortKey::Size {
+            column.text_right()
+        } else {
+            column
         }
     }
 
@@ -88,11 +171,20 @@ impl TableDelegate for FileTable {
         col_ix: usize,
         sort: ColumnSort,
         _: &mut Window,
-        _: &mut Context<TableState<Self>>,
+        cx: &mut Context<TableState<Self>>,
     ) {
-        self.sort_col = col_ix;
-        self.sort = sort;
-        self.sort_entries();
+        // The table's "unsorted" state means the default order: name, ascending.
+        let sort = match sort {
+            ColumnSort::Default => Sort::default(),
+            sort => Sort {
+                key: COLUMNS[col_ix].0,
+                descending: sort == ColumnSort::Descending,
+            },
+        };
+        self.folder.update(cx, |folder, cx| {
+            folder.set_sort(sort);
+            cx.notify();
+        });
     }
 
     fn render_td(
@@ -102,11 +194,12 @@ impl TableDelegate for FileTable {
         _: &mut Window,
         cx: &mut Context<TableState<Self>>,
     ) -> impl IntoElement {
-        let Some(entry) = self.entries.get(row_ix) else {
+        let folder = self.folder.read(cx);
+        let Some(entry) = folder.entries().get(row_ix) else {
             return div().into_any_element();
         };
         let theme = cx.theme();
-        let color = if self.marked.contains(&entry.path) {
+        let color = if folder.is_marked(&entry.path) {
             theme.danger
         } else if entry.is_dir {
             theme.primary

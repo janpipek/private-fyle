@@ -1,15 +1,17 @@
+//! The window: two [`Folder`] models, each shown by a [`FolderView`], plus the
+//! commands that act on them.
+
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::table::{DataTable, TableEvent, TableState};
 use gpui_kit::component::{ActiveTheme as _, Sizable as _, WindowExt as _, h_flex, v_flex};
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::fs_ops;
-use crate::panel::FileTable;
+use crate::model::{Activation, Folder};
+use crate::panel::{Activate, FolderView};
 
 actions!(
     fyle,
@@ -60,19 +62,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("f10", Quit, ctx),
         KeyBinding::new("secondary-q", Quit, None),
     ]);
-    // Finder-style equivalents; Mac keyboards often lack F-keys and Insert.
-    if cfg!(target_os = "macos") {
-        cx.bind_keys([
-            KeyBinding::new("cmd-up", GoUp, ctx),
-            KeyBinding::new("cmd-down", Open, ctx),
-            KeyBinding::new("cmd-backspace", Delete, ctx),
-            KeyBinding::new("cmd-shift-.", ToggleHidden, ctx),
-            KeyBinding::new("cmd-shift-n", MakeDir, ctx),
-        ]);
-    }
 }
-
-type Table = Entity<TableState<FileTable>>;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Transfer {
@@ -81,7 +71,8 @@ enum Transfer {
 }
 
 pub struct Commander {
-    tables: [Table; 2],
+    folders: [Entity<Folder>; 2],
+    views: [Entity<FolderView>; 2],
     active: usize,
     show_hidden: bool,
     status: SharedString,
@@ -91,202 +82,126 @@ pub struct Commander {
 
 impl Commander {
     pub fn new(left: PathBuf, right: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let new_table = |path: PathBuf, window: &mut Window, cx: &mut Context<Self>| {
-            cx.new(|cx| {
-                TableState::new(FileTable::new(path), window, cx)
-                    .row_header(false)
-                    .col_selectable(false)
-                    .col_movable(false)
-                    .loop_selection(false)
-            })
-        };
-        let tables = [new_table(left, window, cx), new_table(right, window, cx)];
+        let mut status: SharedString =
+            "Tab: switch panel · Enter: open · Backspace: up · Space/Insert: mark".into();
+        let folders = [left, right].map(|path| {
+            let mut folder = Folder::new(path);
+            if let Some(e) = folder.load_or_ancestor() {
+                status = e.into();
+            }
+            cx.new(|_| folder)
+        });
+        let views = [0, 1].map(|ix| cx.new(|cx| FolderView::new(folders[ix].clone(), window, cx)));
 
         let mut subscriptions = Vec::new();
-        for (ix, table) in tables.iter().enumerate() {
-            subscriptions.push(cx.on_focus_in(
-                &table.focus_handle(cx),
-                window,
-                move |this, _, cx| {
-                    this.active = ix;
-                    cx.notify();
-                },
-            ));
+        for (ix, view) in views.iter().enumerate() {
+            let focus = view.read(cx).focus_handle(cx);
+            subscriptions.push(cx.on_focus_in(&focus, window, move |this, _, cx| {
+                this.set_active(ix, cx);
+            }));
             subscriptions.push(cx.subscribe_in(
-                table,
+                view,
                 window,
-                move |this, _, event, window, cx| {
-                    if let TableEvent::DoubleClickedRow(_) = event {
-                        this.active = ix;
-                        this.open(&Open, window, cx);
-                    }
+                move |this, _, _: &Activate, window, cx| {
+                    this.set_active(ix, cx);
+                    this.open(&Open, window, cx);
                 },
             ));
         }
-        tables[0].focus_handle(cx).focus(window, cx);
 
-        let mut this = Self {
-            tables,
+        let this = Self {
+            folders,
+            views,
             active: 0,
             show_hidden: false,
-            status: "Tab: switch panel · Enter: open · Backspace: up · Space/Insert: mark".into(),
+            status,
             _subscriptions: subscriptions,
             _mkdir_subscription: None,
         };
-        for ix in 0..2 {
-            let path = this.tables[ix].read(cx).delegate().path.clone();
-            this.load_or_ancestor(ix, path, cx);
-        }
+        this.views[0].update(cx, |view, cx| view.set_active(true, cx));
+        this.focus_active(window, cx);
         this
     }
 
-    fn table(&self) -> &Table {
-        &self.tables[self.active]
-    }
-
-    fn path(&self, ix: usize, cx: &App) -> PathBuf {
-        self.tables[ix].read(cx).delegate().path.clone()
-    }
-
-    fn cursor(&self, cx: &App) -> Option<fs_ops::Entry> {
-        let table = self.table().read(cx);
-        let row = table.selected_row()?;
-        table.delegate().entries.get(row).cloned()
-    }
-
-    /// Marked entries, or the entry under the cursor when nothing is marked.
-    fn targets(&self, cx: &App) -> Vec<PathBuf> {
-        let marked = &self.table().read(cx).delegate().marked;
-        if !marked.is_empty() {
-            return marked.iter().cloned().collect();
+    fn set_active(&mut self, ix: usize, cx: &mut Context<Self>) {
+        self.active = ix;
+        for (i, view) in self.views.iter().enumerate() {
+            view.update(cx, |view, cx| view.set_active(i == ix, cx));
         }
-        self.cursor(cx)
-            .filter(|e| !e.is_parent)
-            .map(|e| vec![e.path])
-            .unwrap_or_default()
-    }
-
-    /// Lists `path` into panel `ix`, placing the cursor on `select` if present.
-    fn load(
-        &mut self,
-        ix: usize,
-        path: PathBuf,
-        select: Option<PathBuf>,
-        cx: &mut Context<Self>,
-    ) -> Result<(), String> {
-        let entries = fs_ops::read_dir(&path, self.show_hidden)
-            .map_err(|e| format!("{}: {e}", fs_ops::display_path(&path)))?;
-        self.tables[ix].update(cx, |table, cx| {
-            let delegate = table.delegate_mut();
-            delegate.set_entries(path, entries);
-            let rows = delegate.entries.len();
-            let row = select.and_then(|p| delegate.position(&p)).unwrap_or(0);
-            if rows > 0 {
-                table.set_selected_row(row.min(rows - 1), cx);
-            }
-            cx.notify();
-        });
-        Ok(())
-    }
-
-    /// Loads `path`, or its nearest readable ancestor.
-    fn load_or_ancestor(&mut self, ix: usize, mut path: PathBuf, cx: &mut Context<Self>) {
-        let select = self.tables[ix]
-            .read(cx)
-            .selected_row()
-            .and_then(|row| self.tables[ix].read(cx).delegate().entries.get(row))
-            .map(|e| e.path.clone());
-        while let Err(e) = self.load(ix, path.clone(), select.clone(), cx) {
-            self.status = e.into();
-            match fs_ops::parent_of(&path) {
-                Some(parent) => path = parent,
-                None => break,
-            }
-        }
-    }
-
-    fn reload_all(&mut self, cx: &mut Context<Self>) {
-        for ix in 0..2 {
-            let path = self.path(ix, cx);
-            self.load_or_ancestor(ix, path, cx);
-        }
-    }
-
-    fn navigate(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        let came_from = self.path(self.active, cx);
-        if let Err(e) = self.load(self.active, path, Some(came_from), cx) {
-            self.status = e.into();
-        }
-        cx.notify();
-    }
-
-    fn open(&mut self, _: &Open, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(entry) = self.cursor(cx) else { return };
-        if entry.is_dir {
-            self.navigate(entry.path, cx);
-        } else if let Err(e) = open::that_detached(&entry.path) {
-            self.status = format!("Cannot open {}: {e}", entry.name).into();
-            cx.notify();
-        }
-    }
-
-    fn go_up(&mut self, _: &GoUp, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(parent) = fs_ops::parent_of(&self.path(self.active, cx)) {
-            self.navigate(parent, cx);
-        }
-    }
-
-    fn select_row(&mut self, row: usize, cx: &mut Context<Self>) {
-        self.table().update(cx, |table, cx| {
-            let rows = table.delegate().entries.len();
-            if rows > 0 {
-                table.set_selected_row(row.min(rows - 1), cx);
-            }
-        });
-    }
-
-    fn go_first(&mut self, _: &GoFirst, _: &mut Window, cx: &mut Context<Self>) {
-        self.select_row(0, cx);
-    }
-
-    fn go_last(&mut self, _: &GoLast, _: &mut Window, cx: &mut Context<Self>) {
-        self.select_row(usize::MAX, cx);
-    }
-
-    fn switch_panel(&mut self, _: &SwitchPanel, window: &mut Window, cx: &mut Context<Self>) {
-        self.active = 1 - self.active;
-        self.focus_active(window, cx);
         cx.notify();
     }
 
     fn focus_active(&self, window: &mut Window, cx: &mut App) {
-        self.table().focus_handle(cx).focus(window, cx);
+        self.views[self.active]
+            .read(cx)
+            .focus_handle(cx)
+            .focus(window, cx);
+    }
+
+    /// Runs `f` on the active folder model and notifies its observers.
+    fn update_folder<R>(&self, cx: &mut Context<Self>, f: impl FnOnce(&mut Folder) -> R) -> R {
+        self.folders[self.active].update(cx, |folder, cx| {
+            let result = f(folder);
+            cx.notify();
+            result
+        })
+    }
+
+    fn set_error(&mut self, result: Result<(), String>, cx: &mut Context<Self>) {
+        if let Err(e) = result {
+            self.status = e.into();
+            cx.notify();
+        }
+    }
+
+    fn reload_all(&mut self, cx: &mut Context<Self>) {
+        for folder in &self.folders {
+            if let Some(e) = folder.update(cx, |folder, cx| {
+                cx.notify();
+                folder.load_or_ancestor()
+            }) {
+                self.status = e.into();
+            }
+        }
+    }
+
+    fn open(&mut self, _: &Open, _: &mut Window, cx: &mut Context<Self>) {
+        match self.update_folder(cx, Folder::activate) {
+            Ok(Activation::OpenFile(path)) => {
+                if let Err(e) = open::that_detached(&path) {
+                    self.status = format!("Cannot open {}: {e}", path.display()).into();
+                }
+            }
+            Ok(_) => {}
+            Err(e) => self.status = e.into(),
+        }
+        cx.notify();
+    }
+
+    fn go_up(&mut self, _: &GoUp, _: &mut Window, cx: &mut Context<Self>) {
+        let result = self.update_folder(cx, Folder::go_up);
+        self.set_error(result, cx);
+    }
+
+    fn go_first(&mut self, _: &GoFirst, _: &mut Window, cx: &mut Context<Self>) {
+        self.update_folder(cx, |f| f.set_cursor(0));
+    }
+
+    fn go_last(&mut self, _: &GoLast, _: &mut Window, cx: &mut Context<Self>) {
+        self.update_folder(cx, |f| f.set_cursor(usize::MAX));
+    }
+
+    fn switch_panel(&mut self, _: &SwitchPanel, window: &mut Window, cx: &mut Context<Self>) {
+        self.set_active(1 - self.active, cx);
+        self.focus_active(window, cx);
     }
 
     fn toggle_mark(&mut self, _: &ToggleMark, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(entry) = self.cursor(cx).filter(|e| !e.is_parent) else {
-            return;
-        };
-        self.table().update(cx, |table, cx| {
-            let marked = &mut table.delegate_mut().marked;
-            if !marked.remove(&entry.path) {
-                marked.insert(entry.path);
-            }
-            let next = table.selected_row().map_or(0, |row| row + 1);
-            if next < table.delegate().entries.len() {
-                table.set_selected_row(next, cx);
-            }
-            cx.notify();
-        });
-        cx.notify();
+        self.update_folder(cx, Folder::toggle_mark);
     }
 
     fn unmark(&mut self, _: &Unmark, _: &mut Window, cx: &mut Context<Self>) {
-        self.table().update(cx, |table, cx| {
-            table.delegate_mut().marked.clear();
-            cx.notify();
-        });
-        cx.notify();
+        self.update_folder(cx, Folder::clear_marks);
     }
 
     fn refresh(&mut self, _: &Refresh, _: &mut Window, cx: &mut Context<Self>) {
@@ -296,7 +211,13 @@ impl Commander {
 
     fn toggle_hidden(&mut self, _: &ToggleHidden, _: &mut Window, cx: &mut Context<Self>) {
         self.show_hidden = !self.show_hidden;
-        self.reload_all(cx);
+        let show_hidden = self.show_hidden;
+        for folder in &self.folders {
+            folder.update(cx, |folder, cx| {
+                folder.set_show_hidden(show_hidden);
+                cx.notify();
+            });
+        }
         cx.notify();
     }
 
@@ -313,8 +234,8 @@ impl Commander {
     }
 
     fn confirm_transfer(&mut self, op: Transfer, window: &mut Window, cx: &mut Context<Self>) {
-        let sources = Rc::new(self.targets(cx));
-        let dest = self.path(1 - self.active, cx);
+        let sources = Rc::new(self.folders[self.active].read(cx).targets());
+        let dest = self.folders[1 - self.active].read(cx).path().to_path_buf();
         if sources.is_empty() || dest.as_os_str().is_empty() {
             return;
         }
@@ -361,8 +282,7 @@ impl Commander {
                 Err(e) => errors.push(format!("{}: {e}", name.to_string_lossy())),
             }
         }
-        self.table()
-            .update(cx, |table, _| table.delegate_mut().marked.clear());
+        self.update_folder(cx, Folder::clear_marks);
         self.reload_all(cx);
         let verb = if op == Transfer::Copy {
             "Copied"
@@ -374,7 +294,7 @@ impl Commander {
     }
 
     fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
-        let targets = Rc::new(self.targets(cx));
+        let targets = Rc::new(self.folders[self.active].read(cx).targets());
         if targets.is_empty() {
             return;
         }
@@ -409,7 +329,12 @@ impl Commander {
     }
 
     fn make_dir(&mut self, _: &MakeDir, window: &mut Window, cx: &mut Context<Self>) {
-        if self.path(self.active, cx).as_os_str().is_empty() {
+        if self.folders[self.active]
+            .read(cx)
+            .path()
+            .as_os_str()
+            .is_empty()
+        {
             return;
         }
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("Directory name"));
@@ -454,64 +379,16 @@ impl Commander {
         if name.is_empty() {
             return;
         }
-        let dir = self.path(self.active, cx);
-        let path = dir.join(name);
+        let path = self.folders[self.active].read(cx).path().join(name);
         match std::fs::create_dir_all(&path) {
             Ok(()) => {
                 self.status = format!("Created {}", path.display()).into();
-                let _ = self.load(self.active, dir, Some(path), cx);
+                self.reload_all(cx);
+                self.update_folder(cx, |f| f.select_path(Some(&path)));
             }
             Err(e) => self.status = format!("{}: {e}", path.display()).into(),
         }
         cx.notify();
-    }
-
-    fn render_panel(&self, ix: usize, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
-        let is_active = ix == self.active;
-        let table = self.tables[ix].read(cx).delegate();
-
-        let dirs = table
-            .entries
-            .iter()
-            .filter(|e| e.is_dir && !e.is_parent)
-            .count();
-        let files = table.entries.iter().filter(|e| !e.is_dir).count();
-        let mut footer = format!("{dirs} dirs, {files} files");
-        if !table.marked.is_empty() {
-            footer += &format!(" · {} marked", table.marked.len());
-        }
-
-        v_flex()
-            .flex_1()
-            .min_w_0()
-            .h_full()
-            .gap_1()
-            .child(
-                div()
-                    .px_2()
-                    .py_1()
-                    .rounded(theme.radius)
-                    .truncate()
-                    .when(is_active, |d| {
-                        d.bg(theme.primary).text_color(theme.primary_foreground)
-                    })
-                    .when(!is_active, |d| d.bg(theme.muted))
-                    .child(fs_ops::display_path(&table.path)),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .child(DataTable::new(&self.tables[ix]).small()),
-            )
-            .child(
-                div()
-                    .px_2()
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .child(footer),
-            )
     }
 
     fn render_key_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -576,13 +453,11 @@ impl Render for Commander {
             .text_color(fg)
             .text_sm()
             .child(
-                h_flex()
-                    .flex_1()
-                    .min_h_0()
-                    .gap_2()
-                    .p_2()
-                    .child(self.render_panel(0, cx))
-                    .child(self.render_panel(1, cx)),
+                h_flex().flex_1().min_h_0().gap_2().p_2().children(
+                    self.views
+                        .iter()
+                        .map(|view| div().flex_1().min_w_0().h_full().child(view.clone())),
+                ),
             )
             .child(
                 div()

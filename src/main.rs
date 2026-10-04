@@ -3,13 +3,14 @@
 
 mod commander;
 mod fs_ops;
+mod model;
 mod panel;
 
 use std::path::PathBuf;
 
 use gpui_kit::*;
 
-use commander::{Commander, Quit};
+use commander::Commander;
 
 fn main() {
     let mut args = std::env::args_os().skip(1).map(PathBuf::from);
@@ -22,11 +23,6 @@ fn main() {
         .run(move |cx| {
             gpui_kit::init(cx);
             commander::bind_keys(cx);
-            // macOS shows this as the application menu.
-            cx.set_menus(vec![
-                Menu::new("Fyle").items([MenuItem::action("Quit Fyle", Quit)]),
-            ]);
-            // macOS keeps apps alive without windows; a file manager should exit.
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     cx.quit();
