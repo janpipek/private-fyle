@@ -28,7 +28,12 @@
   - [ ] Quick jump: zoxide-style frecency of visited directories, bookmarks.
   - [ ] Shell command on selection with output capture (ties into tools).
   - [ ] Configurable keymap and a help overlay listing bindings.
-  - [ ] Plugins (yazi uses Lua); our tools model is the starting point.
+  - [ ] Lua plugins via `mlua` (features `lua54`, `vendored`: Lua compiled in,
+        nothing to install; prototype builds for Linux and Windows). A plugin
+        defines tools (`id`, `group`, `label`, `applies(ctx)`, `params`,
+        `plan(ctx)` returning an action table) adapted to the `Tool` trait;
+        plugins live in `<config dir>/fyle/plugins/*.lua`. Same trust rule as
+        tools.toml: only from the user's config.
 - [ ] Ctrl-P command palette: fuzzy list of all commands with their key bindings.
 - [ ] Zed theme import (converter from Zed's theme JSON).
 - [ ] Favourite locations from the desktop environment
