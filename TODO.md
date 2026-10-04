@@ -13,7 +13,6 @@
 - [ ] Ideas from yazi (terminal file manager):
   - [ ] Background task manager: copy/move/delete run async with progress,
         cancel, and a task list; panels stay responsive.
-  - [ ] Trash instead of permanent delete (system trash on all platforms).
   - [ ] Yank/cut/paste between panels and tabs, besides F5/F6.
   - [ ] Tabs per panel.
   - [ ] Filter-as-you-type in the current panel; jump to name by typing.
@@ -45,6 +44,7 @@
 
 ## Done
 
+- [x] F8 moves to the system trash (trash crate; Recycle Bin on Windows); Shift-F8 deletes permanently.
 - [x] Natural sort (file2 < file10), case-insensitive.
 - [x] F4 built-in editor (syntax highlighting, atomic save, unsaved-changes prompt).
 - [x] File-type icons, mapped by name/extension in `icons.rs`; glyphs from GPUI Kit's default bundle.

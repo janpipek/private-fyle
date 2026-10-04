@@ -39,6 +39,7 @@ actions!(
         Move,
         MakeDir,
         Delete,
+        DeletePermanently,
         Refresh,
         ToggleHidden,
         ToggleTree,
@@ -80,6 +81,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("f7", MakeDir, table),
         KeyBinding::new("f8", Delete, table),
         KeyBinding::new("delete", Delete, table),
+        KeyBinding::new("shift-f8", DeletePermanently, table),
+        KeyBinding::new("shift-delete", DeletePermanently, table),
         KeyBinding::new("secondary-r", Refresh, table),
         KeyBinding::new("ctrl-h", ToggleHidden, table),
         KeyBinding::new("ctrl-t", ToggleTree, table),
@@ -498,18 +501,41 @@ impl Commander {
     }
 
     fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
+        self.confirm_delete(false, window, cx);
+    }
+
+    fn delete_permanently(
+        &mut self,
+        _: &DeletePermanently,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.confirm_delete(true, window, cx);
+    }
+
+    /// Moves the targets to the system trash, or deletes them for good.
+    fn confirm_delete(&mut self, permanent: bool, window: &mut Window, cx: &mut Context<Self>) {
         let targets = Rc::new(self.folders[self.active].read(cx).targets());
         if targets.is_empty() {
             return;
         }
-        let description = format!("Permanently delete {}?", describe(&targets));
+        let (title, description, ok) = if permanent {
+            let text = format!(
+                "Permanently delete {}? This cannot be undone.",
+                describe(&targets)
+            );
+            ("Delete permanently", text, "Delete")
+        } else {
+            let text = format!("Move {} to the trash?", describe(&targets));
+            ("Move to trash", text, "Move to trash")
+        };
         let this = cx.entity().downgrade();
         window.open_alert_dialog(cx, move |dialog, _, _| {
             let (this, targets) = (this.clone(), targets.clone());
             dialog
-                .title("Delete")
+                .title(title)
                 .description(description.clone())
-                .ok_text("Delete")
+                .ok_text(ok)
                 .ok_variant(ButtonVariant::Danger)
                 .show_cancel(true)
                 .on_ok(move |_, window, cx| {
@@ -517,13 +543,27 @@ impl Commander {
                         let mut done = 0;
                         let mut errors = Vec::new();
                         for path in targets.iter() {
-                            match fs_ops::delete(path) {
+                            let result = if permanent {
+                                fs_ops::delete(path).map_err(|e| e.to_string())
+                            } else {
+                                fs_ops::trash(path)
+                            };
+                            match result {
                                 Ok(()) => done += 1,
                                 Err(e) => errors.push(format!("{}: {e}", path.display())),
                             }
                         }
                         this.reload_all(cx);
-                        this.status = summarize("Deleted", done, &errors).into();
+                        let verb = if permanent {
+                            "Deleted"
+                        } else {
+                            "Moved to trash"
+                        };
+                        let mut status = summarize(verb, done, &errors);
+                        if !permanent && !errors.is_empty() {
+                            status += " (Shift-F8 deletes permanently)";
+                        }
+                        this.status = status.into();
                         this.focus_active(window, cx);
                         cx.notify();
                     });
@@ -626,7 +666,7 @@ impl Commander {
                     .on_click(cx.listener(|this, _, w, cx| this.make_dir(&MakeDir, w, cx))),
             )
             .child(
-                key("f8", "F8 Delete")
+                key("f8", "F8 Trash")
                     .on_click(cx.listener(|this, _, w, cx| this.delete(&Delete, w, cx))),
             )
             .child(
@@ -666,6 +706,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::move_))
             .on_action(cx.listener(Self::make_dir))
             .on_action(cx.listener(Self::delete))
+            .on_action(cx.listener(Self::delete_permanently))
             .on_action(cx.listener(Self::refresh))
             .on_action(cx.listener(Self::toggle_hidden))
             .on_action(cx.listener(Self::toggle_tree))

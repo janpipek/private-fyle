@@ -238,6 +238,11 @@ pub fn move_to(src: &Path, dst: &Path) -> io::Result<()> {
     }
 }
 
+/// Moves a file or directory to the platform's trash / recycle bin.
+pub fn trash(path: &Path) -> Result<(), String> {
+    trash::delete(path).map_err(|e| e.to_string())
+}
+
 /// Deletes a file or directory tree. A symlink is removed, not its target.
 pub fn delete(path: &Path) -> io::Result<()> {
     let meta = fs::symlink_metadata(path)?;

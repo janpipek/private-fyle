@@ -24,7 +24,8 @@ Defaults: left = current directory, right = home directory.
 | F5                  | Copy marked (or current) to other panel   |
 | F6                  | Move marked (or current) to other panel   |
 | F7                  | New directory                             |
-| F8 / Delete         | Delete (with confirmation)                |
+| F8 / Delete         | Move to trash (with confirmation)         |
+| Shift-F8 / Shift-Delete | Delete permanently (with confirmation) |
 | Ctrl-H              | Toggle hidden files                       |
 | Ctrl-T              | Toggle tree mode (per panel)              |
 | F3                  | Toggle quick preview (replaces the other panel, follows the cursor) |
