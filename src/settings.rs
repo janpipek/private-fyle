@@ -22,9 +22,36 @@ pub struct Settings {
     pub theme: String,
     /// Directories offered first in Go to (Ctrl-G); Ctrl-D adds one.
     pub bookmarks: Vec<PathBuf>,
+    /// Extra key bindings, applied after (and so overriding) the defaults.
+    pub keymap: Vec<KeymapEntry>,
     pub window: WindowSettings,
     pub panels: PanelSettings,
     pub preview: PreviewSettings,
+}
+
+/// `[[keymap]] keys = "ctrl-shift-c", action = "Copy", context = "panel"`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KeymapEntry {
+    /// Keystrokes as gpui writes them, e.g. `"ctrl-k ctrl-c"`.
+    pub keys: String,
+    /// Action name (`"Copy"`, `"ToggleHidden"`, …) or `"none"` to unbind.
+    pub action: String,
+    #[serde(default)]
+    pub context: KeyContext,
+}
+
+/// Where a binding applies.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum KeyContext {
+    /// While a panel has focus (most commands).
+    #[default]
+    Panel,
+    /// Anywhere in the window.
+    Global,
+    /// In the F4 editor.
+    Editor,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -69,6 +96,7 @@ impl Default for Settings {
             show_hidden: false,
             theme: "system".into(),
             bookmarks: Vec::new(),
+            keymap: Vec::new(),
             window: WindowSettings::default(),
             panels: PanelSettings::default(),
             preview: PreviewSettings::default(),
@@ -323,6 +351,21 @@ mod tests {
         );
         assert_eq!(settings.theme, "dark");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn parses_keymap() {
+        let settings = Settings::parse(
+            "[[keymap]]\nkeys = \"ctrl-c\"\naction = \"Copy\"\n\
+             [[keymap]]\nkeys = \"f9\"\naction = \"none\"\ncontext = \"global\"\n",
+        )
+        .unwrap();
+        assert_eq!(settings.keymap.len(), 2);
+        assert_eq!(settings.keymap[0].context, KeyContext::Panel);
+        assert_eq!(settings.keymap[1].context, KeyContext::Global);
+        assert!(
+            Settings::parse("[[keymap]]\nkeys = \"x\"\naction = \"y\"\ncontext = \"z\"").is_err()
+        );
     }
 
     #[test]

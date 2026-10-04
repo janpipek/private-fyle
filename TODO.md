@@ -17,7 +17,6 @@
   - [ ] Linemode: choose what the extra columns show (size, mtime,
         permissions, owner) — fits the attribute-columns item above.
   - [ ] Shell command on selection with output capture (ties into tools).
-  - [ ] Configurable keymap and a help overlay listing bindings.
   - [ ] Lua plugins via `mlua` (features `lua54`, `vendored`: Lua compiled in,
         nothing to install; prototype builds for Linux and Windows). A plugin
         defines tools (`id`, `group`, `label`, `applies(ctx)`, `params`,
@@ -32,6 +31,7 @@
 
 ## Done
 
+- [x] Configurable keymap ([[keymap]] in config.toml) and F1 help listing all commands with keys.
 - [x] Rename / bulk rename (Shift-F6): one name per line, validated, swap-safe (rename.rs).
 - [x] Quick jump: frecency-ranked directory history and bookmarks (Ctrl-G, Ctrl-D).
 - [x] Places from the desktop: XDG/known user folders, GTK bookmarks, KDE Places, Windows drives (in Go to, Ctrl-G).

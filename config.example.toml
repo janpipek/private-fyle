@@ -15,6 +15,15 @@ theme = "system"
 # Directories listed first in Go to (Ctrl-G); Ctrl-D adds the current one.
 bookmarks = []
 
+# Extra key bindings (they override the defaults). `action` is a command name
+# as listed by F1 / Ctrl-P in its code form (Copy, Move, MakeDir, Delete,
+# DeletePermanently, Rename, EditFile, TogglePreview, ToggleTree, ToggleHidden,
+# Filter, GoTo, AddBookmark, FindFiles, ToolsMenu, SelectTheme, Refresh, Quit,
+# ...), or "none" to unbind. `context`: "panel" (default), "global", "editor".
+# [[keymap]]
+# keys = "ctrl-c"
+# action = "Copy"
+
 [window]
 width = 1200
 height = 760

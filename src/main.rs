@@ -71,6 +71,7 @@ fn main() {
                 ..Default::default()
             };
             let mut errors: Vec<String> = settings_error.into_iter().collect();
+            errors.extend(commander::bind_user_keys(&settings.keymap, cx));
             errors.extend(themes::register_all(cx));
             gpui_kit::open_window(options, cx, |window, cx| {
                 let choice = ThemeChoice::parse(&settings.theme);

@@ -61,6 +61,7 @@ actions!(
         Filter,
         EditFile,
         SelectTheme,
+        Help,
         Rename,
         GoTo,
         AddBookmark,
@@ -77,6 +78,52 @@ actions!(
 const CONTEXT: &str = "Commander";
 /// Overrides for keys the DataTable would otherwise use for column navigation.
 const TABLE_CONTEXT: &str = "Commander > DataTable";
+
+/// Binds the user's `[[keymap]]` entries; returns errors for bad ones.
+pub fn bind_user_keys(entries: &[crate::settings::KeymapEntry], cx: &mut App) -> Vec<String> {
+    use crate::settings::KeyContext;
+    let mut errors = Vec::new();
+    let mut bindings = Vec::new();
+    for entry in entries {
+        let action: Box<dyn Action> = if entry.action.eq_ignore_ascii_case("none") {
+            Box::new(NoAction)
+        } else {
+            let name = if entry.action.contains("::") {
+                entry.action.clone()
+            } else {
+                format!("fyle::{}", entry.action)
+            };
+            match cx.build_action(&name, None) {
+                Ok(action) => action,
+                Err(_) => {
+                    errors.push(format!("keymap: unknown action {:?}", entry.action));
+                    continue;
+                }
+            }
+        };
+        let context = match entry.context {
+            KeyContext::Panel => TABLE_CONTEXT,
+            KeyContext::Global => CONTEXT,
+            KeyContext::Editor => "EditorPane",
+        };
+        let predicate = KeyBindingContextPredicate::parse(context)
+            .ok()
+            .map(Into::into);
+        match KeyBinding::load(
+            &entry.keys,
+            action,
+            predicate,
+            false,
+            None,
+            cx.keyboard_mapper().as_ref(),
+        ) {
+            Ok(binding) => bindings.push(binding),
+            Err(e) => errors.push(format!("keymap: {:?}: {e}", entry.keys)),
+        }
+    }
+    cx.bind_keys(bindings);
+    errors
+}
 
 pub fn bind_keys(cx: &mut App) {
     // Window-wide keys; panel keys are bound in the table context so they do
@@ -95,6 +142,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", Unmark, table),
         KeyBinding::new("insert", ToggleMark, table),
         KeyBinding::new("space", ToggleMark, table),
+        KeyBinding::new("f1", Help, ctx),
         KeyBinding::new("f2", ToolsMenu, table),
         KeyBinding::new("shift-f6", Rename, table),
         KeyBinding::new("ctrl-g", GoTo, table),
@@ -1014,8 +1062,17 @@ impl Commander {
         ]
     }
 
+    /// F1: every command with its keys (the palette, as help).
+    fn help(&mut self, _: &Help, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_palette("Help: commands and keys", window, cx);
+    }
+
     /// Ctrl-P: a filterable list of all commands with their keys.
     fn command_palette(&mut self, _: &CommandPalette, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_palette("Commands", window, cx);
+    }
+
+    fn open_palette(&mut self, title: &'static str, window: &mut Window, cx: &mut Context<Self>) {
         // Keys are looked up from the panel, where all bindings apply.
         let panel = self.views[self.active].read(cx).focus_handle(cx);
         let commands = Self::palette_commands()
@@ -1052,7 +1109,7 @@ impl Commander {
         });
         let dialog_list = list.clone();
         window.open_dialog(cx, move |dialog, _, _| {
-            dialog.title("Commands").w(px(480.)).child(
+            dialog.title(title).w(px(520.)).child(
                 div()
                     .h(px(400.))
                     .child(List::new(&dialog_list).search_placeholder("Type a command…")),
@@ -1621,6 +1678,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::edit_file))
             .on_action(cx.listener(Self::select_theme))
             .on_action(cx.listener(Self::command_palette))
+            .on_action(cx.listener(Self::help))
             .on_action(cx.listener(Self::tools_menu))
             .on_action(cx.listener(Self::find_files))
             .on_action(cx.listener(Self::cancel_jobs))
