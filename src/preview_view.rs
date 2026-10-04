@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui_kit::component::input::{Editor, EditorState};
+use gpui_kit::component::text::TextView;
 use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -165,6 +166,95 @@ impl PreviewPane {
                 .when(*truncated, |d| {
                     d.child(note("Showing the first 4 KiB.".into()))
                 })
+                .into_any_element(),
+            Content::Markdown { text } => div()
+                .id("markdown")
+                .size_full()
+                .overflow_y_scroll()
+                .p_3()
+                .child(TextView::markdown("markdown-view", text.clone()))
+                .into_any_element(),
+            Content::Table {
+                header,
+                rows,
+                truncated,
+            } => {
+                let cell = |text: &String| {
+                    div()
+                        .w(px(140.))
+                        .flex_none()
+                        .px_2()
+                        .py_0p5()
+                        .truncate()
+                        .child(text.clone())
+                };
+                v_flex()
+                    .size_full()
+                    .child(
+                        div()
+                            .id("table")
+                            .flex_1()
+                            .min_h_0()
+                            .overflow_scroll()
+                            .text_xs()
+                            .child(
+                                h_flex()
+                                    .bg(theme.muted)
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .children(header.iter().map(cell)),
+                            )
+                            .children(rows.iter().enumerate().map(|(i, row)| {
+                                h_flex()
+                                    .when(i % 2 == 1, |r| r.bg(theme.muted.opacity(0.4)))
+                                    .children(row.iter().map(cell))
+                            })),
+                    )
+                    .child(note(format!(
+                        "{} rows{}",
+                        rows.len(),
+                        if *truncated { " (more not shown)" } else { "" }
+                    )))
+                    .into_any_element()
+            }
+            Content::Archive {
+                items,
+                total,
+                truncated,
+            } => v_flex()
+                .size_full()
+                .child(
+                    div()
+                        .id("archive")
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scroll()
+                        .p_2()
+                        .text_xs()
+                        .children(items.iter().map(|item| {
+                            h_flex()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .truncate()
+                                        .when(item.is_dir, |d| d.text_color(theme.primary))
+                                        .child(item.name.clone()),
+                                )
+                                .when(!item.is_dir, |r| {
+                                    r.child(
+                                        div()
+                                            .flex_none()
+                                            .text_color(theme.muted_foreground)
+                                            .child(fs_ops::format_size(item.size)),
+                                    )
+                                })
+                        })),
+                )
+                .child(note(format!(
+                    "{total} entries{}",
+                    if *truncated { ", first 2000 shown" } else { "" }
+                )))
                 .into_any_element(),
         }
     }

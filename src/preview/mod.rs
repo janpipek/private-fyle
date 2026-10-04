@@ -12,18 +12,24 @@
 //! 3. only if it needs a new kind of display, add a [`Content`] variant and a
 //!    render arm in `preview_view.rs`.
 
+mod archive;
 mod binary;
 mod directory;
 mod image;
+mod markdown;
+mod table;
 pub mod text;
 
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
+pub use archive::ArchivePreviewer;
 pub use binary::BinaryPreviewer;
 pub use directory::DirectoryPreviewer;
 pub use image::ImagePreviewer;
+pub use markdown::MarkdownPreviewer;
+pub use table::TablePreviewer;
 pub use text::TextPreviewer;
 
 /// Bytes read up front for type detection.
@@ -100,6 +106,28 @@ pub enum Content {
     },
     /// Hex dump of the start of a binary file.
     Binary { dump: String, truncated: bool },
+    /// Markdown source, shown rendered.
+    Markdown { text: String },
+    /// Tabular data (CSV): a header row and records.
+    Table {
+        header: Vec<String>,
+        rows: Vec<Vec<String>>,
+        truncated: bool,
+    },
+    /// Contents of an archive.
+    Archive {
+        items: Vec<ArchiveItem>,
+        /// Items in the archive (more than listed when truncated).
+        total: usize,
+        truncated: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchiveItem {
+    pub name: String,
+    pub size: u64,
+    pub is_dir: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -130,6 +158,9 @@ impl Registry {
         let mut registry = Self::default();
         registry.register(DirectoryPreviewer);
         registry.register(ImagePreviewer);
+        registry.register(ArchivePreviewer);
+        registry.register(MarkdownPreviewer);
+        registry.register(TablePreviewer);
         registry.register(TextPreviewer);
         registry.register(BinaryPreviewer);
         registry
@@ -256,6 +287,64 @@ mod tests {
         registry.register(Csv);
         registry.register(TextPreviewer);
         assert_eq!(registry.preview(&csv).unwrap().kind, "CSV");
+    }
+
+    #[test]
+    fn markdown_tables_and_archives() {
+        let dir = TempDir::new("rich");
+        let registry = Registry::with_defaults();
+
+        let md = dir.file("README.md", b"# Title\n");
+        assert_eq!(
+            registry.preview(&md).unwrap().content,
+            Content::Markdown {
+                text: "# Title\n".into()
+            }
+        );
+
+        let csv = dir.file("data.csv", b"name,qty\n\"Bolt, M3\",10\nNut,5\n");
+        let Content::Table {
+            header,
+            rows,
+            truncated,
+        } = registry.preview(&csv).unwrap().content
+        else {
+            panic!("expected a table");
+        };
+        assert_eq!(header, ["name", "qty"]);
+        assert_eq!(rows, [vec!["Bolt, M3", "10"], vec!["Nut", "5"]]);
+        assert!(!truncated);
+
+        // A tar.gz with one file, built with the same crates.
+        let path = dir.0.join("a.tar.gz");
+        {
+            let gz = flate2::write::GzEncoder::new(
+                fs::File::create(&path).unwrap(),
+                flate2::Compression::fast(),
+            );
+            let mut builder = tar::Builder::new(gz);
+            let mut header = tar::Header::new_gnu();
+            header.set_size(5);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, "dir/hello.txt", &b"hello"[..])
+                .unwrap();
+            builder.into_inner().unwrap().finish().unwrap();
+        }
+        let preview = registry.preview(&path).unwrap();
+        assert_eq!(preview.kind, "Archive");
+        assert_eq!(
+            preview.content,
+            Content::Archive {
+                items: vec![ArchiveItem {
+                    name: "dir/hello.txt".into(),
+                    size: 5,
+                    is_dir: false
+                }],
+                total: 1,
+                truncated: false
+            }
+        );
     }
 
     #[test]

@@ -7,6 +7,7 @@ license = "GPL-3.0-or-later"
 [dependencies]
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 dirs = "5"
+flate2 = "1.1.10"
 globset = "0.4.20"
 gpui-kit = { version = "0.7.0", features = ["tree-sitter-languages"] }
 grep-matcher = "0.1.9"
@@ -16,6 +17,13 @@ ignore = "0.4.33"
 open = "5"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+tar = "0.4.46"
 toml = "0.9"
 toml_edit = "0.25.15"
 trash = "5"
+zip = { version = "8.6.0", default-features = false }
+
+# Dependencies (gpui, tree-sitter grammars, ...) without debug info keep the
+# dev build small and fast to link; fyle's own code keeps it.
+[profile.dev.package."*"]
+debug = false

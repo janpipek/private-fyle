@@ -1,14 +1,13 @@
 # TODO
 
-- [ ] More preview types (pluggable via `preview::Previewer`): PDF, archives
-      (list contents), audio/video metadata, Markdown rendered, CSV as table,
-      EXIF next to images.
+- [ ] More preview types (pluggable via `preview::Previewer`): PDF,
+      audio/video metadata, EXIF next to images.
 - [ ] Icon themes: loadable icon sets (e.g. Zed icon themes), optional per-type colours.
 - [ ] Search: show the matching line of content hits (preview could scroll to it); regex option.
 - [ ] Windows Quick Access pins in Go to (needs the shell API).
 - [ ] Ideas from yazi (terminal file manager):
   - [ ] Tabs per panel.
-  - [ ] Richer previews: PDF, video thumbnails, archive listing, scrolling
+  - [ ] Richer previews: PDF, video thumbnails, scrolling
         and paging inside the preview.
   - [ ] Shell command on selection with output capture (ties into tools).
   - [ ] Lua plugins via `mlua` (features `lua54`, `vendored`: Lua compiled in,
@@ -44,4 +43,5 @@
 - [x] Runtime theme picker with live preview (Ctrl-K Ctrl-T).
 - [x] Themes: 36 bundled (GPUI Kit), user theme folder, `theme` setting.
 - [x] F3 quick preview: text with syntax highlighting, images, directories, hex dump.
+- [x] Previews: rendered Markdown, CSV/TSV as a table, zip/tar/tar.gz listings.
 - [x] Tree mode (toggleable per panel, Ctrl-T).
