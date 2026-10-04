@@ -8,6 +8,7 @@ mod panel;
 mod preview;
 mod preview_view;
 mod settings;
+mod theme_picker;
 mod themes;
 
 use std::path::PathBuf;

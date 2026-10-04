@@ -28,6 +28,7 @@ Defaults: left = current directory, right = home directory.
 | Ctrl-H              | Toggle hidden files                       |
 | Ctrl-T              | Toggle tree mode (per panel)              |
 | F3                  | Toggle quick preview (replaces the other panel, follows the cursor) |
+| Ctrl-K Ctrl-T       | Theme picker: arrows preview live, Enter keeps and saves to `config.toml`, Esc restores |
 | Right / Left        | Tree: expand / collapse (or go to parent) |
 | Ctrl-R              | Refresh                                   |
 | F10 / Ctrl-Q        | Quit                                      |
@@ -56,6 +57,11 @@ every key with its default. Errors (including unknown keys) are shown in the
 status line and the defaults are used. Settings are read at startup.
 
 ### Themes
+
+Ctrl-K Ctrl-T (or the "Theme" button) opens a picker; the highlighted
+theme is applied immediately as a preview, Enter keeps it and writes it to
+`config.toml` (other keys and comments are preserved), Esc restores the
+previous theme.
 
 `theme = "Tokyo Night"` selects a theme by name (case-insensitive);
 `"system"`, `"light"` and `"dark"` use the built-in themes. 36 themes from

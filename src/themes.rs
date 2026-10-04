@@ -64,6 +64,71 @@ impl ThemeChoice {
     }
 }
 
+/// UI-independent state of the theme picker: the choices, the filter and the
+/// theme that was active when the picker opened (restored on cancel).
+pub struct ThemePicker {
+    choices: Vec<String>,
+    /// Indices into `choices` matching the current filter.
+    matches: Vec<usize>,
+    original: String,
+}
+
+impl ThemePicker {
+    /// `names` are the registered themes; "System", "Light" and "Dark" come
+    /// first, then the names sorted case-insensitively.
+    pub fn new(names: impl IntoIterator<Item = String>, current: &str) -> Self {
+        let mut names: Vec<String> = names.into_iter().collect();
+        names.sort_by_key(|n| n.to_lowercase());
+        names.dedup_by_key(|n| n.to_lowercase());
+        let choices: Vec<String> = ["System", "Light", "Dark"]
+            .into_iter()
+            .map(String::from)
+            .chain(names)
+            .collect();
+        Self {
+            matches: (0..choices.len()).collect(),
+            choices,
+            original: current.to_string(),
+        }
+    }
+
+    /// Keeps choices containing every whitespace-separated word of `query`
+    /// (case-insensitive).
+    pub fn filter(&mut self, query: &str) {
+        let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
+        self.matches = (0..self.choices.len())
+            .filter(|&i| {
+                let name = self.choices[i].to_lowercase();
+                words.iter().all(|w| name.contains(w.as_str()))
+            })
+            .collect();
+    }
+
+    pub fn len(&self) -> usize {
+        self.matches.len()
+    }
+
+    /// Name of the `ix`-th visible choice.
+    pub fn get(&self, ix: usize) -> Option<&str> {
+        self.matches.get(ix).map(|&i| self.choices[i].as_str())
+    }
+
+    /// Position of the original theme among the visible choices.
+    pub fn original_index(&self) -> Option<usize> {
+        let target = match ThemeChoice::parse(&self.original) {
+            ThemeChoice::System => "system".to_string(),
+            ThemeChoice::Light => "light".to_string(),
+            ThemeChoice::Dark => "dark".to_string(),
+            ThemeChoice::Named(name) => name,
+        };
+        (0..self.len()).find(|&ix| self.get(ix).unwrap().eq_ignore_ascii_case(&target))
+    }
+
+    pub fn original(&self) -> &str {
+        &self.original
+    }
+}
+
 /// `<config dir>/fyle/themes`.
 pub fn user_themes_dir() -> Option<PathBuf> {
     dirs::config_dir().map(|dir| dir.join("fyle").join("themes"))
@@ -137,7 +202,7 @@ fn find(name: &str, cx: &App) -> Option<Rc<ThemeConfig>> {
 #[cfg(test)]
 mod tests {
     // Not `super::*`: gpui's glob export would shadow `#[test]`.
-    use super::{BUNDLED, ThemeChoice};
+    use super::{BUNDLED, ThemeChoice, ThemePicker};
     use gpui_kit::component::ThemeSet;
     use std::collections::HashSet;
 
@@ -168,5 +233,38 @@ mod tests {
             ThemeChoice::parse(" Tokyo Night "),
             ThemeChoice::Named("Tokyo Night".into())
         );
+    }
+
+    #[test]
+    fn picker_filters_and_finds_original() {
+        let names = ["Tokyo Night", "Ayu Dark", "tokyo storm", "Ayu Dark"].map(String::from);
+        let mut picker = ThemePicker::new(names, "tokyo night");
+        let all: Vec<_> = (0..picker.len()).map(|i| picker.get(i).unwrap()).collect();
+        assert_eq!(
+            all,
+            [
+                "System",
+                "Light",
+                "Dark",
+                "Ayu Dark",
+                "Tokyo Night",
+                "tokyo storm"
+            ]
+        );
+        assert_eq!(picker.original_index(), Some(4)); // case-insensitive
+        let mut picker = ThemePicker::new(["Tokyo Night".to_string()], "Tokyo Night");
+        assert_eq!(picker.original_index(), Some(3));
+
+        picker.filter("TOK  ni");
+        assert_eq!(picker.len(), 1);
+        assert_eq!(picker.get(0), Some("Tokyo Night"));
+        assert_eq!(picker.original_index(), Some(0));
+
+        picker.filter("dar");
+        assert_eq!(picker.get(0), Some("Dark"));
+        assert_eq!(picker.original_index(), None);
+
+        let picker = ThemePicker::new(Vec::new(), "system");
+        assert_eq!(picker.original_index(), Some(0));
     }
 }

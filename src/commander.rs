@@ -1,13 +1,17 @@
 //! The window: two [`Folder`] models, each shown by a [`FolderView`], plus the
 //! commands that act on them.
 
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::{ActiveTheme as _, Sizable as _, WindowExt as _, h_flex, v_flex};
+use gpui_kit::component::list::{List, ListState};
+use gpui_kit::component::{
+    ActiveTheme as _, IndexPath, Sizable as _, ThemeRegistry, WindowExt as _, h_flex, v_flex,
+};
 use gpui_kit::*;
 
 use crate::fs_ops;
@@ -15,7 +19,9 @@ use crate::model::{Activation, Folder};
 use crate::panel::{Activate, FolderView};
 use crate::preview::Registry;
 use crate::preview_view::PreviewPane;
-use crate::settings::Settings;
+use crate::settings::{self, Settings};
+use crate::theme_picker::{self, ThemePickerDelegate};
+use crate::themes::ThemePicker;
 
 actions!(
     fyle,
@@ -35,6 +41,7 @@ actions!(
         ToggleHidden,
         ToggleTree,
         TogglePreview,
+        SelectTheme,
         Expand,
         Collapse,
         Quit,
@@ -61,6 +68,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("insert", ToggleMark, ctx),
         KeyBinding::new("space", ToggleMark, ctx),
         KeyBinding::new("f3", TogglePreview, ctx),
+        KeyBinding::new("ctrl-k ctrl-t", SelectTheme, ctx),
         KeyBinding::new("f5", Copy, ctx),
         KeyBinding::new("f6", Move, ctx),
         KeyBinding::new("f7", MakeDir, ctx),
@@ -86,6 +94,8 @@ pub struct Commander {
     /// Quick view shown in place of the inactive panel while enabled.
     preview: Entity<PreviewPane>,
     preview_on: bool,
+    /// The `theme` setting currently in effect.
+    theme: String,
     active: usize,
     show_hidden: bool,
     status: SharedString,
@@ -144,6 +154,7 @@ impl Commander {
             views,
             preview,
             preview_on: settings.preview.open_on_start,
+            theme: settings.theme.clone(),
             active: 0,
             show_hidden: settings.show_hidden,
             status: settings_error.map_or(status, Into::into),
@@ -232,6 +243,67 @@ impl Commander {
         self.set_active(1 - self.active, cx);
         self.focus_active(window, cx);
         self.update_preview(window, cx);
+    }
+
+    /// Opens the theme picker; the highlighted theme is previewed live.
+    fn select_theme(&mut self, _: &SelectTheme, window: &mut Window, cx: &mut Context<Self>) {
+        let registry = ThemeRegistry::global(cx);
+        let defaults = [
+            registry.default_light_theme().name.clone(),
+            registry.default_dark_theme().name.clone(),
+        ];
+        let names = registry
+            .themes()
+            .keys()
+            .filter(|name| !defaults.contains(name)) // offered as "Light"/"Dark"
+            .map(|name| name.to_string())
+            .collect::<Vec<_>>();
+        let picker = ThemePicker::new(names, &self.theme);
+
+        let confirmed = Rc::new(Cell::new(false));
+        let this = cx.entity().downgrade();
+        let delegate =
+            ThemePickerDelegate::new(picker, confirmed.clone(), move |name, window, cx| {
+                let _ = this.update(cx, |this, cx| this.theme_chosen(name, cx));
+                window.close_dialog(cx);
+            });
+        let original_ix = delegate.original_index();
+        let list = cx.new(|cx| ListState::new(delegate, window, cx).searchable(true));
+        list.update(cx, |list, cx| {
+            if let Some(ix) = original_ix {
+                list.set_selected_index(Some(IndexPath::new(ix)), window, cx);
+                list.scroll_to_selected_item(window, cx);
+            }
+        });
+
+        let original = self.theme.clone();
+        let dialog_list = list.clone();
+        window.open_dialog(cx, move |dialog, _, _| {
+            let (original, confirmed) = (original.clone(), confirmed.clone());
+            dialog
+                .title("Theme")
+                .w(px(420.))
+                .child(
+                    div()
+                        .h(px(380.))
+                        .child(List::new(&dialog_list).search_placeholder("Filter themes…")),
+                )
+                .on_close(move |_, window, cx| {
+                    if !confirmed.get() {
+                        theme_picker::revert(&original, window, cx);
+                    }
+                })
+        });
+        list.update(cx, |list, cx| list.focus(window, cx));
+    }
+
+    fn theme_chosen(&mut self, name: String, cx: &mut Context<Self>) {
+        self.status = match settings::save_theme(&name) {
+            Ok(path) => format!("Theme: {name} (saved to {})", path.display()).into(),
+            Err(e) => format!("Theme: {name} (not saved: {e})").into(),
+        };
+        self.theme = name;
+        cx.notify();
     }
 
     fn toggle_preview(&mut self, _: &TogglePreview, window: &mut Window, cx: &mut Context<Self>) {
@@ -501,6 +573,10 @@ impl Commander {
                     .on_click(cx.listener(|this, _, w, cx| this.toggle_tree(&ToggleTree, w, cx))),
             )
             .child(
+                key("theme", "^K^T Theme")
+                    .on_click(cx.listener(|this, _, w, cx| this.select_theme(&SelectTheme, w, cx))),
+            )
+            .child(
                 key("f10", "F10 Quit")
                     .on_click(cx.listener(|this, _, w, cx| this.quit(&Quit, w, cx))),
             )
@@ -528,6 +604,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::toggle_hidden))
             .on_action(cx.listener(Self::toggle_tree))
             .on_action(cx.listener(Self::toggle_preview))
+            .on_action(cx.listener(Self::select_theme))
             .on_action(cx.listener(Self::expand))
             .on_action(cx.listener(Self::collapse))
             .on_action(cx.listener(Self::quit))

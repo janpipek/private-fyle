@@ -143,6 +143,29 @@ impl Settings {
     }
 }
 
+/// Writes `theme = "<name>"` into the settings file, keeping the rest of the
+/// file (comments, formatting, other keys) intact. Creates the file if needed.
+pub fn save_theme(name: &str) -> Result<PathBuf, String> {
+    let path = Settings::path().ok_or("No config directory on this platform")?;
+    save_theme_to(&path, name)?;
+    Ok(path)
+}
+
+pub fn save_theme_to(path: &Path, name: &str) -> Result<(), String> {
+    let error = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(error(&e)),
+    };
+    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| error(&e))?;
+    doc["theme"] = toml_edit::value(name);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| error(&e))?;
+    }
+    std::fs::write(path, doc.to_string()).map_err(|e| error(&e))
+}
+
 /// Expands a leading `~` to the home directory.
 fn expand_home(path: PathBuf) -> PathBuf {
     let Ok(rest) = path.strip_prefix("~") else {
@@ -221,6 +244,29 @@ mod tests {
     fn example_file_matches_defaults() {
         let example = include_str!("../config.example.toml");
         assert_eq!(Settings::parse(example).unwrap(), Settings::default());
+    }
+
+    #[test]
+    fn save_theme_keeps_comments_and_other_keys() {
+        let dir = std::env::temp_dir().join(format!("fyle-settings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("fyle").join("config.toml");
+
+        save_theme_to(&path, "Ayu Dark").unwrap(); // creates file and dirs
+        assert_eq!(Settings::load_from(&path).0.theme, "Ayu Dark");
+
+        std::fs::write(
+            &path,
+            "# mine\nshow_hidden = true # keep\ntheme = \"dark\"\n",
+        )
+        .unwrap();
+        save_theme_to(&path, "Tokyo Night").unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# mine") && text.contains("show_hidden = true # keep"));
+        let settings = Settings::parse(&text).unwrap();
+        assert_eq!(settings.theme, "Tokyo Night");
+        assert!(settings.show_hidden);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
