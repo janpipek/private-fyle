@@ -49,7 +49,7 @@ Copy and move never overwrite existing targets.
   plus a Vulkan driver at runtime.
 - Windows: MSVC toolchain.
 
-CI builds and tests on Linux and Windows (`.github/workflows/ci.yml`).
+CI builds and tests on Linux (Windows job disabled for now) (`.github/workflows/ci.yml`).
 
 ## Architecture
 
