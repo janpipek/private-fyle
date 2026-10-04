@@ -1,28 +1,40 @@
+// Release builds on Windows should not open a console window.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod commander;
 mod fs_ops;
+mod panel;
 
 use std::path::PathBuf;
 
 use gpui_kit::*;
 
-use commander::Commander;
+use commander::{Commander, Quit};
 
 fn main() {
     let mut args = std::env::args_os().skip(1).map(PathBuf::from);
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let left = args.next().unwrap_or_else(|| cwd.clone());
-    let right = args
-        .next()
-        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
-        .unwrap_or(cwd);
+    let right = args.next().or_else(std::env::home_dir).unwrap_or(cwd);
 
     gpui_kit::application()
         .with_assets(gpui_kit::assets::Assets)
         .run(move |cx| {
             gpui_kit::init(cx);
             commander::bind_keys(cx);
+            // macOS shows this as the application menu.
+            cx.set_menus(vec![
+                Menu::new("Fyle").items([MenuItem::action("Quit Fyle", Quit)]),
+            ]);
+            // macOS keeps apps alive without windows; a file manager should exit.
+            cx.on_window_closed(|cx, _| {
+                if cx.windows().is_empty() {
+                    cx.quit();
+                }
+            })
+            .detach();
 
-            let bounds = Bounds::centered(None, size(px(1100.), px(700.)), cx);
+            let bounds = Bounds::centered(None, size(px(1200.), px(760.)), cx);
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions {

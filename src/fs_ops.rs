@@ -1,7 +1,7 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::SystemTime;
 
 #[derive(Clone, Debug)]
 pub struct Entry {
@@ -13,19 +13,94 @@ pub struct Entry {
     pub modified: Option<SystemTime>,
 }
 
-/// Lists `dir`: a ".." entry (unless at root), then directories, then files,
-/// each group sorted case-insensitively.
+impl Entry {
+    /// The extension shown in its own column; empty for directories.
+    pub fn ext(&self) -> &str {
+        if self.is_dir {
+            return "";
+        }
+        match self.name.rfind('.') {
+            Some(0) | None => "",
+            Some(ix) => &self.name[ix + 1..],
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SortKey {
+    Name,
+    Ext,
+    Size,
+    Modified,
+}
+
+/// Sorts with ".." first and directories before files, regardless of order.
+pub fn sort_entries(entries: &mut [Entry], key: SortKey, descending: bool) {
+    entries.sort_by(|a, b| {
+        b.is_parent
+            .cmp(&a.is_parent)
+            .then_with(|| b.is_dir.cmp(&a.is_dir))
+            .then_with(|| {
+                let by_name = || a.name.to_lowercase().cmp(&b.name.to_lowercase());
+                let ord = match key {
+                    SortKey::Name => by_name(),
+                    SortKey::Ext => a
+                        .ext()
+                        .to_lowercase()
+                        .cmp(&b.ext().to_lowercase())
+                        .then_with(by_name),
+                    SortKey::Size => a.size.cmp(&b.size).then_with(by_name),
+                    SortKey::Modified => a.modified.cmp(&b.modified).then_with(by_name),
+                };
+                if descending { ord.reverse() } else { ord }
+            })
+    });
+}
+
+/// The directory ".." leads to. On Windows a drive root leads to the drive
+/// list, represented by an empty path.
+pub fn parent_of(dir: &Path) -> Option<PathBuf> {
+    match dir.parent() {
+        Some(parent) => Some(parent.to_path_buf()),
+        None if cfg!(windows) && !dir.as_os_str().is_empty() => Some(PathBuf::new()),
+        None => None,
+    }
+}
+
+/// Human-readable location for the panel header.
+pub fn display_path(dir: &Path) -> String {
+    if dir.as_os_str().is_empty() {
+        "Drives".into()
+    } else {
+        dir.display().to_string()
+    }
+}
+
+/// Lists `dir` (unsorted), with a ".." entry when there is a parent.
 pub fn read_dir(dir: &Path, show_hidden: bool) -> io::Result<Vec<Entry>> {
+    if dir.as_os_str().is_empty() {
+        return Ok(drives());
+    }
     let mut entries = Vec::new();
+    if let Some(parent) = parent_of(dir) {
+        entries.push(Entry {
+            name: "..".into(),
+            path: parent,
+            is_dir: true,
+            is_parent: true,
+            size: 0,
+            modified: None,
+        });
+    }
     for item in fs::read_dir(dir)? {
         let Ok(item) = item else { continue };
         let name = item.file_name().to_string_lossy().into_owned();
-        if !show_hidden && name.starts_with('.') {
-            continue;
-        }
         let path = item.path();
         // Follow symlinks so linked directories can be entered.
         let meta = fs::metadata(&path).or_else(|_| item.metadata()).ok();
+        if !show_hidden && is_hidden(&name, meta.as_ref()) {
+            continue;
+        }
         entries.push(Entry {
             name,
             path,
@@ -35,25 +110,40 @@ pub fn read_dir(dir: &Path, show_hidden: bool) -> io::Result<Vec<Entry>> {
             modified: meta.and_then(|m| m.modified().ok()),
         });
     }
-    entries.sort_by(|a, b| {
-        b.is_dir
-            .cmp(&a.is_dir)
-            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-    });
-    if let Some(parent) = dir.parent() {
-        entries.insert(
-            0,
-            Entry {
-                name: "..".into(),
-                path: parent.to_path_buf(),
+    Ok(entries)
+}
+
+#[allow(unused_variables)]
+fn is_hidden(name: &str, meta: Option<&fs::Metadata>) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+        if meta.is_some_and(|m| m.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0) {
+            return true;
+        }
+    }
+    name.starts_with('.')
+}
+
+fn drives() -> Vec<Entry> {
+    #[cfg(windows)]
+    {
+        (b'A'..=b'Z')
+            .map(|letter| PathBuf::from(format!("{}:\\", letter as char)))
+            .filter(|root| root.exists())
+            .map(|root| Entry {
+                name: root.display().to_string(),
+                path: root,
                 is_dir: true,
-                is_parent: true,
+                is_parent: false,
                 size: 0,
                 modified: None,
-            },
-        );
+            })
+            .collect()
     }
-    Ok(entries)
+    #[cfg(not(windows))]
+    Vec::new()
 }
 
 /// Copies a file or directory tree to `dst`. Refuses to overwrite.
@@ -74,12 +164,13 @@ pub fn copy(src: &Path, dst: &Path) -> io::Result<()> {
 }
 
 fn copy_inner(src: &Path, dst: &Path) -> io::Result<()> {
-    let meta = fs::symlink_metadata(src)?;
-    if meta.file_type().is_symlink() {
-        #[cfg(unix)]
+    // Unix recreates symlinks; elsewhere (creating them needs privileges on
+    // Windows) the link target's content is copied.
+    #[cfg(unix)]
+    if fs::symlink_metadata(src)?.file_type().is_symlink() {
         return std::os::unix::fs::symlink(fs::read_link(src)?, dst);
     }
-    if meta.is_dir() {
+    if fs::metadata(src)?.is_dir() {
         fs::create_dir(dst)?;
         for item in fs::read_dir(src)? {
             let item = item?;
@@ -109,8 +200,13 @@ pub fn move_to(src: &Path, dst: &Path) -> io::Result<()> {
     }
 }
 
+/// Deletes a file or directory tree. A symlink is removed, not its target.
 pub fn delete(path: &Path) -> io::Result<()> {
     let meta = fs::symlink_metadata(path)?;
+    if meta.file_type().is_symlink() {
+        // Windows directory symlinks and junctions need remove_dir.
+        return fs::remove_file(path).or_else(|_| fs::remove_dir(path));
+    }
     if meta.is_dir() {
         fs::remove_dir_all(path)
     } else {
@@ -133,39 +229,26 @@ pub fn format_size(size: u64) -> String {
     }
 }
 
-/// Formats as "YYYY-MM-DD HH:MM" (UTC).
+/// Formats as "YYYY-MM-DD HH:MM" in local time.
 pub fn format_time(time: SystemTime) -> String {
-    let secs = time
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let (days, rem) = (secs.div_euclid(86400), secs.rem_euclid(86400));
-    // Civil-from-days (Howard Hinnant).
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    format!(
-        "{year:04}-{month:02}-{day:02} {:02}:{:02}",
-        rem / 3600,
-        rem % 3600 / 60
-    )
+    chrono::DateTime::<chrono::Local>::from(time)
+        .format("%Y-%m-%d %H:%M")
+        .to_string()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
 
-    #[test]
-    fn formats_time() {
-        let t = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
-        assert_eq!(format_time(t), "2023-11-14 22:13");
+    fn entry(name: &str, is_dir: bool, size: u64) -> Entry {
+        Entry {
+            name: name.into(),
+            path: PathBuf::from(name),
+            is_dir,
+            is_parent: name == "..",
+            size,
+            modified: None,
+        }
     }
 
     #[test]
@@ -175,21 +258,52 @@ mod tests {
     }
 
     #[test]
+    fn extension() {
+        assert_eq!(entry("a.tar.gz", false, 0).ext(), "gz");
+        assert_eq!(entry(".bashrc", false, 0).ext(), "");
+        assert_eq!(entry("dir.d", true, 0).ext(), "");
+    }
+
+    #[test]
+    fn sorting_keeps_parent_and_dirs_first() {
+        let mut entries = vec![
+            entry("b.txt", false, 5),
+            entry("A.rs", false, 10),
+            entry("zdir", true, 0),
+            entry("..", true, 0),
+            entry("adir", true, 0),
+        ];
+        let names = |e: &[Entry]| e.iter().map(|e| e.name.clone()).collect::<Vec<_>>();
+
+        sort_entries(&mut entries, SortKey::Name, false);
+        assert_eq!(names(&entries), ["..", "adir", "zdir", "A.rs", "b.txt"]);
+
+        sort_entries(&mut entries, SortKey::Name, true);
+        assert_eq!(names(&entries), ["..", "zdir", "adir", "b.txt", "A.rs"]);
+
+        sort_entries(&mut entries, SortKey::Size, false);
+        assert_eq!(names(&entries), ["..", "adir", "zdir", "b.txt", "A.rs"]);
+    }
+
+    #[test]
     fn copy_move_delete_tree() {
         let base = std::env::temp_dir().join(format!("fyle-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
-        fs::create_dir_all(base.join("a/sub")).unwrap();
-        fs::write(base.join("a/sub/f.txt"), "hi").unwrap();
+        fs::create_dir_all(base.join("a").join("sub")).unwrap();
+        fs::write(base.join("a").join("sub").join("f.txt"), "hi").unwrap();
 
         copy(&base.join("a"), &base.join("b")).unwrap();
-        assert_eq!(fs::read_to_string(base.join("b/sub/f.txt")).unwrap(), "hi");
-        assert!(copy(&base.join("a"), &base.join("a/sub/x")).is_err());
+        let copied = base.join("b").join("sub").join("f.txt");
+        assert_eq!(fs::read_to_string(copied).unwrap(), "hi");
+        assert!(copy(&base.join("a"), &base.join("a").join("sub").join("x")).is_err());
         assert!(copy(&base.join("a"), &base.join("b")).is_err());
 
         move_to(&base.join("b"), &base.join("c")).unwrap();
-        assert!(!base.join("b").exists() && base.join("c/sub/f.txt").exists());
+        assert!(!base.join("b").exists());
+        assert!(base.join("c").join("sub").join("f.txt").exists());
 
-        let listing = read_dir(&base, false).unwrap();
+        let mut listing = read_dir(&base, false).unwrap();
+        sort_entries(&mut listing, SortKey::Name, false);
         let names: Vec<_> = listing.iter().map(|e| e.name.as_str()).collect();
         assert_eq!(names, ["..", "a", "c"]);
 
