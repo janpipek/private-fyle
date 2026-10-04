@@ -102,6 +102,4 @@ display needs a new `Content` variant and render arm.
 
 fyle is licensed under the GNU General Public License v3.0 or later
 ([`LICENSE`](LICENSE)). The bundled themes in `themes/` are from GPUI Kit under
-the Apache License 2.0 (see [`themes/README.md`](themes/README.md)). Icons are
-from [Lucide](https://lucide.dev) under the ISC license
-([`assets/icons/LICENSE`](assets/icons/LICENSE)).
+the Apache License 2.0 (see [`themes/README.md`](themes/README.md)).

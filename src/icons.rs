@@ -28,6 +28,31 @@ pub enum FileIcon {
     Diff,
 }
 
+impl FileIcon {
+    #[cfg(test)]
+    pub const ALL: [FileIcon; 19] = [
+        Self::ParentDir,
+        Self::Folder,
+        Self::FolderOpen,
+        Self::FolderGit,
+        Self::File,
+        Self::Code,
+        Self::Data,
+        Self::Text,
+        Self::Image,
+        Self::Audio,
+        Self::Video,
+        Self::Archive,
+        Self::Spreadsheet,
+        Self::Config,
+        Self::Lock,
+        Self::Key,
+        Self::Script,
+        Self::Font,
+        Self::Diff,
+    ];
+}
+
 /// Icon for an entry. `expanded` only matters for directories in tree mode.
 pub fn icon_for(name: &str, is_dir: bool, is_parent: bool, expanded: bool) -> FileIcon {
     if is_parent {

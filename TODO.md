@@ -17,7 +17,7 @@
 
 ## Done
 
-- [x] File-type icons (Lucide), mapped by name/extension in `icons.rs`.
+- [x] File-type icons, mapped by name/extension in `icons.rs`; glyphs from GPUI Kit's default bundle.
 - [x] Runtime theme picker with live preview (Ctrl-K Ctrl-T).
 - [x] Themes: 36 bundled (GPUI Kit), user theme folder, `theme` setting.
 - [x] F3 quick preview: text with syntax highlighting, images, directories, hex dump.

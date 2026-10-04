@@ -278,27 +278,39 @@ impl TableDelegate for FileTable {
     }
 }
 
-/// The Lucide glyph drawing each kind of [`FileIcon`].
+/// The glyph drawing each kind of [`FileIcon`]. Only icons from GPUI Kit's
+/// default bundle are used (see the test), so no icon assets are vendored.
 fn glyph(icon: FileIcon) -> Lucide {
     match icon {
-        FileIcon::ParentDir => Lucide::FolderUp,
+        FileIcon::ParentDir => Lucide::ArrowUp,
         FileIcon::Folder => Lucide::Folder,
         FileIcon::FolderOpen => Lucide::FolderOpen,
-        FileIcon::FolderGit => Lucide::FolderGit2,
-        FileIcon::File => Lucide::File,
-        FileIcon::Code => Lucide::FileCode,
-        FileIcon::Data => Lucide::FileBraces,
-        FileIcon::Text => Lucide::FileText,
-        FileIcon::Image => Lucide::FileImage,
-        FileIcon::Audio => Lucide::FileMusic,
-        FileIcon::Video => Lucide::FileVideoCamera,
-        FileIcon::Archive => Lucide::FileArchive,
-        FileIcon::Spreadsheet => Lucide::FileSpreadsheet,
-        FileIcon::Config => Lucide::FileCog,
-        FileIcon::Lock => Lucide::FileLock,
-        FileIcon::Key => Lucide::FileKey,
-        FileIcon::Script => Lucide::FileTerminal,
-        FileIcon::Font => Lucide::FileType,
-        FileIcon::Diff => Lucide::FileDiff,
+        FileIcon::FolderGit => Lucide::Github,
+        FileIcon::Code | FileIcon::Script => Lucide::SquareTerminal,
+        FileIcon::Config => Lucide::Settings,
+        FileIcon::Data | FileIcon::Text => Lucide::FileText,
+        FileIcon::Image => Lucide::Palette,
+        FileIcon::Audio | FileIcon::Video => Lucide::Play,
+        FileIcon::Archive => Lucide::Inbox,
+        FileIcon::Spreadsheet => Lucide::ChartPie,
+        FileIcon::Font => Lucide::CaseSensitive,
+        FileIcon::Diff => Lucide::Replace,
+        FileIcon::File | FileIcon::Lock | FileIcon::Key => Lucide::File,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Not `super::*`: gpui's glob export would shadow `#[test]`.
+    use super::{FileIcon, glyph};
+    use gpui_kit::AssetSource as _;
+
+    #[test]
+    fn every_glyph_is_in_the_default_bundle() {
+        for icon in FileIcon::ALL {
+            let path = glyph(icon).path();
+            let svg = gpui_kit::assets::Assets.load(&path).unwrap();
+            assert!(svg.is_some(), "{icon:?}: {path} is not bundled");
+        }
     }
 }
