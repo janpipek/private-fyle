@@ -140,6 +140,10 @@ pub fn run(
                 is_dir,
                 is_parent: false,
                 size: meta.as_ref().map_or(0, |m| m.len()),
+                attrs: meta
+                    .as_ref()
+                    .map(crate::fs_ops::Attrs::from_meta)
+                    .unwrap_or_default(),
                 modified: meta.and_then(|m| m.modified().ok()),
             },
             line,

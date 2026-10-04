@@ -14,8 +14,6 @@
         (incl. "open with…" list).
   - [ ] Richer previews: PDF, video thumbnails, archive listing, scrolling
         and paging inside the preview.
-  - [ ] Linemode: choose what the extra columns show (size, mtime,
-        permissions, owner) — fits the attribute-columns item above.
   - [ ] Shell command on selection with output capture (ties into tools).
   - [ ] Lua plugins via `mlua` (features `lua54`, `vendored`: Lua compiled in,
         nothing to install; prototype builds for Linux and Windows). A plugin
@@ -24,13 +22,13 @@
         plugins live in `<config dir>/fyle/plugins/*.lua`. Same trust rule as
         tools.toml: only from the user's config.
 - [ ] Zed theme import (converter from Zed's theme JSON).
-- [ ] Extensible attribute columns (open-ended): pluggable per-entry
-      attributes shown as optional columns, e.g. EXIF data, SELinux context,
-      git status, permissions/owner, xattrs.
+- [ ] More attribute columns (open-ended; add a `ColumnKind` + renderer):
+      git status, EXIF data, SELinux context, xattrs, created time.
 - [ ] macOS support (later): CI job, app menu, Cmd shortcuts, app bundle.
 
 ## Done
 
+- [x] Configurable columns (panels.columns): name, ext, size, modified, permissions, owner.
 - [x] Configurable keymap ([[keymap]] in config.toml) and F1 help listing all commands with keys.
 - [x] Rename / bulk rename (Shift-F6): one name per line, validated, swap-safe (rename.rs).
 - [x] Quick jump: frecency-ranked directory history and bookmarks (Ctrl-G, Ctrl-D).

@@ -9,17 +9,11 @@ use gpui_kit::component::{ActiveTheme as _, IconName, Sizable as _, h_flex, v_fl
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::fs_ops::{self, SortKey};
+use crate::columns::ColumnKind;
+use crate::fs_ops;
 use crate::icons::{self, FileIcon};
 use crate::model::{Folder, Sort};
 use gpui_kit::assets::IconName as Lucide;
-
-const COLUMNS: [(SortKey, &str, &str, f32); 4] = [
-    (SortKey::Name, "name", "Name", 280.),
-    (SortKey::Ext, "ext", "Ext", 60.),
-    (SortKey::Size, "size", "Size", 90.),
-    (SortKey::Modified, "modified", "Modified", 140.),
-];
 
 /// Emitted when the user activates the cursor entry with the mouse.
 pub struct Activate;
@@ -45,9 +39,15 @@ pub struct FolderView {
 impl EventEmitter<Activate> for FolderView {}
 
 impl FolderView {
-    pub fn new(folder: Entity<Folder>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        folder: Entity<Folder>,
+        columns: Vec<ColumnKind>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let delegate = FileTable {
             folder: folder.clone(),
+            columns,
         };
         let table = cx.new(|cx| {
             TableState::new(delegate, window, cx)
@@ -241,11 +241,12 @@ impl Render for FolderView {
 /// Adapts a [`Folder`] to gpui-component's table.
 pub struct FileTable {
     folder: Entity<Folder>,
+    columns: Vec<ColumnKind>,
 }
 
 impl TableDelegate for FileTable {
     fn columns_count(&self, _: &App) -> usize {
-        COLUMNS.len()
+        self.columns.len()
     }
 
     fn rows_count(&self, cx: &App) -> usize {
@@ -253,15 +254,17 @@ impl TableDelegate for FileTable {
     }
 
     fn column(&self, col_ix: usize, cx: &App) -> Column {
-        let (key, id, name, width) = COLUMNS[col_ix];
-        let sort = self.folder.read(cx).sort();
-        let column_sort = match sort.key == key {
-            true if sort.descending => ColumnSort::Descending,
-            true => ColumnSort::Ascending,
-            false => ColumnSort::Default,
-        };
-        let column = Column::new(id, name).width(px(width)).sort(column_sort);
-        if key == SortKey::Size {
+        let kind = self.columns[col_ix];
+        let mut column = Column::new(kind.id(), kind.title()).width(px(kind.width()));
+        if let Some(key) = kind.sort_key() {
+            let sort = self.folder.read(cx).sort();
+            column = column.sort(match sort.key == key {
+                true if sort.descending => ColumnSort::Descending,
+                true => ColumnSort::Ascending,
+                false => ColumnSort::Default,
+            });
+        }
+        if kind == ColumnKind::Size {
             column.text_right()
         } else {
             column
@@ -276,10 +279,13 @@ impl TableDelegate for FileTable {
         cx: &mut Context<TableState<Self>>,
     ) {
         // The table's "unsorted" state means the default order: name, ascending.
+        let Some(key) = self.columns[col_ix].sort_key() else {
+            return;
+        };
         let sort = match sort {
             ColumnSort::Default => Sort::default(),
             sort => Sort {
-                key: COLUMNS[col_ix].0,
+                key,
                 descending: sort == ColumnSort::Descending,
             },
         };
@@ -309,8 +315,8 @@ impl TableDelegate for FileTable {
         } else {
             theme.foreground
         };
-        match COLUMNS[col_ix].0 {
-            SortKey::Name => {
+        match self.columns[col_ix] {
+            ColumnKind::Name => {
                 let expanded = folder.is_expanded(&entry.path);
                 let icon = glyph(icons::icon_for(
                     &entry.name,
@@ -347,11 +353,11 @@ impl TableDelegate for FileTable {
                     .child(div().truncate().child(entry.name.clone()))
                     .into_any_element()
             }
-            SortKey::Ext => div()
+            ColumnKind::Ext => div()
                 .text_color(color)
                 .child(entry.ext().to_string())
                 .into_any_element(),
-            SortKey::Size => div()
+            ColumnKind::Size => div()
                 .w_full()
                 .text_right()
                 .text_color(color)
@@ -361,9 +367,21 @@ impl TableDelegate for FileTable {
                     fs_ops::format_size(entry.size)
                 })
                 .into_any_element(),
-            SortKey::Modified => div()
+            ColumnKind::Modified => div()
                 .text_color(theme.muted_foreground)
                 .when_some(entry.modified, |d, t| d.child(fs_ops::format_time(t)))
+                .into_any_element(),
+            ColumnKind::Permissions => div()
+                .font_family(theme.mono_font_family.clone())
+                .text_xs()
+                .text_color(theme.muted_foreground)
+                .when(!entry.is_parent, |d| {
+                    d.child(entry.attrs.permissions(entry.is_dir))
+                })
+                .into_any_element(),
+            ColumnKind::Owner => div()
+                .text_color(theme.muted_foreground)
+                .when(!entry.is_parent, |d| d.child(entry.attrs.owner()))
                 .into_any_element(),
         }
     }

@@ -240,7 +240,10 @@ impl Commander {
             }
             cx.new(|_| folder)
         });
-        let views = [0, 1].map(|ix| cx.new(|cx| FolderView::new(folders[ix].clone(), window, cx)));
+        let columns = crate::columns::normalize(&settings.panels.columns);
+        let views = [0, 1].map(|ix| {
+            cx.new(|cx| FolderView::new(folders[ix].clone(), columns.clone(), window, cx))
+        });
 
         let registry = Arc::new(PreviewRegistry::with_defaults());
         let preview = cx.new(|cx| PreviewPane::new(registry, window, cx));

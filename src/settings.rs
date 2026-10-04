@@ -69,6 +69,8 @@ pub struct PanelSettings {
     /// Start directory of the right panel; default: home directory.
     pub right: Option<PathBuf>,
     pub tree: bool,
+    /// Columns shown, in order; Name is always first.
+    pub columns: Vec<crate::columns::ColumnKind>,
     pub sort: SortSetting,
     pub sort_descending: bool,
 }
@@ -119,6 +121,7 @@ impl Default for PanelSettings {
             left: None,
             right: None,
             tree: false,
+            columns: crate::columns::ColumnKind::DEFAULT.to_vec(),
             sort: SortSetting::Name,
             sort_descending: false,
         }

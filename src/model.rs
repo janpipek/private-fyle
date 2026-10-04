@@ -174,6 +174,7 @@ impl Folder {
                 is_parent: true,
                 size: 0,
                 modified: None,
+                attrs: Default::default(),
             },
             depth: 0,
         }];
@@ -617,6 +618,7 @@ mod tests {
                 is_parent: false,
                 size: 0,
                 modified: None,
+                attrs: Default::default(),
             }
         };
 

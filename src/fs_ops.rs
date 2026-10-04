@@ -12,6 +12,88 @@ pub struct Entry {
     pub is_parent: bool,
     pub size: u64,
     pub modified: Option<SystemTime>,
+    pub attrs: Attrs,
+}
+
+/// Platform attributes shown in optional columns.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Attrs {
+    /// Unix mode bits (type and permissions).
+    pub mode: Option<u32>,
+    /// Unix owner id.
+    pub uid: Option<u32>,
+    pub readonly: bool,
+}
+
+impl Attrs {
+    pub fn from_meta(meta: &fs::Metadata) -> Self {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            Self {
+                mode: Some(meta.mode()),
+                uid: Some(meta.uid()),
+                readonly: meta.permissions().readonly(),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            Self {
+                mode: None,
+                uid: None,
+                readonly: meta.permissions().readonly(),
+            }
+        }
+    }
+
+    /// `drwxr-xr-x` on Unix; `r-` / `rw` elsewhere.
+    pub fn permissions(&self, is_dir: bool) -> String {
+        let Some(mode) = self.mode else {
+            return if self.readonly {
+                "r-".into()
+            } else {
+                "rw".into()
+            };
+        };
+        let kind = if is_dir { 'd' } else { '-' };
+        let bits = ['r', 'w', 'x'];
+        std::iter::once(kind)
+            .chain((0..9).map(|i| {
+                let bit = 1 << (8 - i);
+                if mode & bit != 0 { bits[i % 3] } else { '-' }
+            }))
+            .collect()
+    }
+
+    /// Owner's user name (from /etc/passwd), else the numeric id.
+    pub fn owner(&self) -> String {
+        match self.uid {
+            Some(uid) => user_name(uid).unwrap_or_else(|| uid.to_string()),
+            None => String::new(),
+        }
+    }
+}
+
+/// User names by uid, read once from /etc/passwd.
+fn user_name(uid: u32) -> Option<String> {
+    use std::collections::HashMap;
+    use std::sync::OnceLock;
+    static USERS: OnceLock<HashMap<u32, String>> = OnceLock::new();
+    USERS
+        .get_or_init(|| {
+            fs::read_to_string("/etc/passwd")
+                .unwrap_or_default()
+                .lines()
+                .filter_map(|line| {
+                    let mut fields = line.split(':');
+                    let name = fields.next()?.to_string();
+                    let uid = fields.nth(1)?.parse().ok()?;
+                    Some((uid, name))
+                })
+                .collect()
+        })
+        .get(&uid)
+        .cloned()
 }
 
 impl Entry {
@@ -128,6 +210,7 @@ pub fn read_dir(dir: &Path, show_hidden: bool) -> io::Result<Vec<Entry>> {
             is_parent: true,
             size: 0,
             modified: None,
+            attrs: Attrs::default(),
         });
     }
     for item in fs::read_dir(dir)? {
@@ -145,6 +228,7 @@ pub fn read_dir(dir: &Path, show_hidden: bool) -> io::Result<Vec<Entry>> {
             is_dir: meta.as_ref().is_some_and(|m| m.is_dir()),
             is_parent: false,
             size: meta.as_ref().map_or(0, |m| m.len()),
+            attrs: meta.as_ref().map(Attrs::from_meta).unwrap_or_default(),
             modified: meta.and_then(|m| m.modified().ok()),
         });
     }
@@ -177,6 +261,7 @@ fn drives() -> Vec<Entry> {
                 is_parent: false,
                 size: 0,
                 modified: None,
+                attrs: Default::default(),
             })
             .collect()
     }
@@ -308,6 +393,7 @@ mod tests {
             is_parent: name == "..",
             size,
             modified: None,
+            attrs: Default::default(),
         }
     }
 
@@ -327,6 +413,24 @@ mod tests {
             natural_cmp("99999999999999999999", "100000000000000000000"),
             Ordering::Less
         );
+    }
+
+    #[test]
+    fn formats_permissions() {
+        let attrs = |mode| Attrs {
+            mode: Some(mode),
+            uid: None,
+            readonly: false,
+        };
+        assert_eq!(attrs(0o100644).permissions(false), "-rw-r--r--");
+        assert_eq!(attrs(0o40755).permissions(true), "drwxr-xr-x");
+        let windows = Attrs {
+            mode: None,
+            uid: None,
+            readonly: true,
+        };
+        assert_eq!(windows.permissions(false), "r-");
+        assert_eq!(windows.owner(), "");
     }
 
     #[test]
