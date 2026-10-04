@@ -6,6 +6,10 @@
 - [ ] F4 editor: built-in text editor (gpui-component's code editor), or external `$EDITOR`.
 - [ ] Icon themes: loadable icon sets (e.g. Zed icon themes), optional per-type colours.
 - [ ] Tools UI: menu of offers (grouped, disabled when a program is missing), parameter form, pick list, log view, confirmation; load the user's tools.toml. Model is done (`src/tools/`, `docs/tools.md`).
+- [ ] Find files (fd-like) and search contents (rg-like): results as a virtual panel
+      (navigate, preview, copy/move from it), streamed while searching, cancellable.
+      Use `fd`/`rg` when installed; otherwise the `ignore`/`grep` crates
+      (ripgrep's own libraries) so it works everywhere, incl. Windows.
 - [ ] Ctrl-P command palette: fuzzy list of all commands with their key bindings.
 - [ ] Zed theme import (converter from Zed's theme JSON).
 - [ ] Favourite locations from the desktop environment
