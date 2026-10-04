@@ -73,6 +73,12 @@ impl PreviewPane {
         cx.notify();
     }
 
+    /// Loads the current target again (e.g. after it was edited).
+    pub fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let target = self.target.take();
+        self.set_target(target, window, cx);
+    }
+
     fn show(
         &mut self,
         result: Result<Preview, String>,

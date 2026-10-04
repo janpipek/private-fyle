@@ -28,6 +28,7 @@ Defaults: left = current directory, right = home directory.
 | Ctrl-H              | Toggle hidden files                       |
 | Ctrl-T              | Toggle tree mode (per panel)              |
 | F3                  | Toggle quick preview (replaces the other panel, follows the cursor) |
+| F4                  | Edit the cursor file (UTF-8 text, up to 8 MiB) in place of the other panel; Ctrl-S saves, Esc/Ctrl-W closes (asks before discarding changes) |
 | Ctrl-K Ctrl-T       | Theme picker: arrows preview live, Enter keeps and saves to `config.toml`, Esc restores |
 | Right / Left        | Tree: expand / collapse (or go to parent) |
 | Ctrl-R              | Refresh                                   |
@@ -90,6 +91,8 @@ commands. `src/fs_ops.rs` contains the file system operations.
 `src/tools/` is the model for context-dependent tools (run ruff on Python
 files, uv commands in uv projects, convert images, …); see
 [`docs/tools.md`](docs/tools.md). Not wired into the UI yet.
+`src/editor.rs` loads/saves edited files (UTF-8 only, atomic save keeping
+permissions); `src/editor_view.rs` is the editor pane.
 `src/icons.rs` maps names/extensions to semantic icon kinds; the table view
 picks the glyph for each kind.
 

@@ -2,6 +2,8 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod commander;
+mod editor;
+mod editor_view;
 mod fs_ops;
 mod icons;
 mod model;
@@ -42,6 +44,7 @@ fn main() {
         .run(move |cx| {
             gpui_kit::init(cx);
             commander::bind_keys(cx);
+            editor_view::bind_keys(cx);
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     cx.quit();

@@ -15,7 +15,7 @@
 mod binary;
 mod directory;
 mod image;
-mod text;
+pub mod text;
 
 use std::fs::{self, File};
 use std::io::{self, Read};

@@ -1,0 +1,179 @@
+//! Editor pane for a [`Document`]: gpui-component's code editor with save,
+//! close and a modified marker.
+
+use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
+use gpui_kit::component::input::{Editor, EditorState, InputEvent};
+use gpui_kit::component::{
+    ActiveTheme as _, Disableable as _, Sizable as _, WindowExt as _, h_flex, v_flex,
+};
+use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::*;
+
+use crate::editor::Document;
+
+actions!(fyle_editor, [SaveFile, CloseEditor]);
+
+const CONTEXT: &str = "EditorPane";
+
+pub fn bind_keys(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("secondary-s", SaveFile, Some(CONTEXT)),
+        KeyBinding::new("secondary-w", CloseEditor, Some(CONTEXT)),
+        KeyBinding::new("escape", CloseEditor, Some(CONTEXT)),
+    ]);
+}
+
+pub enum EditorEvent {
+    Saved(String),
+    Failed(String),
+    Closed,
+}
+
+pub struct EditorPane {
+    doc: Document,
+    state: Entity<EditorState>,
+    modified: bool,
+    _subscription: Subscription,
+}
+
+impl EventEmitter<EditorEvent> for EditorPane {}
+
+impl EditorPane {
+    pub fn new(doc: Document, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let state = cx.new(|cx| {
+            EditorState::new(window, cx)
+                .language(doc.language())
+                .line_number(true)
+                .soft_wrap(false)
+        });
+        state.update(cx, |state, cx| {
+            state.set_value(doc.text().to_string(), window, cx);
+            state.focus(window, cx);
+        });
+        let subscription = cx.subscribe(&state, |this, state, event: &InputEvent, cx| {
+            if let InputEvent::Change = event {
+                let modified = this.doc.is_modified(&state.read(cx).value());
+                if modified != this.modified {
+                    this.modified = modified;
+                    cx.notify();
+                }
+            }
+        });
+        Self {
+            doc,
+            state,
+            modified: false,
+            _subscription: subscription,
+        }
+    }
+
+    pub fn is_modified(&self) -> bool {
+        self.modified
+    }
+
+    pub fn focus(&self, window: &mut Window, cx: &mut App) {
+        self.state.update(cx, |state, cx| state.focus(window, cx));
+    }
+
+    fn save(&mut self, _: &SaveFile, _: &mut Window, cx: &mut Context<Self>) {
+        let text = self.state.read(cx).value();
+        match self.doc.save(&text) {
+            Ok(()) => {
+                self.modified = false;
+                cx.emit(EditorEvent::Saved(format!(
+                    "Saved {}",
+                    self.doc.path().display()
+                )));
+            }
+            Err(e) => cx.emit(EditorEvent::Failed(e)),
+        }
+        cx.notify();
+    }
+
+    /// Closes, asking first if there are unsaved changes.
+    fn close(&mut self, _: &CloseEditor, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.modified {
+            cx.emit(EditorEvent::Closed);
+            return;
+        }
+        let this = cx.entity().downgrade();
+        let description = format!("Discard unsaved changes to \"{}\"?", self.doc.name());
+        window.open_alert_dialog(cx, move |dialog, _, _| {
+            let this = this.clone();
+            dialog
+                .title("Unsaved changes")
+                .description(description.clone())
+                .ok_text("Discard")
+                .ok_variant(ButtonVariant::Danger)
+                .show_cancel(true)
+                .on_ok(move |_, _, cx| {
+                    let _ = this.update(cx, |_, cx| cx.emit(EditorEvent::Closed));
+                    true
+                })
+        });
+    }
+}
+
+impl Render for EditorPane {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        v_flex()
+            .key_context(CONTEXT)
+            .on_action(cx.listener(Self::save))
+            .on_action(cx.listener(Self::close))
+            .size_full()
+            .gap_1()
+            .child(
+                h_flex()
+                    .gap_2()
+                    .px_2()
+                    .py_0p5()
+                    .rounded(theme.radius)
+                    .bg(theme.muted)
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .child(self.doc.path().display().to_string()),
+                    )
+                    .when(self.modified, |d| {
+                        d.child(div().flex_none().child("● modified"))
+                    })
+                    .child(
+                        Button::new("save")
+                            .label("Save")
+                            .ghost()
+                            .xsmall()
+                            .disabled(!self.modified)
+                            .on_click(cx.listener(|this, _, w, cx| this.save(&SaveFile, w, cx))),
+                    )
+                    .child(
+                        Button::new("close")
+                            .label("Close")
+                            .ghost()
+                            .xsmall()
+                            .on_click(
+                                cx.listener(|this, _, w, cx| this.close(&CloseEditor, w, cx)),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .rounded(theme.radius)
+                    .border_1()
+                    .border_color(theme.border)
+                    .overflow_hidden()
+                    .child(Editor::new(&self.state).bordered(false).h_full()),
+            )
+            .child(
+                div()
+                    .px_2()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child("Ctrl-S save · Esc / Ctrl-W close"),
+            )
+    }
+}

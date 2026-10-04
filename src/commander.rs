@@ -14,6 +14,8 @@ use gpui_kit::component::{
 };
 use gpui_kit::*;
 
+use crate::editor::Document;
+use crate::editor_view::{EditorEvent, EditorPane};
 use crate::fs_ops;
 use crate::model::{Activation, Folder};
 use crate::panel::{Activate, FolderView};
@@ -41,6 +43,7 @@ actions!(
         ToggleHidden,
         ToggleTree,
         TogglePreview,
+        EditFile,
         SelectTheme,
         Expand,
         Collapse,
@@ -53,11 +56,13 @@ const CONTEXT: &str = "Commander";
 const TABLE_CONTEXT: &str = "Commander > DataTable";
 
 pub fn bind_keys(cx: &mut App) {
+    // Window-wide keys; panel keys are bound in the table context so they do
+    // not fire while typing in the editor.
     let ctx = Some(CONTEXT);
     let table = Some(TABLE_CONTEXT);
     cx.bind_keys([
-        KeyBinding::new("enter", Open, ctx),
-        KeyBinding::new("backspace", GoUp, ctx),
+        KeyBinding::new("enter", Open, table),
+        KeyBinding::new("backspace", GoUp, table),
         KeyBinding::new("tab", SwitchPanel, table),
         KeyBinding::new("shift-tab", SwitchPanel, table),
         KeyBinding::new("home", GoFirst, table),
@@ -65,18 +70,19 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("left", Collapse, table),
         KeyBinding::new("right", Expand, table),
         KeyBinding::new("escape", Unmark, table),
-        KeyBinding::new("insert", ToggleMark, ctx),
-        KeyBinding::new("space", ToggleMark, ctx),
+        KeyBinding::new("insert", ToggleMark, table),
+        KeyBinding::new("space", ToggleMark, table),
         KeyBinding::new("f3", TogglePreview, ctx),
+        KeyBinding::new("f4", EditFile, table),
         KeyBinding::new("ctrl-k ctrl-t", SelectTheme, ctx),
-        KeyBinding::new("f5", Copy, ctx),
-        KeyBinding::new("f6", Move, ctx),
-        KeyBinding::new("f7", MakeDir, ctx),
-        KeyBinding::new("f8", Delete, ctx),
-        KeyBinding::new("delete", Delete, ctx),
-        KeyBinding::new("secondary-r", Refresh, ctx),
-        KeyBinding::new("ctrl-h", ToggleHidden, ctx),
-        KeyBinding::new("ctrl-t", ToggleTree, ctx),
+        KeyBinding::new("f5", Copy, table),
+        KeyBinding::new("f6", Move, table),
+        KeyBinding::new("f7", MakeDir, table),
+        KeyBinding::new("f8", Delete, table),
+        KeyBinding::new("delete", Delete, table),
+        KeyBinding::new("secondary-r", Refresh, table),
+        KeyBinding::new("ctrl-h", ToggleHidden, table),
+        KeyBinding::new("ctrl-t", ToggleTree, table),
         KeyBinding::new("f10", Quit, ctx),
         KeyBinding::new("secondary-q", Quit, None),
     ]);
@@ -94,6 +100,9 @@ pub struct Commander {
     /// Quick view shown in place of the inactive panel while enabled.
     preview: Entity<PreviewPane>,
     preview_on: bool,
+    /// Open editor, shown in place of the inactive panel (before the preview).
+    editor: Option<Entity<EditorPane>>,
+    _editor_subscription: Option<Subscription>,
     /// The `theme` setting currently in effect.
     theme: String,
     active: usize,
@@ -154,6 +163,8 @@ impl Commander {
             views,
             preview,
             preview_on: settings.preview.open_on_start,
+            editor: None,
+            _editor_subscription: None,
             theme: settings.theme.clone(),
             active: 0,
             show_hidden: settings.show_hidden,
@@ -303,6 +314,57 @@ impl Commander {
             Err(e) => format!("Theme: {name} (not saved: {e})").into(),
         };
         self.theme = name;
+        cx.notify();
+    }
+
+    /// F4: edits the cursor file in place of the inactive panel.
+    fn edit_file(&mut self, _: &EditFile, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(editor) = &self.editor
+            && editor.read(cx).is_modified()
+        {
+            self.status = "Save or close the open file first".into();
+            editor
+                .clone()
+                .update(cx, |editor, cx| editor.focus(window, cx));
+            cx.notify();
+            return;
+        }
+        let Some(entry) = self.folders[self.active].read(cx).current().cloned() else {
+            return;
+        };
+        if entry.is_dir {
+            return;
+        }
+        let doc = match Document::open(&entry.path) {
+            Ok(doc) => doc,
+            Err(e) => {
+                self.status = e.into();
+                cx.notify();
+                return;
+            }
+        };
+        let editor = cx.new(|cx| EditorPane::new(doc, window, cx));
+        self._editor_subscription = Some(cx.subscribe_in(
+            &editor,
+            window,
+            |this, _, event: &EditorEvent, window, cx| {
+                match event {
+                    EditorEvent::Saved(message) => {
+                        this.status = message.clone().into();
+                        this.reload_all(cx);
+                        this.preview.update(cx, |p, cx| p.reload(window, cx));
+                    }
+                    EditorEvent::Failed(error) => this.status = error.clone().into(),
+                    EditorEvent::Closed => {
+                        this.editor = None;
+                        this._editor_subscription = None;
+                        this.focus_active(window, cx);
+                    }
+                }
+                cx.notify();
+            },
+        ));
+        self.editor = Some(editor);
         cx.notify();
     }
 
@@ -548,6 +610,10 @@ impl Commander {
                 ),
             )
             .child(
+                key("f4", "F4 Edit")
+                    .on_click(cx.listener(|this, _, w, cx| this.edit_file(&EditFile, w, cx))),
+            )
+            .child(
                 key("f5", "F5 Copy")
                     .on_click(cx.listener(|this, _, w, cx| this.copy(&Copy, w, cx))),
             )
@@ -604,6 +670,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::toggle_hidden))
             .on_action(cx.listener(Self::toggle_tree))
             .on_action(cx.listener(Self::toggle_preview))
+            .on_action(cx.listener(Self::edit_file))
             .on_action(cx.listener(Self::select_theme))
             .on_action(cx.listener(Self::expand))
             .on_action(cx.listener(Self::collapse))
@@ -620,7 +687,9 @@ impl Render for Commander {
                     .p_2()
                     .children((0..2).map(|ix| {
                         let pane = div().flex_1().min_w_0().h_full();
-                        if self.preview_on && ix != self.active {
+                        if let Some(editor) = self.editor.as_ref().filter(|_| ix != self.active) {
+                            pane.child(editor.clone())
+                        } else if self.preview_on && ix != self.active {
                             pane.child(self.preview.clone())
                         } else {
                             pane.child(self.views[ix].clone())
