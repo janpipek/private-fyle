@@ -17,9 +17,6 @@
 //! TOML: built-in `defaults.toml` plus the user's `tools.toml`) and Rust
 //! implementations of [`Tool`] for anything needing logic ([`builtin`]).
 
-// Not wired into the UI yet.
-#![allow(dead_code)]
-
 pub mod builtin;
 pub mod command;
 pub mod detect;
@@ -309,6 +306,49 @@ impl fmt::Debug for Action {
                 .finish(),
             Self::Native(job) => f.debug_tuple("Native").field(&job.describe()).finish(),
         }
+    }
+}
+
+impl Action {
+    /// Lines describing what will happen, for a confirmation prompt.
+    pub fn describe(&self) -> Vec<String> {
+        match self {
+            Self::OpenUrl(url) => vec![format!("Open {url}")],
+            Self::Run(spec) => vec![spec.command_line()],
+            Self::Sequence(actions) => actions.iter().flat_map(Action::describe).collect(),
+            Self::Pick { title, items } => vec![format!("{title}: {} choices", items.len())],
+            Self::Native(job) => vec![job.describe()],
+        }
+    }
+
+    /// Whether running it changes nothing locally, so no confirmation is needed.
+    pub fn is_harmless(&self) -> bool {
+        matches!(self, Self::OpenUrl(_) | Self::Pick { .. })
+    }
+}
+
+impl CommandSpec {
+    /// Shell-like rendering for display only (commands never run in a shell).
+    pub fn command_line(&self) -> String {
+        let quote = |s: &str| {
+            if !s.is_empty()
+                && s.chars()
+                    .all(|c| c.is_alphanumeric() || "-_./=:,+@%".contains(c))
+            {
+                s.to_string()
+            } else {
+                format!("'{}'", s.replace('\'', "'\\''"))
+            }
+        };
+        let program = self
+            .program
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| self.program.display().to_string());
+        std::iter::once(quote(&program))
+            .chain(self.args.iter().map(|a| quote(a)))
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 }
 

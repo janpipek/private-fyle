@@ -29,6 +29,7 @@ Defaults: left = current directory, right = home directory.
 | Shift-F8 / Shift-Delete | Delete permanently (with confirmation) |
 | Ctrl-H              | Toggle hidden files                       |
 | Ctrl-T              | Toggle tree mode (per panel)              |
+| F2                  | Tools for the selection / directory (see [`docs/tools.md`](docs/tools.md)) |
 | F3                  | Toggle quick preview (replaces the other panel, follows the cursor) |
 | F4                  | Edit the cursor file (UTF-8 text, up to 8 MiB) in place of the other panel; Ctrl-S saves, Esc/Ctrl-W closes (asks before discarding changes) |
 | Ctrl-P              | Command palette: all commands with their keys, filtered by typing |
@@ -93,7 +94,8 @@ model and forwards cursor moves, sorting and double-clicks to it.
 commands. `src/fs_ops.rs` contains the file system operations.
 `src/tools/` is the model for context-dependent tools (run ruff on Python
 files, uv commands in uv projects, convert images, …); see
-[`docs/tools.md`](docs/tools.md). Not wired into the UI yet.
+[`docs/tools.md`](docs/tools.md). F2 opens them; your own go in
+`<config dir>/fyle/tools.toml`.
 `src/editor.rs` loads/saves edited files (UTF-8 only, atomic save keeping
 permissions); `src/editor_view.rs` is the editor pane.
 `src/icons.rs` maps names/extensions to semantic icon kinds; the table view

@@ -456,3 +456,19 @@ fn runs_commands_and_reports_failures() {
     assert!(report.summary.starts_with("Created"));
     assert!(tmp.0.join("gallery.html").is_file());
 }
+
+#[test]
+fn describes_actions_for_confirmation() {
+    let spec = CommandSpec {
+        program: PathBuf::from("/usr/bin/magick"),
+        args: vec!["a b.png".into(), "out.webp".into(), "it's".into()],
+        cwd: PathBuf::from("/"),
+        output: Output::Status,
+        refresh: false,
+    };
+    assert_eq!(spec.command_line(), "magick 'a b.png' out.webp 'it'\\''s'");
+    let action = Action::Sequence(vec![Action::Run(spec.clone()), Action::Run(spec)]);
+    assert_eq!(action.describe().len(), 2);
+    assert!(!action.is_harmless());
+    assert!(Action::OpenUrl("https://x".into()).is_harmless());
+}

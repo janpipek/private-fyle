@@ -5,7 +5,6 @@
       EXIF next to images.
 - [ ] Editor: optional external editor (`$EDITOR` / setting), Shift-F4 new file, warn when the file changed on disk.
 - [ ] Icon themes: loadable icon sets (e.g. Zed icon themes), optional per-type colours.
-- [ ] Tools UI: menu of offers (grouped, disabled when a program is missing), parameter form, pick list, log view, confirmation; load the user's tools.toml. Model is done (`src/tools/`, `docs/tools.md`).
 - [ ] Find files (fd-like) and search contents (rg-like): results as a virtual panel
       (navigate, preview, copy/move from it), streamed while searching, cancellable.
       Built on the `ignore`/`grep` crates (ripgrep's own libraries), no
@@ -42,6 +41,7 @@
 
 ## Done
 
+- [x] Tools UI (F2): grouped menu, parameter form, pick list, confirmation with command lines, background run, output dialog; user tools.toml.
 - [x] Ctrl-P command palette with key bindings (palette.rs model, palette_view.rs).
 - [x] Filter as you type (/ or Ctrl-F), kept in the Folder model, cleared on directory change.
 - [x] F8 moves to the system trash (trash crate; Recycle Bin on Windows); Shift-F8 deletes permanently.

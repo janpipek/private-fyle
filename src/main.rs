@@ -16,6 +16,7 @@ mod settings;
 mod theme_picker;
 mod themes;
 mod tools;
+mod tools_view;
 
 use std::path::PathBuf;
 

@@ -5,9 +5,12 @@ what they apply to and often backed by external programs: open a repository's
 website, `uv sync`, convert images with ImageMagick, zip a selection, convert
 CSV, build a web gallery from images, run `ruff`, run justfile recipes, …
 
-Code: `src/tools/`. Status: model, built-in tools and runner are implemented
-and tested; the UI (menu, parameter form, pick list, log view) is not wired
-yet.
+Code: `src/tools/` (model, tested) and `src/tools_view.rs` + `commander.rs`
+(UI). F2 opens the menu: tools grouped by section, disabled ones show the
+missing program; then a parameter form if needed, a pick list for
+`Action::Pick`, a confirmation listing the exact commands (URLs open without
+asking), and the result in the status line or, for `output = "log"`, an
+output dialog. Planning and running happen in the background.
 
 ## Flow
 
@@ -50,7 +53,7 @@ will run before it runs.
 
 **Declarative (TOML)** for "run this command on these files", which covers
 most cases. Built-ins live in `src/tools/defaults.toml`; users add or override
-(by `id`) in `<config dir>/fyle/tools.toml` (not loaded yet).
+(by `id`) in `<config dir>/fyle/tools.toml`.
 
 ```toml
 [[tool]]
@@ -116,8 +119,8 @@ params = [{ key = "format", label = "Format", choices = ["webp", "png", "jpg"] }
 - **Trust:** tools come only from fyle itself and the user's config.
   Project-local tool files (a repo shipping its own `tools.toml`) are not
   loaded; supporting them would need a trust prompt.
-- **Confirmation:** the UI should show the planned commands before running.
-  Open: confirm always, or only for tools marked destructive (`confirm = true`)?
+- **Confirmation:** every action that runs something is confirmed with the
+  exact command lines; opening a URL and pick lists are not.
 - **Long-running commands:** `exec` currently waits and captures output.
   Streaming output into the log view, progress and cancellation are next.
 - **Windows:** `.cmd`/`.bat` programs found via `PATHEXT` are started directly;

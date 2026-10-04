@@ -1,7 +1,7 @@
 //! The window: two [`Folder`] models, each shown by a [`FolderView`], plus the
 //! commands that act on them.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -12,6 +12,7 @@ use gpui_kit::component::list::{List, ListState};
 use gpui_kit::component::{
     ActiveTheme as _, IndexPath, Sizable as _, ThemeRegistry, WindowExt as _, h_flex, v_flex,
 };
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::editor::Document;
@@ -21,11 +22,15 @@ use crate::model::{Activation, Folder};
 use crate::palette::{Command, Palette};
 use crate::palette_view::PaletteDelegate;
 use crate::panel::{Activate, FolderView};
-use crate::preview::Registry;
+use crate::preview::Registry as PreviewRegistry;
 use crate::preview_view::PreviewPane;
 use crate::settings::{self, Settings};
 use crate::theme_picker::{self, ThemePickerDelegate};
 use crate::themes::ThemePicker;
+use crate::tools::{
+    self, Action as ToolAction, Offer, ParamKind, Programs, Registry, Target, ToolContext, Values,
+};
+use crate::tools_view::{MenuDelegate, PickDelegate};
 
 actions!(
     fyle,
@@ -49,6 +54,7 @@ actions!(
         Filter,
         EditFile,
         SelectTheme,
+        ToolsMenu,
         CommandPalette,
         Expand,
         Collapse,
@@ -77,6 +83,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", Unmark, table),
         KeyBinding::new("insert", ToggleMark, table),
         KeyBinding::new("space", ToggleMark, table),
+        KeyBinding::new("f2", ToolsMenu, table),
         KeyBinding::new("f3", TogglePreview, ctx),
         KeyBinding::new("/", Filter, table),
         KeyBinding::new("ctrl-f", Filter, table),
@@ -111,6 +118,10 @@ pub struct Commander {
     /// Quick view shown in place of the inactive panel while enabled.
     preview: Entity<PreviewPane>,
     preview_on: bool,
+    tools: Arc<Registry>,
+    programs: Arc<Programs>,
+    /// Planning or running a tool in the background.
+    _tool_task: Task<()>,
     /// Open editor, shown in place of the inactive panel (before the preview).
     editor: Option<Entity<EditorPane>>,
     _editor_subscription: Option<Subscription>,
@@ -145,7 +156,7 @@ impl Commander {
         });
         let views = [0, 1].map(|ix| cx.new(|cx| FolderView::new(folders[ix].clone(), window, cx)));
 
-        let registry = Arc::new(Registry::with_defaults());
+        let registry = Arc::new(PreviewRegistry::with_defaults());
         let preview = cx.new(|cx| PreviewPane::new(registry, window, cx));
 
         let mut subscriptions = Vec::new();
@@ -169,11 +180,18 @@ impl Commander {
             ));
         }
 
+        let (tools_registry, tools_error) = load_tools();
+        if let Some(e) = tools_error {
+            status = e.into();
+        }
         let this = Self {
             folders,
             views,
             preview,
             preview_on: settings.preview.open_on_start,
+            tools: Arc::new(tools_registry),
+            programs: Arc::new(Programs::from_env()),
+            _tool_task: Task::ready(()),
             editor: None,
             _editor_subscription: None,
             theme: settings.theme.clone(),
@@ -267,6 +285,308 @@ impl Commander {
         self.update_preview(window, cx);
     }
 
+    /// What the tools see: the active panel and the other panel's directory.
+    fn tool_context(&self, cx: &App) -> ToolContext {
+        let folder = self.folders[self.active].read(cx);
+        let other = self.folders[1 - self.active].read(cx).path();
+        ToolContext {
+            dir: folder.path().to_path_buf(),
+            targets: folder
+                .targets()
+                .into_iter()
+                .map(|path| {
+                    let is_dir = path.is_dir();
+                    Target::new(path, is_dir)
+                })
+                .collect(),
+            other_dir: (!other.as_os_str().is_empty()).then(|| other.to_path_buf()),
+        }
+    }
+
+    /// F2: tools applicable to the selection / directory, grouped.
+    fn tools_menu(&mut self, _: &ToolsMenu, window: &mut Window, cx: &mut Context<Self>) {
+        let ctx = self.tool_context(cx);
+        let facts = tools::detect::detect(&ctx);
+        let offers = self.tools.offers(&ctx, &facts, &self.programs);
+        if offers.is_empty() {
+            self.status = "No tools for this selection".into();
+            cx.notify();
+            return;
+        }
+        let this = cx.entity().downgrade();
+        let delegate = MenuDelegate::new(offers, move |offer: Offer, window, cx| {
+            window.close_dialog(cx);
+            let (ctx, facts) = (ctx.clone(), facts.clone());
+            let _ = this.update(cx, |this, cx| {
+                this.ask_params(offer, ctx, facts, window, cx)
+            });
+        });
+        let list = cx.new(|cx| ListState::new(delegate, window, cx).searchable(true));
+        list.update(cx, |list, cx| {
+            list.set_selected_index(Some(IndexPath::new(0)), window, cx)
+        });
+        let dialog_list = list.clone();
+        window.open_dialog(cx, move |dialog, _, _| {
+            dialog.title("Tools").w(px(480.)).child(
+                div()
+                    .h(px(400.))
+                    .child(List::new(&dialog_list).search_placeholder("Filter tools…")),
+            )
+        });
+        list.update(cx, |list, cx| list.focus(window, cx));
+    }
+
+    /// Asks for the tool's parameters (if any), then plans it.
+    fn ask_params(
+        &mut self,
+        offer: Offer,
+        ctx: ToolContext,
+        facts: tools::Facts,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let params = self
+            .tools
+            .tool(&offer.id)
+            .map(|t| t.params(&ctx))
+            .unwrap_or_default();
+        if params.is_empty() {
+            self.plan_tool(offer, ctx, facts, Values::new(), window, cx);
+            return;
+        }
+        enum Field {
+            Text(Entity<InputState>),
+            Choice(Vec<String>, Rc<RefCell<String>>),
+        }
+        let fields: Rc<Vec<(String, String, Field)>> = Rc::new(
+            params
+                .into_iter()
+                .map(|p| {
+                    let default = p.default_value();
+                    let field =
+                        match p.kind {
+                            ParamKind::Text { .. } => Field::Text(cx.new(|cx| {
+                                InputState::new(window, cx).default_value(default.clone())
+                            })),
+                            ParamKind::Choice(options) => {
+                                Field::Choice(options, Rc::new(RefCell::new(default)))
+                            }
+                        };
+                    (p.key, p.label, field)
+                })
+                .collect(),
+        );
+        let this = cx.entity().downgrade();
+        let first_input = fields.iter().find_map(|(_, _, f)| match f {
+            Field::Text(input) => Some(input.clone()),
+            Field::Choice(..) => None,
+        });
+        window.open_alert_dialog(cx, move |dialog, _, _| {
+            let form = v_flex()
+                .gap_3()
+                .w_full()
+                .children(fields.iter().enumerate().map(|(i, (_, label, field))| {
+                    let control = match field {
+                        Field::Text(input) => Input::new(input).into_any_element(),
+                        Field::Choice(options, value) => h_flex()
+                            .flex_wrap()
+                            .gap_1()
+                            .children(options.iter().enumerate().map(|(j, option)| {
+                                let (value, option) = (value.clone(), option.clone());
+                                let selected = *value.borrow() == option;
+                                Button::new(("choice", i * 100 + j))
+                                    .label(option.clone())
+                                    .small()
+                                    .when(selected, |b| b.primary())
+                                    .when(!selected, |b| b.outline())
+                                    .on_click(move |_, window, _| {
+                                        *value.borrow_mut() = option.clone();
+                                        window.refresh();
+                                    })
+                            }))
+                            .into_any_element(),
+                    };
+                    v_flex().gap_1().child(label.clone()).child(control)
+                }));
+            let (this, fields, offer, ctx, facts) = (
+                this.clone(),
+                fields.clone(),
+                offer.clone(),
+                ctx.clone(),
+                facts.clone(),
+            );
+            dialog
+                .title(offer.label.clone())
+                .description(form)
+                .ok_text("Continue")
+                .show_cancel(true)
+                .on_ok(move |_, window, cx| {
+                    let values: Values = fields
+                        .iter()
+                        .map(|(key, _, field)| {
+                            let value = match field {
+                                Field::Text(input) => input.read(cx).value().to_string(),
+                                Field::Choice(_, value) => value.borrow().clone(),
+                            };
+                            (key.clone(), value)
+                        })
+                        .collect();
+                    let (offer, ctx, facts) = (offer.clone(), ctx.clone(), facts.clone());
+                    let _ = this.update(cx, |this, cx| {
+                        this.plan_tool(offer, ctx, facts, values, window, cx)
+                    });
+                    true
+                })
+        });
+        if let Some(input) = first_input {
+            input.update(cx, |input, cx| input.focus(window, cx));
+        }
+    }
+
+    /// Plans in the background (a tool may run quick probes).
+    fn plan_tool(
+        &mut self,
+        offer: Offer,
+        ctx: ToolContext,
+        facts: tools::Facts,
+        values: Values,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.status = format!("{}…", offer.label.trim_end_matches('…')).into();
+        cx.notify();
+        let (registry, programs) = (self.tools.clone(), self.programs.clone());
+        self._tool_task = cx.spawn_in(window, async move |this, cx| {
+            let id = offer.id.clone();
+            let result = cx
+                .background_spawn(
+                    async move { registry.plan(&id, &ctx, &facts, &programs, &values) },
+                )
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.handle_tool_action(offer.label, result, window, cx)
+            });
+        });
+    }
+
+    /// Resolves picks, confirms anything that changes files, then runs.
+    fn handle_tool_action(
+        &mut self,
+        label: String,
+        result: Result<ToolAction, String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let action = match result {
+            Ok(action) => action,
+            Err(e) => {
+                self.status = format!("{label}: {e}").into();
+                cx.notify();
+                return;
+            }
+        };
+        let this = cx.entity().downgrade();
+        match action {
+            ToolAction::Pick { title, items } => {
+                let labels = items
+                    .iter()
+                    .map(|i| match &i.detail {
+                        Some(detail) => format!("{} — {detail}", i.label),
+                        None => i.label.clone(),
+                    })
+                    .collect();
+                let items = Rc::new(RefCell::new(items));
+                let delegate = PickDelegate::new(labels, move |index, window, cx| {
+                    window.close_dialog(cx);
+                    let mut items = items.borrow_mut();
+                    if index < items.len() {
+                        let item = items.swap_remove(index);
+                        let label = item.label.clone();
+                        let _ = this.update(cx, |this, cx| {
+                            this.handle_tool_action(label, Ok(item.action), window, cx)
+                        });
+                    }
+                });
+                let list = cx.new(|cx| ListState::new(delegate, window, cx).searchable(true));
+                list.update(cx, |list, cx| {
+                    list.set_selected_index(Some(IndexPath::new(0)), window, cx)
+                });
+                let dialog_list = list.clone();
+                window.open_dialog(cx, move |dialog, _, _| {
+                    dialog
+                        .title(title.clone())
+                        .w(px(420.))
+                        .child(div().h(px(360.)).child(List::new(&dialog_list)))
+                });
+                list.update(cx, |list, cx| list.focus(window, cx));
+            }
+            action if action.is_harmless() => self.run_tool_action(label, action, window, cx),
+            action => {
+                let lines = action.describe();
+                let mut shown: Vec<String> = lines.iter().take(12).cloned().collect();
+                if lines.len() > shown.len() {
+                    shown.push(format!("… and {} more", lines.len() - shown.len()));
+                }
+                let pending = Rc::new(RefCell::new(Some(action)));
+                window.open_alert_dialog(cx, move |dialog, _, cx| {
+                    let (this, pending, label) = (this.clone(), pending.clone(), label.clone());
+                    let mono = cx.theme().mono_font_family.clone();
+                    dialog
+                        .title(label.clone())
+                        .description(
+                            v_flex()
+                                .gap_1()
+                                .font_family(mono)
+                                .text_xs()
+                                .children(shown.iter().map(|l| div().child(l.clone()))),
+                        )
+                        .ok_text("Run")
+                        .show_cancel(true)
+                        .on_ok(move |_, window, cx| {
+                            if let Some(action) = pending.borrow_mut().take() {
+                                let label = label.clone();
+                                let _ = this.update(cx, |this, cx| {
+                                    this.run_tool_action(label, action, window, cx)
+                                });
+                            }
+                            true
+                        })
+                });
+            }
+        }
+    }
+
+    fn run_tool_action(
+        &mut self,
+        label: String,
+        action: ToolAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.status = format!("Running {label}…").into();
+        cx.notify();
+        self._tool_task = cx.spawn_in(window, async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { tools::exec::run(action) })
+                .await;
+            let _ = this.update_in(cx, |this, window, cx| {
+                match result {
+                    Ok(report) => {
+                        this.status = format!("{label}: {}", report.summary).into();
+                        if report.refresh {
+                            this.reload_all(cx);
+                        }
+                        if !report.log.trim().is_empty() {
+                            show_log(&label, report.log, window, cx);
+                        }
+                    }
+                    Err(e) => this.status = format!("{label}: {e}").into(),
+                }
+                cx.notify();
+            });
+        });
+    }
+
     /// Every command offered in the palette.
     fn palette_commands() -> Vec<(&'static str, Box<dyn Action>)> {
         vec![
@@ -291,6 +611,7 @@ impl Commander {
             ("Toggle hidden files", Box::new(ToggleHidden)),
             ("Refresh", Box::new(Refresh)),
             ("Select theme", Box::new(SelectTheme)),
+            ("Tools…", Box::new(ToolsMenu)),
             ("Quit", Box::new(Quit)),
         ]
     }
@@ -809,6 +1130,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::edit_file))
             .on_action(cx.listener(Self::select_theme))
             .on_action(cx.listener(Self::command_palette))
+            .on_action(cx.listener(Self::tools_menu))
             .on_action(cx.listener(Self::expand))
             .on_action(cx.listener(Self::collapse))
             .on_action(cx.listener(Self::quit))
@@ -864,4 +1186,43 @@ fn summarize(verb: &str, done: usize, errors: &[String]) -> String {
             if rest.is_empty() { "" } else { " …" }
         ),
     }
+}
+
+/// Built-in tools plus the user's `<config dir>/fyle/tools.toml`.
+fn load_tools() -> (Registry, Option<String>) {
+    let mut registry = Registry::with_defaults();
+    let Some(path) = dirs::config_dir().map(|d| d.join("fyle").join("tools.toml")) else {
+        return (registry, None);
+    };
+    let error = match std::fs::read_to_string(&path) {
+        Ok(text) => registry
+            .load_toml(&text)
+            .err()
+            .map(|e| format!("{}: {e}", path.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => Some(format!("{}: {e}", path.display())),
+    };
+    (registry, error)
+}
+
+/// Shows a command's output in a scrollable dialog.
+fn show_log(title: &str, log: String, window: &mut Window, cx: &mut App) {
+    let title = format!("{title}: output");
+    let lines: Rc<Vec<String>> = Rc::new(log.lines().map(String::from).collect());
+    window.open_dialog(cx, move |dialog, _, cx| {
+        let mono = cx.theme().mono_font_family.clone();
+        dialog.title(title.clone()).w(px(760.)).child(
+            div()
+                .id("log")
+                .h(px(420.))
+                .overflow_y_scroll()
+                .font_family(mono)
+                .text_xs()
+                .children(
+                    lines
+                        .iter()
+                        .map(|l| div().whitespace_nowrap().child(l.clone())),
+                ),
+        )
+    });
 }

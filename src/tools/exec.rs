@@ -50,7 +50,11 @@ pub fn run(action: Action) -> Result<Report, String> {
 }
 
 fn run_command(spec: &CommandSpec) -> Result<Report, String> {
-    let name = spec.program.display().to_string();
+    let name = spec
+        .program
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| spec.program.display().to_string());
     let mut command = Command::new(&spec.program);
     command.args(&spec.args).current_dir(&spec.cwd);
     if spec.output == Output::Detached {
