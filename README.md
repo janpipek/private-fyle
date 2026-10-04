@@ -43,6 +43,18 @@ attribute count as hidden.
 
 Copy and move never overwrite existing targets.
 
+## Settings
+
+`config.toml` in the platform config directory:
+
+- Linux: `~/.config/fyle/config.toml` (respects `$XDG_CONFIG_HOME`)
+- Windows: `%APPDATA%\fyle\config.toml`
+- macOS: `~/Library/Application Support/fyle/config.toml`
+
+All keys are optional; see [`config.example.toml`](config.example.toml) for
+every key with its default. Errors (including unknown keys) are shown in the
+status line and the defaults are used. Settings are read at startup.
+
 ## Build dependencies
 
 - Linux (Debian/Ubuntu): `libxkbcommon-dev libxkbcommon-x11-dev libfontconfig1-dev libxcb1-dev libwayland-dev`,

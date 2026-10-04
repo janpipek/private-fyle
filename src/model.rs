@@ -73,6 +73,14 @@ impl Folder {
         }
     }
 
+    /// Initial options, applied by the first load.
+    pub fn with_options(mut self, show_hidden: bool, tree: bool, sort: Sort) -> Self {
+        self.show_hidden = show_hidden;
+        self.tree = tree;
+        self.sort = sort;
+        self
+    }
+
     pub fn path(&self) -> &Path {
         &self.path
     }

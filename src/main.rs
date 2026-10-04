@@ -7,18 +7,31 @@ mod model;
 mod panel;
 mod preview;
 mod preview_view;
+mod settings;
 
 use std::path::PathBuf;
 
 use gpui_kit::*;
 
 use commander::Commander;
+use gpui_kit::component::{Theme, ThemeMode};
+use settings::{Settings, ThemeSetting};
 
 fn main() {
+    let (settings, settings_error) = Settings::load();
+
+    // Command-line directories override the configured ones.
     let mut args = std::env::args_os().skip(1).map(PathBuf::from);
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let left = args.next().unwrap_or_else(|| cwd.clone());
-    let right = args.next().or_else(std::env::home_dir).unwrap_or(cwd);
+    let left = args
+        .next()
+        .or_else(|| settings.panels.left.clone())
+        .unwrap_or_else(|| cwd.clone());
+    let right = args
+        .next()
+        .or_else(|| settings.panels.right.clone())
+        .or_else(std::env::home_dir)
+        .unwrap_or(cwd);
 
     gpui_kit::application()
         .with_assets(gpui_kit::assets::Assets)
@@ -32,7 +45,8 @@ fn main() {
             })
             .detach();
 
-            let bounds = Bounds::centered(None, size(px(1200.), px(760.)), cx);
+            let size = size(px(settings.window.width), px(settings.window.height));
+            let bounds = Bounds::centered(None, size, cx);
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions {
@@ -42,7 +56,15 @@ fn main() {
                 ..Default::default()
             };
             gpui_kit::open_window(options, cx, |window, cx| {
-                cx.new(|cx| Commander::new(left, right, window, cx))
+                match settings.theme {
+                    ThemeSetting::System => Theme::sync_system_appearance(Some(window), cx),
+                    ThemeSetting::Light => Theme::change(ThemeMode::Light, Some(window), cx),
+                    ThemeSetting::Dark => Theme::change(ThemeMode::Dark, Some(window), cx),
+                }
+                let commander = cx
+                    .new(|cx| Commander::new([left, right], &settings, settings_error, window, cx));
+                commander.update(cx, |commander, cx| commander.init(window, cx));
+                commander
             })
             .expect("failed to open window");
             cx.activate(true);

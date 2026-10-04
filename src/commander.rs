@@ -15,6 +15,7 @@ use crate::model::{Activation, Folder};
 use crate::panel::{Activate, FolderView};
 use crate::preview::Registry;
 use crate::preview_view::PreviewPane;
+use crate::settings::Settings;
 
 actions!(
     fyle,
@@ -93,11 +94,20 @@ pub struct Commander {
 }
 
 impl Commander {
-    pub fn new(left: PathBuf, right: PathBuf, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    /// `settings_error` is shown in the status line if loading settings failed.
+    pub fn new(
+        [left, right]: [PathBuf; 2],
+        settings: &Settings,
+        settings_error: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let mut status: SharedString =
             "Tab: switch panel · Enter: open · Backspace: up · Space/Insert: mark".into();
+        let panels = &settings.panels;
         let folders = [left, right].map(|path| {
-            let mut folder = Folder::new(path);
+            let mut folder =
+                Folder::new(path).with_options(settings.show_hidden, panels.tree, panels.sort());
             if let Some(e) = folder.load_or_ancestor() {
                 status = e.into();
             }
@@ -133,16 +143,21 @@ impl Commander {
             folders,
             views,
             preview,
-            preview_on: false,
+            preview_on: settings.preview.open_on_start,
             active: 0,
-            show_hidden: false,
-            status,
+            show_hidden: settings.show_hidden,
+            status: settings_error.map_or(status, Into::into),
             _subscriptions: subscriptions,
             _mkdir_subscription: None,
         };
         this.views[0].update(cx, |view, cx| view.set_active(true, cx));
         this.focus_active(window, cx);
         this
+    }
+
+    /// Called once the entity exists (the preview needs `self`'s context).
+    pub fn init(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.update_preview(window, cx);
     }
 
     fn set_active(&mut self, ix: usize, cx: &mut Context<Self>) {

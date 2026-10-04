@@ -1,0 +1,26 @@
+# fyle settings. Copy to:
+#   Linux:   ~/.config/fyle/config.toml   ($XDG_CONFIG_HOME/fyle/config.toml)
+#   Windows: %APPDATA%\fyle\config.toml
+#   macOS:   ~/Library/Application Support/fyle/config.toml
+# Every key is optional; the values below are the defaults.
+# Unknown keys are an error (shown in the status line; defaults are used).
+
+show_hidden = false
+theme = "system"          # "system" | "light" | "dark"
+
+[window]
+width = 1200
+height = 760
+
+[panels]
+# Start directories; "~" expands to the home directory.
+# Command-line arguments override these. Defaults: left = current
+# directory, right = home directory.
+# left = "~/projects"
+# right = "~"
+tree = false              # start panels in tree mode
+sort = "name"             # "name" | "ext" | "size" | "modified"
+sort_descending = false
+
+[preview]
+open_on_start = false     # open the F3 quick preview at startup
