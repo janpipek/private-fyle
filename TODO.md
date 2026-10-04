@@ -7,7 +7,6 @@
 - [ ] Search: show the matching line of content hits (preview could scroll to it); regex option.
 - [ ] Windows Quick Access pins in Go to (needs the shell API).
 - [ ] Ideas from yazi (terminal file manager):
-  - [ ] Yank/cut/paste between panels and tabs, besides F5/F6.
   - [ ] Tabs per panel.
   - [ ] Openers: rules by MIME type/extension choosing which app opens a file
         (incl. "open with…" list).
@@ -27,6 +26,7 @@
 
 ## Done
 
+- [x] Yank/cut/paste (Ctrl-C/X/V) between panels; paths also on the system clipboard.
 - [x] Editor: Shift-F4 new file, overwrite prompt when changed on disk, optional external editor ([editor] command).
 - [x] Configurable columns (panels.columns): name, ext, size, modified, permissions, owner.
 - [x] Configurable keymap ([[keymap]] in config.toml) and F1 help listing all commands with keys.

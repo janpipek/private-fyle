@@ -62,6 +62,31 @@ impl Progress {
     }
 }
 
+/// Entries yanked (Ctrl-C) or cut (Ctrl-X), waiting to be pasted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Yank {
+    pub paths: Vec<PathBuf>,
+    pub cut: bool,
+}
+
+impl Yank {
+    /// The job pasting into `dest`, or why not. Pasting into the directory
+    /// the entries come from would only produce "already exists" errors.
+    pub fn paste_into(&self, dest: &Path) -> Result<JobKind, String> {
+        if self.paths.iter().all(|p| p.parent() == Some(dest)) {
+            return Err("Already in this directory".into());
+        }
+        if let Some(inside) = self.paths.iter().find(|p| dest.starts_with(p)) {
+            return Err(format!("Cannot paste {} into itself", inside.display()));
+        }
+        Ok(if self.cut {
+            JobKind::Move
+        } else {
+            JobKind::Copy
+        })
+    }
+}
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Outcome {
     /// Top-level items fully processed.
@@ -208,6 +233,19 @@ mod tests {
         assert_eq!(outcome.done, 1);
         assert!(!root.join("dest/src").exists());
         fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn paste_rules() {
+        let yank = Yank {
+            paths: vec![PathBuf::from("/a/x"), PathBuf::from("/a/y")],
+            cut: true,
+        };
+        assert_eq!(yank.paste_into(Path::new("/b")), Ok(JobKind::Move));
+        assert!(yank.paste_into(Path::new("/a")).is_err());
+        assert!(yank.paste_into(Path::new("/a/x/sub")).is_err());
+        let copy = Yank { cut: false, ..yank };
+        assert_eq!(copy.paste_into(Path::new("/b")), Ok(JobKind::Copy));
     }
 
     #[test]

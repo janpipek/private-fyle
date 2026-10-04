@@ -21,7 +21,7 @@ use gpui_kit::*;
 use crate::editor::Document;
 use crate::editor_view::{EditorEvent, EditorPane};
 use crate::fs_ops;
-use crate::jobs::{self, JobKind, Progress};
+use crate::jobs::{self, JobKind, Progress, Yank};
 use crate::model::{Activation, Folder};
 use crate::palette::{Command, Palette};
 use crate::palette_view::PaletteDelegate;
@@ -62,6 +62,9 @@ actions!(
         EditFile,
         NewFile,
         SelectTheme,
+        YankFiles,
+        CutFiles,
+        PasteFiles,
         Help,
         Rename,
         GoTo,
@@ -145,6 +148,9 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("space", ToggleMark, table),
         KeyBinding::new("f1", Help, ctx),
         KeyBinding::new("f2", ToolsMenu, table),
+        KeyBinding::new("secondary-c", YankFiles, table),
+        KeyBinding::new("secondary-x", CutFiles, table),
+        KeyBinding::new("secondary-v", PasteFiles, table),
         KeyBinding::new("shift-f6", Rename, table),
         KeyBinding::new("ctrl-g", GoTo, table),
         KeyBinding::new("alt-f1", GoTo, table),
@@ -198,6 +204,8 @@ pub struct Commander {
     programs: Arc<Programs>,
     /// Planning or running a tool in the background.
     _tool_task: Task<()>,
+    /// Entries waiting to be pasted.
+    yank: Option<Yank>,
     bookmarks: Vec<PathBuf>,
     history: History,
     /// Last directory recorded in the history.
@@ -286,6 +294,7 @@ impl Commander {
             tools: Arc::new(tools_registry),
             programs: Arc::new(Programs::from_env()),
             _tool_task: Task::ready(()),
+            yank: None,
             bookmarks: settings.bookmarks.clone(),
             history: History::path()
                 .map(|p| History::load(&p))
@@ -390,6 +399,56 @@ impl Commander {
         self.set_active(1 - self.active, cx);
         self.focus_active(window, cx);
         self.update_preview(window, cx);
+    }
+
+    fn yank_files(&mut self, _: &YankFiles, _: &mut Window, cx: &mut Context<Self>) {
+        self.set_yank(false, cx);
+    }
+
+    fn cut_files(&mut self, _: &CutFiles, _: &mut Window, cx: &mut Context<Self>) {
+        self.set_yank(true, cx);
+    }
+
+    /// Remembers the targets for pasting; their paths also go to the
+    /// system clipboard as text.
+    fn set_yank(&mut self, cut: bool, cx: &mut Context<Self>) {
+        let paths = self.folders[self.active].read(cx).targets();
+        if paths.is_empty() {
+            return;
+        }
+        let text = paths
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        cx.write_to_clipboard(ClipboardItem::new_string(text));
+        let verb = if cut { "Cut" } else { "Yanked" };
+        self.status = format!("{verb} {}; Ctrl-V pastes", describe(&paths)).into();
+        self.yank = Some(Yank { paths, cut });
+        self.update_folder(cx, Folder::clear_marks);
+        cx.notify();
+    }
+
+    /// Ctrl-V: copies (or moves, after a cut) the yanked entries here.
+    fn paste_files(&mut self, _: &PasteFiles, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(yank) = self.yank.clone() else {
+            self.status = "Nothing to paste (Ctrl-C / Ctrl-X first)".into();
+            cx.notify();
+            return;
+        };
+        let dest = self.folders[self.active].read(cx).path().to_path_buf();
+        match yank.paste_into(&dest) {
+            Ok(kind) => {
+                if yank.cut {
+                    self.yank = None; // moved: nothing left to paste
+                }
+                self.start_job(kind, yank.paths, Some(dest), window, cx);
+            }
+            Err(e) => {
+                self.status = e.into();
+                cx.notify();
+            }
+        }
     }
 
     /// Shift-F6: renames the cursor entry, or all marked entries at once
@@ -1065,6 +1124,9 @@ impl Commander {
             ("Find files / search contents…", Box::new(FindFiles)),
             ("Cancel running jobs", Box::new(CancelJobs)),
             ("Rename (bulk when several are marked)", Box::new(Rename)),
+            ("Yank (copy) entries for pasting", Box::new(YankFiles)),
+            ("Cut entries for pasting", Box::new(CutFiles)),
+            ("Paste yanked / cut entries here", Box::new(PasteFiles)),
             ("Go to… (bookmarks, places, frequent)", Box::new(GoTo)),
             ("Bookmark this directory", Box::new(AddBookmark)),
             ("Quit", Box::new(Quit)),
@@ -1761,6 +1823,9 @@ impl Render for Commander {
             .on_action(cx.listener(Self::find_files))
             .on_action(cx.listener(Self::cancel_jobs))
             .on_action(cx.listener(Self::rename))
+            .on_action(cx.listener(Self::yank_files))
+            .on_action(cx.listener(Self::cut_files))
+            .on_action(cx.listener(Self::paste_files))
             .on_action(cx.listener(Self::go_to))
             .on_action(cx.listener(Self::add_bookmark))
             .on_action(cx.listener(Self::expand))

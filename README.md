@@ -23,6 +23,7 @@ Defaults: left = current directory, right = home directory.
 | / or Ctrl-F         | Filter as you type (Enter keeps the filter, Esc clears it) |
 | Esc                 | Clear the filter, else the marks          |
 | Shift-F4            | New file: create and edit it |
+| Ctrl-C / Ctrl-X / Ctrl-V | Yank / cut / paste entries (paths also go to the system clipboard); paste runs as a background copy/move |
 | F5                  | Copy marked (or current) to other panel   |
 | F6                  | Move marked (or current) to other panel   |
 | Shift-F6            | Rename; with several marked, edit one name per line (bulk rename, swaps allowed) |
