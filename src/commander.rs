@@ -62,6 +62,7 @@ actions!(
         EditFile,
         NewFile,
         SelectTheme,
+        OpenWith,
         YankFiles,
         CutFiles,
         PasteFiles,
@@ -136,6 +137,7 @@ pub fn bind_keys(cx: &mut App) {
     let table = Some(TABLE_CONTEXT);
     cx.bind_keys([
         KeyBinding::new("enter", Open, table),
+        KeyBinding::new("shift-enter", OpenWith, table),
         KeyBinding::new("backspace", GoUp, table),
         KeyBinding::new("tab", SwitchPanel, table),
         KeyBinding::new("shift-tab", SwitchPanel, table),
@@ -204,6 +206,7 @@ pub struct Commander {
     programs: Arc<Programs>,
     /// Planning or running a tool in the background.
     _tool_task: Task<()>,
+    openers: Vec<crate::openers::Opener>,
     /// Entries waiting to be pasted.
     yank: Option<Yank>,
     bookmarks: Vec<PathBuf>,
@@ -295,6 +298,7 @@ impl Commander {
             programs: Arc::new(Programs::from_env()),
             _tool_task: Task::ready(()),
             yank: None,
+            openers: settings.openers.clone(),
             bookmarks: settings.bookmarks.clone(),
             history: History::path()
                 .map(|p| History::load(&p))
@@ -372,8 +376,17 @@ impl Commander {
     fn open(&mut self, _: &Open, _: &mut Window, cx: &mut Context<Self>) {
         match self.update_folder(cx, Folder::activate) {
             Ok(Activation::OpenFile(path)) => {
-                if let Err(e) = open::that_detached(&path) {
-                    self.status = format!("Cannot open {}: {e}", path.display()).into();
+                let rule = crate::openers::matching(&self.openers, &path)
+                    .first()
+                    .cloned()
+                    .cloned();
+                match rule {
+                    Some(rule) => self.run_opener(&rule, &path),
+                    None => {
+                        if let Err(e) = open::that_detached(&path) {
+                            self.status = format!("Cannot open {}: {e}", path.display()).into();
+                        }
+                    }
                 }
             }
             Ok(_) => {}
@@ -449,6 +462,67 @@ impl Commander {
                 cx.notify();
             }
         }
+    }
+
+    fn run_opener(&mut self, rule: &crate::openers::Opener, path: &Path) {
+        let Some((program, args)) = rule.command_for(path) else {
+            self.status = format!("Opener {:?} has no command", rule.label).into();
+            return;
+        };
+        self.status = match std::process::Command::new(&program).args(&args).spawn() {
+            Ok(_) => format!("Opened {} with {}", tools::file_name(path), rule.label).into(),
+            Err(e) => format!("{}: {e}", program.display()).into(),
+        };
+    }
+
+    /// Shift-Enter: choose how to open the cursor file.
+    fn open_with(&mut self, _: &OpenWith, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(entry) = self.folders[self.active].read(cx).current().cloned() else {
+            return;
+        };
+        if entry.is_dir {
+            return;
+        }
+        let path = entry.path.clone();
+        let rules: Vec<_> = crate::openers::matching(&self.openers, &path)
+            .into_iter()
+            .cloned()
+            .collect();
+        let mut labels: Vec<String> = rules.iter().map(|r| r.label.clone()).collect();
+        labels.push("System default".into());
+        labels.push("Built-in editor (F4)".into());
+        let rules = Rc::new(rules);
+        let this = cx.entity().downgrade();
+        let delegate = PickDelegate::new(labels, move |index, window, cx| {
+            window.close_dialog(cx);
+            let path = path.clone();
+            let rules = rules.clone();
+            let _ = this.update(cx, |this, cx| {
+                if let Some(rule) = rules.get(index) {
+                    this.run_opener(rule, &path);
+                } else if index == rules.len() {
+                    if let Err(e) = open::that_detached(&path) {
+                        this.status = format!("Cannot open {}: {e}", path.display()).into();
+                    }
+                } else {
+                    this.open_in_editor(path.clone(), Document::open(&path), window, cx);
+                }
+                cx.notify();
+            });
+        });
+        let list = cx.new(|cx| ListState::new(delegate, window, cx).searchable(true));
+        list.update(cx, |list, cx| {
+            list.set_selected_index(Some(IndexPath::new(0)), window, cx)
+        });
+        let dialog_list = list.clone();
+        let title = format!("Open {} with", entry.name);
+        window.open_dialog(cx, move |dialog, _, _| {
+            dialog
+                .title(title.clone())
+                .w(px(420.))
+                .child(div().h(px(260.)).child(List::new(&dialog_list)))
+        });
+        list.update(cx, |list, cx| list.focus(window, cx));
     }
 
     /// Shift-F6: renames the cursor entry, or all marked entries at once
@@ -1099,6 +1173,7 @@ impl Commander {
     fn palette_commands() -> Vec<(&'static str, Box<dyn Action>)> {
         vec![
             ("Open / enter directory", Box::new(Open)),
+            ("Open with…", Box::new(OpenWith)),
             ("Go to parent directory", Box::new(GoUp)),
             ("Go to first entry", Box::new(GoFirst)),
             ("Go to last entry", Box::new(GoLast)),
@@ -1823,6 +1898,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::find_files))
             .on_action(cx.listener(Self::cancel_jobs))
             .on_action(cx.listener(Self::rename))
+            .on_action(cx.listener(Self::open_with))
             .on_action(cx.listener(Self::yank_files))
             .on_action(cx.listener(Self::cut_files))
             .on_action(cx.listener(Self::paste_files))

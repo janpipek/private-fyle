@@ -20,6 +20,15 @@ bookmarks = []
 # DeletePermanently, Rename, EditFile, TogglePreview, ToggleTree, ToggleHidden,
 # Filter, GoTo, AddBookmark, FindFiles, ToolsMenu, SelectTheme, Refresh, Quit,
 # ...), or "none" to unbind. `context`: "panel" (default), "global", "editor".
+# Programs opening files. Enter uses the first matching rule (else the system
+# default); Shift-Enter offers all matching ones. The path is appended to
+# `command`, or substituted for "{path}". Match by `exts`, `kinds` (image,
+# code, text, audio, video, archive, ...) or `names`.
+# [[opener]]
+# label = "GIMP"
+# command = ["gimp"]
+# kinds = ["image"]
+
 # [[keymap]]
 # keys = "ctrl-c"
 # action = "Copy"

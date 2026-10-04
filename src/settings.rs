@@ -22,6 +22,9 @@ pub struct Settings {
     pub theme: String,
     /// Directories offered first in Go to (Ctrl-G); Ctrl-D adds one.
     pub bookmarks: Vec<PathBuf>,
+    /// Programs opening files (Enter uses the first match; Shift-Enter lists all).
+    #[serde(rename = "opener")]
+    pub openers: Vec<crate::openers::Opener>,
     /// Extra key bindings, applied after (and so overriding) the defaults.
     pub keymap: Vec<KeymapEntry>,
     pub window: WindowSettings,
@@ -108,6 +111,7 @@ impl Default for Settings {
             theme: "system".into(),
             bookmarks: Vec::new(),
             keymap: Vec::new(),
+            openers: Vec::new(),
             window: WindowSettings::default(),
             panels: PanelSettings::default(),
             preview: PreviewSettings::default(),

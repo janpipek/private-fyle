@@ -16,7 +16,8 @@ Defaults: left = current directory, right = home directory.
 | ------------------- | ----------------------------------------- |
 | Up / Down, PgUp/Dn  | Move cursor                               |
 | Home / End          | First / last entry                        |
-| Enter / dbl-click   | Enter directory, or open file externally  |
+| Enter / dbl-click   | Enter directory, or open the file (first matching `[[opener]]`, else the system default) |
+| Shift-Enter         | Open with…: matching openers, system default, built-in editor |
 | Backspace           | Parent directory                          |
 | Tab                 | Switch active panel                       |
 | Space / Insert      | Mark entry                                |

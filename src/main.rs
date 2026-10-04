@@ -9,6 +9,7 @@ mod fs_ops;
 mod icons;
 mod jobs;
 mod model;
+mod openers;
 mod palette;
 mod palette_view;
 mod panel;
