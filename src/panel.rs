@@ -109,16 +109,25 @@ impl Render for FolderView {
             .size_full()
             .gap_1()
             .child(
-                div()
+                h_flex()
+                    .gap_2()
                     .px_2()
                     .py_1()
                     .rounded(theme.radius)
-                    .truncate()
                     .when(self.active, |d| {
                         d.bg(theme.primary).text_color(theme.primary_foreground)
                     })
                     .when(!self.active, |d| d.bg(theme.muted))
-                    .child(fs_ops::display_path(folder.path())),
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .child(fs_ops::display_path(folder.path())),
+                    )
+                    .when(folder.is_tree(), |d| {
+                        d.child(div().flex_none().text_xs().child("TREE"))
+                    }),
             )
             .child(
                 div()
@@ -195,9 +204,10 @@ impl TableDelegate for FileTable {
         cx: &mut Context<TableState<Self>>,
     ) -> impl IntoElement {
         let folder = self.folder.read(cx);
-        let Some(entry) = folder.entries().get(row_ix) else {
+        let Some(row) = folder.entries().get(row_ix) else {
             return div().into_any_element();
         };
+        let entry = &row.entry;
         let theme = cx.theme();
         let color = if folder.is_marked(&entry.path) {
             theme.danger
@@ -207,17 +217,42 @@ impl TableDelegate for FileTable {
             theme.foreground
         };
         match COLUMNS[col_ix].0 {
-            SortKey::Name => h_flex()
-                .gap_2()
-                .min_w_0()
-                .text_color(color)
-                .child(if entry.is_dir {
-                    IconName::Folder
-                } else {
-                    IconName::File
-                })
-                .child(div().truncate().child(entry.name.clone()))
-                .into_any_element(),
+            SortKey::Name => {
+                let expanded = folder.is_expanded(&entry.path);
+                let icon = match (entry.is_dir, expanded) {
+                    (true, true) => IconName::FolderOpen,
+                    (true, false) => IconName::Folder,
+                    (false, _) => IconName::File,
+                };
+                // Tree mode: indentation plus a clickable expand chevron.
+                let chevron = folder.is_tree().then(|| {
+                    let toggle = (entry.is_dir && !entry.is_parent).then(|| {
+                        let (folder, path) = (self.folder.clone(), entry.path.clone());
+                        div()
+                            .child(if expanded {
+                                IconName::ChevronDown
+                            } else {
+                                IconName::ChevronRight
+                            })
+                            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                                folder.update(cx, |folder, cx| {
+                                    folder.toggle_expanded(&path);
+                                    cx.notify();
+                                });
+                            })
+                    });
+                    div().w(px(14.)).flex_none().children(toggle)
+                });
+                h_flex()
+                    .gap_1p5()
+                    .min_w_0()
+                    .pl(px(16. * row.depth as f32))
+                    .text_color(color)
+                    .children(chevron)
+                    .child(icon)
+                    .child(div().truncate().child(entry.name.clone()))
+                    .into_any_element()
+            }
             SortKey::Ext => div()
                 .text_color(color)
                 .child(entry.ext().to_string())

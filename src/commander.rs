@@ -29,6 +29,9 @@ actions!(
         Delete,
         Refresh,
         ToggleHidden,
+        ToggleTree,
+        Expand,
+        Collapse,
         Quit,
     ]
 );
@@ -47,8 +50,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("shift-tab", SwitchPanel, table),
         KeyBinding::new("home", GoFirst, table),
         KeyBinding::new("end", GoLast, table),
-        KeyBinding::new("left", NoAction, table),
-        KeyBinding::new("right", NoAction, table),
+        KeyBinding::new("left", Collapse, table),
+        KeyBinding::new("right", Expand, table),
         KeyBinding::new("escape", Unmark, table),
         KeyBinding::new("insert", ToggleMark, ctx),
         KeyBinding::new("space", ToggleMark, ctx),
@@ -59,6 +62,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("delete", Delete, ctx),
         KeyBinding::new("secondary-r", Refresh, ctx),
         KeyBinding::new("ctrl-h", ToggleHidden, ctx),
+        KeyBinding::new("ctrl-t", ToggleTree, ctx),
         KeyBinding::new("f10", Quit, ctx),
         KeyBinding::new("secondary-q", Quit, None),
     ]);
@@ -194,6 +198,21 @@ impl Commander {
     fn switch_panel(&mut self, _: &SwitchPanel, window: &mut Window, cx: &mut Context<Self>) {
         self.set_active(1 - self.active, cx);
         self.focus_active(window, cx);
+    }
+
+    fn toggle_tree(&mut self, _: &ToggleTree, _: &mut Window, cx: &mut Context<Self>) {
+        let error = self.update_folder(cx, |f| f.set_tree(!f.is_tree()));
+        self.set_error(error.map_or(Ok(()), Err), cx);
+    }
+
+    fn expand(&mut self, _: &Expand, _: &mut Window, cx: &mut Context<Self>) {
+        let error = self.update_folder(cx, Folder::expand);
+        self.set_error(error.map_or(Ok(()), Err), cx);
+    }
+
+    fn collapse(&mut self, _: &Collapse, _: &mut Window, cx: &mut Context<Self>) {
+        let error = self.update_folder(cx, Folder::collapse);
+        self.set_error(error.map_or(Ok(()), Err), cx);
     }
 
     fn toggle_mark(&mut self, _: &ToggleMark, _: &mut Window, cx: &mut Context<Self>) {
@@ -422,6 +441,10 @@ impl Commander {
                 ),
             )
             .child(
+                key("tree", "^T Tree")
+                    .on_click(cx.listener(|this, _, w, cx| this.toggle_tree(&ToggleTree, w, cx))),
+            )
+            .child(
                 key("f10", "F10 Quit")
                     .on_click(cx.listener(|this, _, w, cx| this.quit(&Quit, w, cx))),
             )
@@ -447,6 +470,9 @@ impl Render for Commander {
             .on_action(cx.listener(Self::delete))
             .on_action(cx.listener(Self::refresh))
             .on_action(cx.listener(Self::toggle_hidden))
+            .on_action(cx.listener(Self::toggle_tree))
+            .on_action(cx.listener(Self::expand))
+            .on_action(cx.listener(Self::collapse))
             .on_action(cx.listener(Self::quit))
             .size_full()
             .bg(bg)

@@ -26,8 +26,13 @@ Defaults: left = current directory, right = home directory.
 | F7                  | New directory                             |
 | F8 / Delete         | Delete (with confirmation)                |
 | Ctrl-H              | Toggle hidden files                       |
+| Ctrl-T              | Toggle tree mode (per panel)              |
+| Right / Left        | Tree: expand / collapse (or go to parent) |
 | Ctrl-R              | Refresh                                   |
 | F10 / Ctrl-Q        | Quit                                      |
+
+In tree mode, clicking a folder's chevron also expands/collapses it; Enter
+still makes the folder the panel's root.
 
 Click a column's sort icon to sort (directories always stay on top); drag
 header borders to resize.
@@ -47,8 +52,8 @@ CI builds and tests on Linux and Windows (`.github/workflows/ci.yml`).
 
 ## Architecture
 
-Model first: `src/model.rs` holds each panel's state (`Folder`: path, entries,
-cursor, marks, sort, hidden files) with no UI code and its own unit tests.
+Model first: `src/model.rs` holds each panel's state (`Folder`: path, rows,
+cursor, marks, sort, hidden files, tree expansion) with no UI code and its own unit tests.
 `src/panel.rs` is a `DataTable` view on top of a `Folder`; it only renders the
 model and forwards cursor moves, sorting and double-clicks to it.
 `src/commander.rs` owns the two models and their views and implements the

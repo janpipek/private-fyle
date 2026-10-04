@@ -1,8 +1,10 @@
 //! UI-independent state of a folder panel. Views render a [`Folder`] and
-//! translate input into calls on it; all navigation, cursor, marking and
-//! sorting rules live here.
+//! translate input into calls on it; all navigation, cursor, marking,
+//! sorting and tree expansion rules live here.
 
 use std::collections::BTreeSet;
+use std::io;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
 use crate::fs_ops::{self, Entry, SortKey};
@@ -30,13 +32,30 @@ pub enum Activation {
     Nothing,
 }
 
+/// A listed entry and its nesting depth (always 0 outside tree mode).
+#[derive(Clone, Debug)]
+pub struct Row {
+    pub entry: Entry,
+    pub depth: usize,
+}
+
+impl Deref for Row {
+    type Target = Entry;
+
+    fn deref(&self) -> &Entry {
+        &self.entry
+    }
+}
+
 pub struct Folder {
     path: PathBuf,
-    entries: Vec<Entry>,
+    entries: Vec<Row>,
     cursor: usize,
     marked: BTreeSet<PathBuf>,
     sort: Sort,
     show_hidden: bool,
+    tree: bool,
+    expanded: BTreeSet<PathBuf>,
 }
 
 impl Folder {
@@ -49,6 +68,8 @@ impl Folder {
             marked: BTreeSet::new(),
             sort: Sort::default(),
             show_hidden: false,
+            tree: false,
+            expanded: BTreeSet::new(),
         }
     }
 
@@ -56,7 +77,7 @@ impl Folder {
         &self.path
     }
 
-    pub fn entries(&self) -> &[Entry] {
+    pub fn entries(&self) -> &[Row] {
         &self.entries
     }
 
@@ -64,12 +85,20 @@ impl Folder {
         self.cursor
     }
 
-    pub fn current(&self) -> Option<&Entry> {
+    pub fn current(&self) -> Option<&Row> {
         self.entries.get(self.cursor)
     }
 
     pub fn sort(&self) -> Sort {
         self.sort
+    }
+
+    pub fn is_tree(&self) -> bool {
+        self.tree
+    }
+
+    pub fn is_expanded(&self, path: &Path) -> bool {
+        self.tree && self.expanded.contains(path)
     }
 
     pub fn is_marked(&self, path: &Path) -> bool {
@@ -144,7 +173,7 @@ impl Folder {
     }
 
     pub fn activate(&mut self) -> Result<Activation, String> {
-        let Some(entry) = self.current().cloned() else {
+        let Some(entry) = self.current().map(|r| r.entry.clone()) else {
             return Ok(Activation::Nothing);
         };
         if entry.is_dir {
@@ -173,10 +202,64 @@ impl Folder {
 
     /// Re-sorts, keeping the cursor on the same entry.
     pub fn set_sort(&mut self, sort: Sort) {
-        let selected = self.current().map(|e| e.path.clone());
         self.sort = sort;
-        self.apply_sort();
-        self.select_path(selected.as_deref());
+        self.load_or_ancestor();
+    }
+
+    /// Switches between flat listing and tree, keeping the cursor entry.
+    pub fn set_tree(&mut self, tree: bool) -> Option<String> {
+        self.tree = tree;
+        self.load_or_ancestor()
+    }
+
+    /// Expands or collapses the directory at `path` (tree mode only).
+    pub fn toggle_expanded(&mut self, path: &Path) -> Option<String> {
+        if !self.tree {
+            return None;
+        }
+        if !self.expanded.remove(path) {
+            self.expanded.insert(path.to_path_buf());
+        }
+        self.load_or_ancestor()
+    }
+
+    /// Right arrow: expand the cursor directory, or step into its first child.
+    pub fn expand(&mut self) -> Option<String> {
+        let Some(row) = self.current().filter(|r| r.is_dir && !r.is_parent) else {
+            return None;
+        };
+        if !self.tree {
+            return None;
+        }
+        if self.expanded.contains(&row.path) {
+            let depth = row.depth;
+            if self
+                .entries
+                .get(self.cursor + 1)
+                .is_some_and(|r| r.depth > depth)
+            {
+                self.cursor += 1;
+            }
+            return None;
+        }
+        let path = row.path.clone();
+        self.toggle_expanded(&path)
+    }
+
+    /// Left arrow: collapse the cursor directory, or jump to its parent row.
+    pub fn collapse(&mut self) -> Option<String> {
+        let Some(row) = self.current().filter(|_| self.tree) else {
+            return None;
+        };
+        if self.expanded.contains(&row.path) {
+            let path = row.path.clone();
+            return self.toggle_expanded(&path);
+        }
+        if row.depth > 0 {
+            let parent = row.path.parent().map(Path::to_path_buf);
+            self.select_path(parent.as_deref());
+        }
+        None
     }
 
     pub fn set_show_hidden(&mut self, show_hidden: bool) -> Option<String> {
@@ -185,7 +268,8 @@ impl Folder {
     }
 
     fn replace(&mut self, path: PathBuf, select: Option<PathBuf>) -> Result<(), String> {
-        let entries = fs_ops::read_dir(&path, self.show_hidden)
+        let mut entries = Vec::new();
+        self.list(&path, 0, &mut entries)
             .map_err(|e| format!("{}: {e}", fs_ops::display_path(&path)))?;
         if path != self.path {
             self.marked.clear();
@@ -194,15 +278,29 @@ impl Folder {
         self.entries = entries;
         self.marked
             .retain(|p| self.entries.iter().any(|e| &e.path == p));
-        self.apply_sort();
         if !self.select_path(select.as_deref()) {
             self.set_cursor(self.cursor);
         }
         Ok(())
     }
 
-    fn apply_sort(&mut self) {
-        fs_ops::sort_entries(&mut self.entries, self.sort.key, self.sort.descending);
+    /// Appends the sorted listing of `dir`, recursing into expanded
+    /// directories in tree mode. Unreadable subdirectories list as empty.
+    fn list(&self, dir: &Path, depth: usize, out: &mut Vec<Row>) -> io::Result<()> {
+        let mut entries = fs_ops::read_dir(dir, self.show_hidden)?;
+        if depth > 0 {
+            entries.retain(|e| !e.is_parent);
+        }
+        fs_ops::sort_entries(&mut entries, self.sort.key, self.sort.descending);
+        for entry in entries {
+            let descend = self.tree && !entry.is_parent && self.expanded.contains(&entry.path);
+            let path = entry.path.clone();
+            out.push(Row { entry, depth });
+            if descend {
+                let _ = self.list(&path, depth + 1, out);
+            }
+        }
+        Ok(())
     }
 
     /// Moves the cursor to `path`; returns false if it is not listed.
@@ -317,6 +415,37 @@ mod tests {
 
         folder.clear_marks();
         assert_eq!(folder.targets(), [dir.0.join("b.txt")]); // cursor entry
+    }
+
+    #[test]
+    fn tree_expand_collapse() {
+        let dir = TempDir::new("tree");
+        fs::write(dir.0.join("sub").join("inner.txt"), "").unwrap();
+        let mut folder = loaded(&dir);
+        folder.set_cursor(1); // sub
+        assert_eq!(folder.expand(), None);
+        assert_eq!(names(&folder), ["..", "sub", "a.txt", "b.txt"]); // flat: no-op
+
+        folder.set_tree(true);
+        assert_eq!(folder.current().unwrap().name, "sub");
+        folder.expand();
+        assert_eq!(names(&folder), ["..", "sub", "inner.txt", "a.txt", "b.txt"]);
+        assert_eq!(folder.entries()[2].depth, 1);
+        assert_eq!(folder.file_count(), 3);
+
+        folder.expand(); // already expanded: step into first child
+        assert_eq!(folder.current().unwrap().name, "inner.txt");
+        folder.collapse(); // on a child: jump to parent row
+        assert_eq!(folder.current().unwrap().name, "sub");
+        folder.collapse();
+        assert_eq!(names(&folder), ["..", "sub", "a.txt", "b.txt"]);
+
+        // Expansion survives toggling tree mode off and on.
+        folder.toggle_expanded(&dir.0.join("sub"));
+        folder.set_tree(false);
+        assert_eq!(folder.entries().len(), 4);
+        folder.set_tree(true);
+        assert_eq!(folder.entries().len(), 5);
     }
 
     #[test]
