@@ -6,6 +6,7 @@ mod editor;
 mod editor_view;
 mod fs_ops;
 mod icons;
+mod jobs;
 mod model;
 mod palette;
 mod palette_view;

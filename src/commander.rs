@@ -11,6 +11,7 @@ use std::time::Duration;
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::list::{List, ListState};
+use gpui_kit::component::progress::Progress as ProgressBar;
 use gpui_kit::component::{
     ActiveTheme as _, IndexPath, Sizable as _, ThemeRegistry, WindowExt as _, h_flex, v_flex,
 };
@@ -20,6 +21,7 @@ use gpui_kit::*;
 use crate::editor::Document;
 use crate::editor_view::{EditorEvent, EditorPane};
 use crate::fs_ops;
+use crate::jobs::{self, JobKind, Progress};
 use crate::model::{Activation, Folder};
 use crate::palette::{Command, Palette};
 use crate::palette_view::PaletteDelegate;
@@ -57,6 +59,7 @@ actions!(
         Filter,
         EditFile,
         SelectTheme,
+        CancelJobs,
         FindFiles,
         ToolsMenu,
         CommandPalette,
@@ -109,7 +112,15 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("ctrl-t", ToggleTree, table),
         KeyBinding::new("f10", Quit, ctx),
         KeyBinding::new("secondary-q", Quit, None),
+        KeyBinding::new("ctrl-shift-c", CancelJobs, ctx),
     ]);
+}
+
+struct RunningJob {
+    id: usize,
+    kind: JobKind,
+    progress: Arc<Progress>,
+    _task: Task<()>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -128,6 +139,10 @@ pub struct Commander {
     programs: Arc<Programs>,
     /// Planning or running a tool in the background.
     _tool_task: Task<()>,
+    jobs: Vec<RunningJob>,
+    next_job_id: usize,
+    jobs_ticking: bool,
+    _jobs_ticker: Task<()>,
     /// Set to stop the running search.
     search_cancel: Option<Arc<AtomicBool>>,
     _search_task: Task<()>,
@@ -202,6 +217,10 @@ impl Commander {
             tools: Arc::new(tools_registry),
             programs: Arc::new(Programs::from_env()),
             _tool_task: Task::ready(()),
+            jobs: Vec::new(),
+            next_job_id: 0,
+            jobs_ticking: false,
+            _jobs_ticker: Task::ready(()),
             search_cancel: None,
             _search_task: Task::ready(()),
             _search_inputs: Vec::new(),
@@ -796,6 +815,7 @@ impl Commander {
             ("Select theme", Box::new(SelectTheme)),
             ("Tools…", Box::new(ToolsMenu)),
             ("Find files / search contents…", Box::new(FindFiles)),
+            ("Cancel running jobs", Box::new(CancelJobs)),
             ("Quit", Box::new(Quit)),
         ]
     }
@@ -1062,7 +1082,12 @@ impl Commander {
                 .show_cancel(true)
                 .on_ok(move |_, window, cx| {
                     let _ = this.update(cx, |this, cx| {
-                        this.run_transfer(op, &sources, &dest, cx);
+                        let kind = if op == Transfer::Copy {
+                            JobKind::Copy
+                        } else {
+                            JobKind::Move
+                        };
+                        this.start_job(kind, sources.to_vec(), Some(dest.clone()), window, cx);
                         this.focus_active(window, cx);
                     });
                     true
@@ -1070,38 +1095,139 @@ impl Commander {
         });
     }
 
-    fn run_transfer(
+    /// Runs a copy/move/trash/delete in the background; progress shows in
+    /// the jobs bar.
+    fn start_job(
         &mut self,
-        op: Transfer,
-        sources: &[PathBuf],
-        dest: &Path,
+        kind: JobKind,
+        sources: Vec<PathBuf>,
+        dest: Option<PathBuf>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let mut done = 0;
-        let mut errors = Vec::new();
-        for src in sources {
-            let Some(name) = src.file_name() else {
-                continue;
-            };
-            let target = dest.join(name);
-            let result = match op {
-                Transfer::Copy => fs_ops::copy(src, &target),
-                Transfer::Move => fs_ops::move_to(src, &target),
-            };
-            match result {
-                Ok(()) => done += 1,
-                Err(e) => errors.push(format!("{}: {e}", name.to_string_lossy())),
-            }
+        if matches!(kind, JobKind::Copy | JobKind::Move) {
+            self.update_folder(cx, Folder::clear_marks);
         }
-        self.update_folder(cx, Folder::clear_marks);
-        self.reload_all(cx);
-        let verb = if op == Transfer::Copy {
-            "Copied"
-        } else {
-            "Moved"
-        };
-        self.status = summarize(verb, done, &errors).into();
+        let progress = Arc::new(Progress::default());
+        let id = self.next_job_id;
+        self.next_job_id += 1;
+        let worker = progress.clone();
+        let task = cx.spawn_in(window, async move |this, cx| {
+            let outcome = cx
+                .background_spawn(
+                    async move { jobs::run(kind, &sources, dest.as_deref(), &worker) },
+                )
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.jobs.retain(|job| job.id != id);
+                this.reload_all(cx);
+                let mut status = summarize(kind.verb().1, outcome.done, &outcome.errors);
+                if outcome.cancelled {
+                    status += " (cancelled)";
+                }
+                if kind == JobKind::Trash && !outcome.errors.is_empty() {
+                    status += " (Shift-F8 deletes permanently)";
+                }
+                this.status = status.into();
+                cx.notify();
+            });
+        });
+        self.jobs.push(RunningJob {
+            id,
+            kind,
+            progress,
+            _task: task,
+        });
+        self.ensure_jobs_ticker(window, cx);
         cx.notify();
+    }
+
+    /// Repaints the jobs bar while jobs run.
+    fn ensure_jobs_ticker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.jobs_ticking {
+            return;
+        }
+        self.jobs_ticking = true;
+        self._jobs_ticker = cx.spawn_in(window, async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(150))
+                    .await;
+                let running = this
+                    .update(cx, |this, cx| {
+                        cx.notify();
+                        this.jobs_ticking = !this.jobs.is_empty();
+                        this.jobs_ticking
+                    })
+                    .unwrap_or(false);
+                if !running {
+                    break;
+                }
+            }
+        });
+    }
+
+    fn cancel_jobs(&mut self, _: &CancelJobs, _: &mut Window, cx: &mut Context<Self>) {
+        for job in &self.jobs {
+            job.progress.cancel.store(true, Ordering::Relaxed);
+        }
+        cx.notify();
+    }
+
+    fn render_jobs(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        if self.jobs.is_empty() {
+            return None;
+        }
+        let theme = cx.theme();
+        Some(
+            v_flex()
+                .gap_1()
+                .px_2()
+                .py_1()
+                .border_t_1()
+                .border_color(theme.border)
+                .children(self.jobs.iter().map(|job| {
+                    let p = &job.progress;
+                    let (done, total) = (
+                        p.done.load(Ordering::Relaxed),
+                        p.total.load(Ordering::Relaxed),
+                    );
+                    let current = p.current.lock().unwrap().clone();
+                    let cancelling = p.cancelled();
+                    let progress = job.progress.clone();
+                    h_flex()
+                        .gap_3()
+                        .text_xs()
+                        .child(div().w(px(120.)).flex_none().child(job.kind.verb().0))
+                        .child(
+                            div().w(px(160.)).flex_none().child(
+                                ProgressBar::new(("job", job.id)).value(p.fraction() * 100.),
+                            ),
+                        )
+                        .child(div().flex_none().child(format!("{done}/{total}")))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_color(theme.muted_foreground)
+                                .child(if cancelling {
+                                    "cancelling…".to_string()
+                                } else {
+                                    current
+                                }),
+                        )
+                        .child(
+                            Button::new(("cancel-job", job.id))
+                                .label("Cancel")
+                                .xsmall()
+                                .ghost()
+                                .on_click(move |_, _, _| {
+                                    progress.cancel.store(true, Ordering::Relaxed)
+                                }),
+                        )
+                })),
+        )
     }
 
     fn delete(&mut self, _: &Delete, window: &mut Window, cx: &mut Context<Self>) {
@@ -1144,30 +1270,12 @@ impl Commander {
                 .show_cancel(true)
                 .on_ok(move |_, window, cx| {
                     let _ = this.update(cx, |this, cx| {
-                        let mut done = 0;
-                        let mut errors = Vec::new();
-                        for path in targets.iter() {
-                            let result = if permanent {
-                                fs_ops::delete(path).map_err(|e| e.to_string())
-                            } else {
-                                fs_ops::trash(path)
-                            };
-                            match result {
-                                Ok(()) => done += 1,
-                                Err(e) => errors.push(format!("{}: {e}", path.display())),
-                            }
-                        }
-                        this.reload_all(cx);
-                        let verb = if permanent {
-                            "Deleted"
+                        let kind = if permanent {
+                            JobKind::Delete
                         } else {
-                            "Moved to trash"
+                            JobKind::Trash
                         };
-                        let mut status = summarize(verb, done, &errors);
-                        if !permanent && !errors.is_empty() {
-                            status += " (Shift-F8 deletes permanently)";
-                        }
-                        this.status = status.into();
+                        this.start_job(kind, targets.to_vec(), None, window, cx);
                         this.focus_active(window, cx);
                         cx.notify();
                     });
@@ -1321,6 +1429,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::command_palette))
             .on_action(cx.listener(Self::tools_menu))
             .on_action(cx.listener(Self::find_files))
+            .on_action(cx.listener(Self::cancel_jobs))
             .on_action(cx.listener(Self::expand))
             .on_action(cx.listener(Self::collapse))
             .on_action(cx.listener(Self::quit))
@@ -1353,6 +1462,7 @@ impl Render for Commander {
                     .truncate()
                     .child(self.status.clone()),
             )
+            .children(self.render_jobs(cx))
             .child(self.render_key_bar(cx))
     }
 }

@@ -7,8 +7,6 @@
 - [ ] Icon themes: loadable icon sets (e.g. Zed icon themes), optional per-type colours.
 - [ ] Search: show the matching line of content hits (preview could scroll to it); regex option.
 - [ ] Ideas from yazi (terminal file manager):
-  - [ ] Background task manager: copy/move/delete run async with progress,
-        cancel, and a task list; panels stay responsive.
   - [ ] Yank/cut/paste between panels and tabs, besides F5/F6.
   - [ ] Tabs per panel.
   - [ ] Bulk rename of the selection in the editor (one name per line).
@@ -38,6 +36,7 @@
 
 ## Done
 
+- [x] Background jobs for copy/move/trash/delete with progress bar, current file and cancel (jobs.rs).
 - [x] Find files / search contents (Alt-F7) with ripgrep's libraries; streamed results in the panel, cancellable.
 - [x] Tools UI (F2): grouped menu, parameter form, pick list, confirmation with command lines, background run, output dialog; user tools.toml.
 - [x] Ctrl-P command palette with key bindings (palette.rs model, palette_view.rs).

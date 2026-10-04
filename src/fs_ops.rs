@@ -184,8 +184,17 @@ fn drives() -> Vec<Entry> {
     Vec::new()
 }
 
+/// Called after each file (or symlink) is copied; an error aborts.
+pub type OnFile<'a> = &'a mut dyn FnMut(&Path) -> io::Result<()>;
+
 /// Copies a file or directory tree to `dst`. Refuses to overwrite.
+#[cfg(test)]
 pub fn copy(src: &Path, dst: &Path) -> io::Result<()> {
+    copy_with(src, dst, &mut |_| Ok(()))
+}
+
+/// [`copy`] reporting each copied file to `on_file`.
+pub fn copy_with(src: &Path, dst: &Path, on_file: OnFile) -> io::Result<()> {
     if dst.exists() {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
@@ -198,30 +207,38 @@ pub fn copy(src: &Path, dst: &Path) -> io::Result<()> {
             "cannot copy a directory into itself",
         ));
     }
-    copy_inner(src, dst)
+    copy_inner(src, dst, on_file)
 }
 
-fn copy_inner(src: &Path, dst: &Path) -> io::Result<()> {
+fn copy_inner(src: &Path, dst: &Path, on_file: OnFile) -> io::Result<()> {
     // Unix recreates symlinks; elsewhere (creating them needs privileges on
     // Windows) the link target's content is copied.
     #[cfg(unix)]
     if fs::symlink_metadata(src)?.file_type().is_symlink() {
-        return std::os::unix::fs::symlink(fs::read_link(src)?, dst);
+        std::os::unix::fs::symlink(fs::read_link(src)?, dst)?;
+        return on_file(src);
     }
     if fs::metadata(src)?.is_dir() {
         fs::create_dir(dst)?;
         for item in fs::read_dir(src)? {
             let item = item?;
-            copy_inner(&item.path(), &dst.join(item.file_name()))?;
+            copy_inner(&item.path(), &dst.join(item.file_name()), on_file)?;
         }
         Ok(())
     } else {
-        fs::copy(src, dst).map(|_| ())
+        fs::copy(src, dst)?;
+        on_file(src)
     }
 }
 
 /// Moves a file or directory; falls back to copy + delete across filesystems.
+#[cfg(test)]
 pub fn move_to(src: &Path, dst: &Path) -> io::Result<()> {
+    move_with(src, dst, &mut |_| Ok(()))
+}
+
+/// [`move_to`]; `on_file` sees each file copied when the move has to copy.
+pub fn move_with(src: &Path, dst: &Path, on_file: OnFile) -> io::Result<()> {
     if dst.exists() {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
@@ -231,7 +248,7 @@ pub fn move_to(src: &Path, dst: &Path) -> io::Result<()> {
     match fs::rename(src, dst) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == io::ErrorKind::CrossesDevices => {
-            copy(src, dst)?;
+            copy_with(src, dst, on_file)?;
             delete(src)
         }
         Err(e) => Err(e),

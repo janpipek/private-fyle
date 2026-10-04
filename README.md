@@ -37,6 +37,7 @@ Defaults: left = current directory, right = home directory.
 | Ctrl-K Ctrl-T       | Theme picker: arrows preview live, Enter keeps and saves to `config.toml`, Esc restores |
 | Right / Left        | Tree: expand / collapse (or go to parent) |
 | Ctrl-R              | Refresh                                   |
+| Ctrl-Shift-C        | Cancel running copy/move/delete jobs (also a Cancel button per job) |
 | F10 / Ctrl-Q        | Quit                                      |
 
 In tree mode, clicking a folder's chevron also expands/collapses it; Enter
@@ -48,7 +49,8 @@ header borders to resize.
 Windows: ".." from a drive root lists all drives; files with the hidden
 attribute count as hidden.
 
-Copy and move never overwrite existing targets.
+Copy and move never overwrite existing targets. Copy, move, trash and delete
+run in the background with progress in a jobs bar.
 
 ## Settings
 
