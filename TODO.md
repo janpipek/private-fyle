@@ -1,7 +1,8 @@
 # TODO
 
-- [ ] F3 preview: quick preview of the file under the cursor
-      (text with syntax highlighting, images, ...).
+- [ ] More preview types (pluggable via `preview::Previewer`): PDF, archives
+      (list contents), audio/video metadata, Markdown rendered, CSV as table,
+      EXIF next to images.
 - [ ] F4 editor: built-in text editor (gpui-component's code editor), or external `$EDITOR`.
 - [ ] File-type icons (Zed-style icon theme keyed by extension/name).
 - [ ] Themes: light/dark and Zed-compatible theme files.
@@ -15,4 +16,5 @@
 
 ## Done
 
+- [x] F3 quick preview: text with syntax highlighting, images, directories, hex dump.
 - [x] Tree mode (toggleable per panel, Ctrl-T).

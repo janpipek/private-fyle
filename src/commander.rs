@@ -3,6 +3,7 @@
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -12,6 +13,8 @@ use gpui_kit::*;
 use crate::fs_ops;
 use crate::model::{Activation, Folder};
 use crate::panel::{Activate, FolderView};
+use crate::preview::Registry;
+use crate::preview_view::PreviewPane;
 
 actions!(
     fyle,
@@ -30,6 +33,7 @@ actions!(
         Refresh,
         ToggleHidden,
         ToggleTree,
+        TogglePreview,
         Expand,
         Collapse,
         Quit,
@@ -55,6 +59,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", Unmark, table),
         KeyBinding::new("insert", ToggleMark, ctx),
         KeyBinding::new("space", ToggleMark, ctx),
+        KeyBinding::new("f3", TogglePreview, ctx),
         KeyBinding::new("f5", Copy, ctx),
         KeyBinding::new("f6", Move, ctx),
         KeyBinding::new("f7", MakeDir, ctx),
@@ -77,6 +82,9 @@ enum Transfer {
 pub struct Commander {
     folders: [Entity<Folder>; 2],
     views: [Entity<FolderView>; 2],
+    /// Quick view shown in place of the inactive panel while enabled.
+    preview: Entity<PreviewPane>,
+    preview_on: bool,
     active: usize,
     show_hidden: bool,
     status: SharedString,
@@ -97,7 +105,15 @@ impl Commander {
         });
         let views = [0, 1].map(|ix| cx.new(|cx| FolderView::new(folders[ix].clone(), window, cx)));
 
+        let registry = Arc::new(Registry::with_defaults());
+        let preview = cx.new(|cx| PreviewPane::new(registry, window, cx));
+
         let mut subscriptions = Vec::new();
+        for folder in &folders {
+            subscriptions.push(cx.observe_in(folder, window, |this, _, window, cx| {
+                this.update_preview(window, cx);
+            }));
+        }
         for (ix, view) in views.iter().enumerate() {
             let focus = view.read(cx).focus_handle(cx);
             subscriptions.push(cx.on_focus_in(&focus, window, move |this, _, cx| {
@@ -116,6 +132,8 @@ impl Commander {
         let this = Self {
             folders,
             views,
+            preview,
+            preview_on: false,
             active: 0,
             show_hidden: false,
             status,
@@ -198,6 +216,24 @@ impl Commander {
     fn switch_panel(&mut self, _: &SwitchPanel, window: &mut Window, cx: &mut Context<Self>) {
         self.set_active(1 - self.active, cx);
         self.focus_active(window, cx);
+        self.update_preview(window, cx);
+    }
+
+    fn toggle_preview(&mut self, _: &TogglePreview, window: &mut Window, cx: &mut Context<Self>) {
+        self.preview_on = !self.preview_on;
+        self.update_preview(window, cx);
+        cx.notify();
+    }
+
+    /// Points the quick view at the active panel's cursor entry.
+    fn update_preview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let target = self
+            .preview_on
+            .then(|| self.folders[self.active].read(cx).current())
+            .flatten()
+            .map(|row| row.path.clone());
+        self.preview
+            .update(cx, |preview, cx| preview.set_target(target, window, cx));
     }
 
     fn toggle_tree(&mut self, _: &ToggleTree, _: &mut Window, cx: &mut Context<Self>) {
@@ -420,6 +456,11 @@ impl Commander {
             .border_t_1()
             .border_color(cx.theme().border)
             .child(
+                key("f3", "F3 Preview").on_click(
+                    cx.listener(|this, _, w, cx| this.toggle_preview(&TogglePreview, w, cx)),
+                ),
+            )
+            .child(
                 key("f5", "F5 Copy")
                     .on_click(cx.listener(|this, _, w, cx| this.copy(&Copy, w, cx))),
             )
@@ -471,6 +512,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::refresh))
             .on_action(cx.listener(Self::toggle_hidden))
             .on_action(cx.listener(Self::toggle_tree))
+            .on_action(cx.listener(Self::toggle_preview))
             .on_action(cx.listener(Self::expand))
             .on_action(cx.listener(Self::collapse))
             .on_action(cx.listener(Self::quit))
@@ -479,11 +521,19 @@ impl Render for Commander {
             .text_color(fg)
             .text_sm()
             .child(
-                h_flex().flex_1().min_h_0().gap_2().p_2().children(
-                    self.views
-                        .iter()
-                        .map(|view| div().flex_1().min_w_0().h_full().child(view.clone())),
-                ),
+                h_flex()
+                    .flex_1()
+                    .min_h_0()
+                    .gap_2()
+                    .p_2()
+                    .children((0..2).map(|ix| {
+                        let pane = div().flex_1().min_w_0().h_full();
+                        if self.preview_on && ix != self.active {
+                            pane.child(self.preview.clone())
+                        } else {
+                            pane.child(self.views[ix].clone())
+                        }
+                    })),
             )
             .child(
                 div()

@@ -5,6 +5,8 @@ mod commander;
 mod fs_ops;
 mod model;
 mod panel;
+mod preview;
+mod preview_view;
 
 use std::path::PathBuf;
 

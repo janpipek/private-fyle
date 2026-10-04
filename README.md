@@ -27,6 +27,7 @@ Defaults: left = current directory, right = home directory.
 | F8 / Delete         | Delete (with confirmation)                |
 | Ctrl-H              | Toggle hidden files                       |
 | Ctrl-T              | Toggle tree mode (per panel)              |
+| F3                  | Toggle quick preview (replaces the other panel, follows the cursor) |
 | Right / Left        | Tree: expand / collapse (or go to parent) |
 | Ctrl-R              | Refresh                                   |
 | F10 / Ctrl-Q        | Quit                                      |
@@ -58,3 +59,11 @@ cursor, marks, sort, hidden files, tree expansion) with no UI code and its own u
 model and forwards cursor moves, sorting and double-clicks to it.
 `src/commander.rs` owns the two models and their views and implements the
 commands. `src/fs_ops.rs` contains the file system operations.
+
+Previews follow the same split. `src/preview/` is the model: a `Registry`
+of `Previewer`s (directory, image, text, binary fallback) turns a path into
+plain `Content` data; the first previewer whose `matches` accepts the file's
+`Probe` (name, extension, size, first 8 KiB) wins. `src/preview_view.rs` loads
+in the background and has one render arm per `Content` variant. A new file
+type is a new `Previewer` registered before the fallbacks; only a new kind of
+display needs a new `Content` variant and render arm.

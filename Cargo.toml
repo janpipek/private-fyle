@@ -5,5 +5,5 @@ edition = "2024"
 
 [dependencies]
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
-gpui-kit = "0.7.0"
+gpui-kit = { version = "0.7.0", features = ["tree-sitter-languages"] }
 open = "5"
