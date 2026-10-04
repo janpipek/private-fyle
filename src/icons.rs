@@ -2,8 +2,10 @@
 //! The view decides which glyph draws each kind, so adding a file type is a
 //! table entry here, and a new kind needs one more glyph in the view.
 
-/// What an entry's icon depicts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// What an entry's icon depicts. Also used as the file "kind" that tools
+/// match on (`kinds = ["image"]` in tool definitions).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FileIcon {
     ParentDir,
     Folder,

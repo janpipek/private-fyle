@@ -11,6 +11,7 @@ mod preview_view;
 mod settings;
 mod theme_picker;
 mod themes;
+mod tools;
 
 use std::path::PathBuf;
 

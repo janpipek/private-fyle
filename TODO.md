@@ -5,6 +5,7 @@
       EXIF next to images.
 - [ ] F4 editor: built-in text editor (gpui-component's code editor), or external `$EDITOR`.
 - [ ] Icon themes: loadable icon sets (e.g. Zed icon themes), optional per-type colours.
+- [ ] Tools UI: menu of offers (grouped, disabled when a program is missing), parameter form, pick list, log view, confirmation; load the user's tools.toml. Model is done (`src/tools/`, `docs/tools.md`).
 - [ ] Ctrl-P command palette: fuzzy list of all commands with their key bindings.
 - [ ] Zed theme import (converter from Zed's theme JSON).
 - [ ] Favourite locations from the desktop environment

@@ -1,0 +1,116 @@
+# Built-in declarative tools. Same format as the user's tools.toml; a user
+# tool with the same id replaces one of these. See src/tools/command.rs.
+
+# --- Images -----------------------------------------------------------------
+
+[[tool]]
+id = "image.convert"
+group = "Image"
+label = "Convert with ImageMagick…"
+when = { kinds = ["image"] }
+requires = ["magick|convert (ImageMagick)"]
+run = ["{magick}", "{path}", "{parent}/{stem}.{format}"]
+per_target = true
+refresh = true
+params = [{ key = "format", label = "Format", choices = ["webp", "png", "jpg", "avif"] }]
+
+[[tool]]
+id = "image.resize"
+group = "Image"
+label = "Resize with ImageMagick…"
+when = { kinds = ["image"] }
+requires = ["magick|convert (ImageMagick)"]
+run = ["{magick}", "{path}", "-resize", "{size}", "{parent}/{stem}-{size}.{ext}"]
+per_target = true
+refresh = true
+params = [{ key = "size", label = "Size", choices = ["1920x1920>", "1280x1280>", "640x640>"] }]
+
+# --- Python -----------------------------------------------------------------
+
+[[tool]]
+id = "python.ruff_check"
+group = "Python"
+label = "Ruff: check and fix"
+when = { exts = ["py", "pyi"] }
+requires = ["ruff"]
+run = ["{ruff}", "check", "--fix", "{paths}"]
+output = "log"
+refresh = true
+
+[[tool]]
+id = "python.ruff_format"
+group = "Python"
+label = "Ruff: format"
+when = { exts = ["py", "pyi"] }
+requires = ["ruff"]
+run = ["{ruff}", "format", "{paths}"]
+output = "log"
+refresh = true
+
+# --- uv projects ------------------------------------------------------------
+
+[[tool]]
+id = "uv.sync"
+group = "uv"
+label = "uv sync"
+when = { scope = "dir", facet = "uv_project" }
+run = ["uv", "sync"]
+cwd = "root"
+output = "log"
+refresh = true
+
+[[tool]]
+id = "uv.upgrade"
+group = "uv"
+label = "uv lock --upgrade"
+when = { scope = "dir", facet = "uv_project" }
+run = ["uv", "lock", "--upgrade"]
+cwd = "root"
+output = "log"
+refresh = true
+
+[[tool]]
+id = "uv.tree"
+group = "uv"
+label = "Show dependency tree"
+when = { scope = "dir", facet = "uv_project" }
+run = ["uv", "tree"]
+cwd = "root"
+output = "log"
+
+[[tool]]
+id = "uv.add"
+group = "uv"
+label = "Add dependency…"
+when = { scope = "dir", facet = "uv_project" }
+run = ["uv", "add", "{package}"]
+cwd = "root"
+output = "log"
+refresh = true
+params = [{ key = "package", label = "Package" }]
+
+# --- CSV --------------------------------------------------------------------
+
+[[tool]]
+id = "csv.convert"
+group = "CSV"
+label = "Convert with DuckDB…"
+when = { exts = ["csv", "tsv"] }
+requires = ["duckdb (DuckDB)"]
+run = ["{duckdb}", "-c", "COPY (FROM read_csv('{name}')) TO '{stem}.{format}'"]
+per_target = true
+cwd = "parent"
+refresh = true
+params = [{ key = "format", label = "Format", choices = ["parquet", "json"] }]
+
+# --- Selections -------------------------------------------------------------
+
+[[tool]]
+id = "selection.zip"
+group = "Selection"
+label = "Zip into other panel…"
+when = { entries = "any" }
+requires = ["zip"]
+run = ["{zip}", "-r", "{other}/{archive}", "{names}"]
+refresh = true
+params = [{ key = "archive", label = "Archive name", default = "archive.zip" }]

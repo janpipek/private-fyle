@@ -87,6 +87,9 @@ cursor, marks, sort, hidden files, tree expansion) with no UI code and its own u
 model and forwards cursor moves, sorting and double-clicks to it.
 `src/commander.rs` owns the two models and their views and implements the
 commands. `src/fs_ops.rs` contains the file system operations.
+`src/tools/` is the model for context-dependent tools (run ruff on Python
+files, uv commands in uv projects, convert images, …); see
+[`docs/tools.md`](docs/tools.md). Not wired into the UI yet.
 `src/icons.rs` maps names/extensions to semantic icon kinds; the table view
 picks the glyph for each kind.
 
