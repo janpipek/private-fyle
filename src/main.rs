@@ -11,6 +11,7 @@ mod model;
 mod palette;
 mod palette_view;
 mod panel;
+mod places;
 mod preview;
 mod preview_view;
 mod search;

@@ -204,7 +204,7 @@ impl ListDelegate for PickDelegate {
         Some(
             ListItem::new(ix.row)
                 .selected(self.selected == Some(ix.row))
-                .child(label),
+                .child(div().w_full().min_w_0().truncate().child(label)),
         )
     }
 

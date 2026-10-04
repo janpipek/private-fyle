@@ -26,6 +26,7 @@ use crate::model::{Activation, Folder};
 use crate::palette::{Command, Palette};
 use crate::palette_view::PaletteDelegate;
 use crate::panel::{Activate, FolderView};
+use crate::places::{self, History};
 use crate::preview::Registry as PreviewRegistry;
 use crate::preview_view::PreviewPane;
 use crate::search::{self, Query};
@@ -59,6 +60,8 @@ actions!(
         Filter,
         EditFile,
         SelectTheme,
+        GoTo,
+        AddBookmark,
         CancelJobs,
         FindFiles,
         ToolsMenu,
@@ -91,6 +94,9 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("insert", ToggleMark, table),
         KeyBinding::new("space", ToggleMark, table),
         KeyBinding::new("f2", ToolsMenu, table),
+        KeyBinding::new("ctrl-g", GoTo, table),
+        KeyBinding::new("alt-f1", GoTo, table),
+        KeyBinding::new("ctrl-d", AddBookmark, table),
         KeyBinding::new("alt-f7", FindFiles, table),
         KeyBinding::new("secondary-shift-f", FindFiles, table),
         KeyBinding::new("f3", TogglePreview, ctx),
@@ -139,6 +145,10 @@ pub struct Commander {
     programs: Arc<Programs>,
     /// Planning or running a tool in the background.
     _tool_task: Task<()>,
+    bookmarks: Vec<PathBuf>,
+    history: History,
+    /// Last directory recorded in the history.
+    last_visited: Option<PathBuf>,
     jobs: Vec<RunningJob>,
     next_job_id: usize,
     jobs_ticking: bool,
@@ -186,8 +196,9 @@ impl Commander {
 
         let mut subscriptions = Vec::new();
         for folder in &folders {
-            subscriptions.push(cx.observe_in(folder, window, |this, _, window, cx| {
+            subscriptions.push(cx.observe_in(folder, window, |this, folder, window, cx| {
                 this.update_preview(window, cx);
+                this.record_visit(&folder, cx);
             }));
         }
         for (ix, view) in views.iter().enumerate() {
@@ -217,6 +228,11 @@ impl Commander {
             tools: Arc::new(tools_registry),
             programs: Arc::new(Programs::from_env()),
             _tool_task: Task::ready(()),
+            bookmarks: settings.bookmarks.clone(),
+            history: History::path()
+                .map(|p| History::load(&p))
+                .unwrap_or_default(),
+            last_visited: None,
             jobs: Vec::new(),
             next_job_id: 0,
             jobs_ticking: false,
@@ -315,6 +331,92 @@ impl Commander {
         self.set_active(1 - self.active, cx);
         self.focus_active(window, cx);
         self.update_preview(window, cx);
+    }
+
+    /// Remembers directories the active panel shows, for frecency.
+    fn record_visit(&mut self, folder: &Entity<Folder>, cx: &mut Context<Self>) {
+        let folder = folder.read(cx);
+        if folder.results().is_some() || folder.path().as_os_str().is_empty() {
+            return;
+        }
+        let dir = folder.path();
+        if self.last_visited.as_deref() == Some(dir) {
+            return;
+        }
+        self.last_visited = Some(dir.to_path_buf());
+        self.history.visit(dir, places::now());
+        if let Some(path) = History::path() {
+            let _ = self.history.save(&path);
+        }
+    }
+
+    /// Ctrl-D: adds the active directory to the bookmarks.
+    fn add_bookmark(&mut self, _: &AddBookmark, _: &mut Window, cx: &mut Context<Self>) {
+        let dir = self.folders[self.active].read(cx).path().to_path_buf();
+        if dir.as_os_str().is_empty() {
+            return;
+        }
+        self.status = match settings::add_bookmark(&dir) {
+            Ok(_) => {
+                if !self.bookmarks.contains(&dir) {
+                    self.bookmarks.push(dir.clone());
+                }
+                format!("Bookmarked {}", dir.display()).into()
+            }
+            Err(e) => e.into(),
+        };
+        cx.notify();
+    }
+
+    /// Ctrl-G: bookmarks, desktop places and frequently visited
+    /// directories; Enter goes there in the active panel.
+    fn go_to(&mut self, _: &GoTo, window: &mut Window, cx: &mut Context<Self>) {
+        let mut seen = std::collections::HashSet::new();
+        let mut targets: Vec<(String, PathBuf)> = Vec::new();
+        let mut add = |group: &str, label: String, path: PathBuf| {
+            if path.is_dir() && seen.insert(path.clone()) {
+                let shown = places::tilde(&path);
+                targets.push((format!("{group}  {label} — {shown}"), path));
+            }
+        };
+        for path in &self.bookmarks {
+            add("★", tools::file_name(path), path.clone());
+        }
+        for place in places::system_places() {
+            add("⌂", place.label, place.path);
+        }
+        for path in self.history.ranked(places::now()).into_iter().take(30) {
+            add("↻", tools::file_name(&path), path);
+        }
+        let labels = targets.iter().map(|(label, _)| label.clone()).collect();
+        let paths: Rc<Vec<PathBuf>> = Rc::new(targets.into_iter().map(|(_, p)| p).collect());
+        let this = cx.entity().downgrade();
+        let delegate = PickDelegate::new(labels, move |index, window, cx| {
+            window.close_dialog(cx);
+            let path = paths[index].clone();
+            let _ = this.update(cx, |this, cx| {
+                let result = this.update_folder(cx, |folder| folder.navigate(path));
+                this.set_error(result, cx);
+                this.focus_active(window, cx);
+            });
+        });
+        let list = cx.new(|cx| ListState::new(delegate, window, cx).searchable(true));
+        list.update(cx, |list, cx| {
+            list.set_selected_index(Some(IndexPath::new(0)), window, cx)
+        });
+        let dialog_list = list.clone();
+        window.open_dialog(cx, move |dialog, _, _| {
+            dialog
+                .title("Go to")
+                .w(px(640.))
+                .child(
+                    div().h(px(420.)).child(
+                        List::new(&dialog_list)
+                            .search_placeholder("★ bookmarks · ⌂ places · ↻ frequent"),
+                    ),
+                )
+        });
+        list.update(cx, |list, cx| list.focus(window, cx));
     }
 
     /// Alt-F7: find files by name and/or containing text, below the
@@ -816,6 +918,8 @@ impl Commander {
             ("Tools…", Box::new(ToolsMenu)),
             ("Find files / search contents…", Box::new(FindFiles)),
             ("Cancel running jobs", Box::new(CancelJobs)),
+            ("Go to… (bookmarks, places, frequent)", Box::new(GoTo)),
+            ("Bookmark this directory", Box::new(AddBookmark)),
             ("Quit", Box::new(Quit)),
         ]
     }
@@ -1430,6 +1534,8 @@ impl Render for Commander {
             .on_action(cx.listener(Self::tools_menu))
             .on_action(cx.listener(Self::find_files))
             .on_action(cx.listener(Self::cancel_jobs))
+            .on_action(cx.listener(Self::go_to))
+            .on_action(cx.listener(Self::add_bookmark))
             .on_action(cx.listener(Self::expand))
             .on_action(cx.listener(Self::collapse))
             .on_action(cx.listener(Self::quit))

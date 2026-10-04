@@ -20,6 +20,8 @@ pub struct Settings {
     pub show_hidden: bool,
     /// "system", "light", "dark", or the name of a bundled or user theme.
     pub theme: String,
+    /// Directories offered first in Go to (Ctrl-G); Ctrl-D adds one.
+    pub bookmarks: Vec<PathBuf>,
     pub window: WindowSettings,
     pub panels: PanelSettings,
     pub preview: PreviewSettings,
@@ -66,6 +68,7 @@ impl Default for Settings {
         Self {
             show_hidden: false,
             theme: "system".into(),
+            bookmarks: Vec::new(),
             window: WindowSettings::default(),
             panels: PanelSettings::default(),
             preview: PreviewSettings::default(),
@@ -139,6 +142,7 @@ impl Settings {
         let mut settings: Self = toml::from_str(text).map_err(|e| e.message().to_string())?;
         settings.panels.left = settings.panels.left.map(expand_home);
         settings.panels.right = settings.panels.right.map(expand_home);
+        settings.bookmarks = settings.bookmarks.into_iter().map(expand_home).collect();
         Ok(settings)
     }
 }
@@ -160,6 +164,37 @@ pub fn save_theme_to(path: &Path, name: &str) -> Result<(), String> {
     };
     let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| error(&e))?;
     doc["theme"] = toml_edit::value(name);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| error(&e))?;
+    }
+    std::fs::write(path, doc.to_string()).map_err(|e| error(&e))
+}
+
+/// Appends `dir` to `bookmarks` in the settings file (unless present),
+/// keeping the rest of the file intact.
+pub fn add_bookmark(dir: &Path) -> Result<PathBuf, String> {
+    let path = Settings::path().ok_or("No config directory on this platform")?;
+    add_bookmark_to(&path, dir)?;
+    Ok(path)
+}
+
+pub fn add_bookmark_to(path: &Path, dir: &Path) -> Result<(), String> {
+    let error = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(error(&e)),
+    };
+    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| error(&e))?;
+    let value = dir.display().to_string();
+    let list = doc
+        .entry("bookmarks")
+        .or_insert_with(|| toml_edit::value(toml_edit::Array::new()))
+        .as_array_mut()
+        .ok_or_else(|| error(&"`bookmarks` is not a list"))?;
+    if !list.iter().any(|v| v.as_str() == Some(&value)) {
+        list.push(value);
+    }
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| error(&e))?;
     }
@@ -266,6 +301,27 @@ mod tests {
         let settings = Settings::parse(&text).unwrap();
         assert_eq!(settings.theme, "Tokyo Night");
         assert!(settings.show_hidden);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn bookmarks_are_added_once_and_parsed() {
+        let dir = std::env::temp_dir().join(format!("fyle-bookmarks-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("config.toml");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, "# mine\ntheme = \"dark\"\n").unwrap();
+        add_bookmark_to(&path, Path::new("/srv/a")).unwrap();
+        add_bookmark_to(&path, Path::new("/srv/b")).unwrap();
+        add_bookmark_to(&path, Path::new("/srv/a")).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# mine"));
+        let settings = Settings::parse(&text).unwrap();
+        assert_eq!(
+            settings.bookmarks,
+            [PathBuf::from("/srv/a"), "/srv/b".into()]
+        );
+        assert_eq!(settings.theme, "dark");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

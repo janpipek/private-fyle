@@ -6,6 +6,7 @@
 - [ ] Editor: optional external editor (`$EDITOR` / setting), Shift-F4 new file, warn when the file changed on disk.
 - [ ] Icon themes: loadable icon sets (e.g. Zed icon themes), optional per-type colours.
 - [ ] Search: show the matching line of content hits (preview could scroll to it); regex option.
+- [ ] Windows Quick Access pins in Go to (needs the shell API).
 - [ ] Ideas from yazi (terminal file manager):
   - [ ] Yank/cut/paste between panels and tabs, besides F5/F6.
   - [ ] Tabs per panel.
@@ -16,7 +17,6 @@
         and paging inside the preview.
   - [ ] Linemode: choose what the extra columns show (size, mtime,
         permissions, owner) — fits the attribute-columns item above.
-  - [ ] Quick jump: zoxide-style frecency of visited directories, bookmarks.
   - [ ] Shell command on selection with output capture (ties into tools).
   - [ ] Configurable keymap and a help overlay listing bindings.
   - [ ] Lua plugins via `mlua` (features `lua54`, `vendored`: Lua compiled in,
@@ -26,9 +26,6 @@
         plugins live in `<config dir>/fyle/plugins/*.lua`. Same trust rule as
         tools.toml: only from the user's config.
 - [ ] Zed theme import (converter from Zed's theme JSON).
-- [ ] Favourite locations from the desktop environment
-      (Windows Quick Access / known folders, KDE Places `user-places.xbel`,
-      GTK bookmarks `~/.config/gtk-3.0/bookmarks`, XDG user dirs).
 - [ ] Extensible attribute columns (open-ended): pluggable per-entry
       attributes shown as optional columns, e.g. EXIF data, SELinux context,
       git status, permissions/owner, xattrs.
@@ -36,6 +33,8 @@
 
 ## Done
 
+- [x] Quick jump: frecency-ranked directory history and bookmarks (Ctrl-G, Ctrl-D).
+- [x] Places from the desktop: XDG/known user folders, GTK bookmarks, KDE Places, Windows drives (in Go to, Ctrl-G).
 - [x] Background jobs for copy/move/trash/delete with progress bar, current file and cancel (jobs.rs).
 - [x] Find files / search contents (Alt-F7) with ripgrep's libraries; streamed results in the panel, cancellable.
 - [x] Tools UI (F2): grouped menu, parameter form, pick list, confirmation with command lines, background run, output dialog; user tools.toml.

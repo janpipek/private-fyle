@@ -12,6 +12,9 @@ show_hidden = false
 # theme files (*.json) into the "themes" folder next to this file.
 theme = "system"
 
+# Directories listed first in Go to (Ctrl-G); Ctrl-D adds the current one.
+bookmarks = []
+
 [window]
 width = 1200
 height = 760
