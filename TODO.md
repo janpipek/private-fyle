@@ -52,4 +52,3 @@
 ## Later
 
 - Windows (paused): Quick Access pins in Go to (needs the shell API), CI, cross-checks.
-- macOS.
