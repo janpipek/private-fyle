@@ -24,7 +24,6 @@
         and paging inside the preview.
   - [ ] Linemode: choose what the extra columns show (size, mtime,
         permissions, owner) — fits the attribute-columns item above.
-  - [ ] Natural sort (file2 < file10), sort by other keys, reverse.
   - [ ] Quick jump: zoxide-style frecency of visited directories, bookmarks.
   - [ ] Shell command on selection with output capture (ties into tools).
   - [ ] Configurable keymap and a help overlay listing bindings.
@@ -46,6 +45,7 @@
 
 ## Done
 
+- [x] Natural sort (file2 < file10), case-insensitive.
 - [x] F4 built-in editor (syntax highlighting, atomic save, unsaved-changes prompt).
 - [x] File-type icons, mapped by name/extension in `icons.rs`; glyphs from GPUI Kit's default bundle.
 - [x] Runtime theme picker with live preview (Ctrl-K Ctrl-T).

@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -41,7 +42,7 @@ pub fn sort_entries(entries: &mut [Entry], key: SortKey, descending: bool) {
             .cmp(&a.is_parent)
             .then_with(|| b.is_dir.cmp(&a.is_dir))
             .then_with(|| {
-                let by_name = || a.name.to_lowercase().cmp(&b.name.to_lowercase());
+                let by_name = || natural_cmp(&a.name, &b.name);
                 let ord = match key {
                     SortKey::Name => by_name(),
                     SortKey::Ext => a
@@ -55,6 +56,43 @@ pub fn sort_entries(entries: &mut [Entry], key: SortKey, descending: bool) {
                 if descending { ord.reverse() } else { ord }
             })
     });
+}
+
+/// Case-insensitive "natural" order: runs of digits compare by numeric
+/// value, so `file2` < `file10`. Ties fall back to plain comparison so the
+/// order is total (`a01` vs `a1`, `A` vs `a`).
+pub fn natural_cmp(a: &str, b: &str) -> Ordering {
+    let (mut x, mut y) = (a.chars().peekable(), b.chars().peekable());
+    loop {
+        match (x.peek().copied(), y.peek().copied()) {
+            (None, None) => return a.cmp(b),
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(c), Some(d)) if c.is_ascii_digit() && d.is_ascii_digit() => {
+                let take = |it: &mut std::iter::Peekable<std::str::Chars>| {
+                    let mut digits = String::new();
+                    while let Some(c) = it.next_if(char::is_ascii_digit) {
+                        digits.push(c);
+                    }
+                    digits
+                };
+                let (m, n) = (take(&mut x), take(&mut y));
+                let (m, n) = (m.trim_start_matches('0'), n.trim_start_matches('0'));
+                let ord = m.len().cmp(&n.len()).then_with(|| m.cmp(n));
+                if ord != Ordering::Equal {
+                    return ord;
+                }
+            }
+            (Some(c), Some(d)) => {
+                let ord = c.to_lowercase().cmp(d.to_lowercase());
+                if ord != Ordering::Equal {
+                    return ord;
+                }
+                x.next();
+                y.next();
+            }
+        }
+    }
 }
 
 /// The directory ".." leads to. On Windows a drive root leads to the drive
@@ -249,6 +287,24 @@ mod tests {
             size,
             modified: None,
         }
+    }
+
+    #[test]
+    fn natural_order() {
+        let mut names = vec![
+            "file10", "File2", "file1", "a01", "a1", "b", "A", "x9y", "x10y",
+        ];
+        names.sort_by(|a, b| natural_cmp(a, b));
+        assert_eq!(
+            names,
+            [
+                "A", "a01", "a1", "b", "file1", "File2", "file10", "x9y", "x10y"
+            ]
+        );
+        assert_eq!(
+            natural_cmp("99999999999999999999", "100000000000000000000"),
+            Ordering::Less
+        );
     }
 
     #[test]
