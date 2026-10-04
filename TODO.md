@@ -31,7 +31,6 @@
         `plan(ctx)` returning an action table) adapted to the `Tool` trait;
         plugins live in `<config dir>/fyle/plugins/*.lua`. Same trust rule as
         tools.toml: only from the user's config.
-- [ ] Ctrl-P command palette: fuzzy list of all commands with their key bindings.
 - [ ] Zed theme import (converter from Zed's theme JSON).
 - [ ] Favourite locations from the desktop environment
       (Windows Quick Access / known folders, KDE Places `user-places.xbel`,
@@ -43,6 +42,7 @@
 
 ## Done
 
+- [x] Ctrl-P command palette with key bindings (palette.rs model, palette_view.rs).
 - [x] Filter as you type (/ or Ctrl-F), kept in the Folder model, cleared on directory change.
 - [x] F8 moves to the system trash (trash crate; Recycle Bin on Windows); Shift-F8 deletes permanently.
 - [x] Natural sort (file2 < file10), case-insensitive.

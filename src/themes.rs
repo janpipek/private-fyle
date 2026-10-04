@@ -95,12 +95,8 @@ impl ThemePicker {
     /// Keeps choices containing every whitespace-separated word of `query`
     /// (case-insensitive).
     pub fn filter(&mut self, query: &str) {
-        let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
         self.matches = (0..self.choices.len())
-            .filter(|&i| {
-                let name = self.choices[i].to_lowercase();
-                words.iter().all(|w| name.contains(w.as_str()))
-            })
+            .filter(|&i| crate::palette::words_match(&self.choices[i], query))
             .collect();
     }
 

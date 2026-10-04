@@ -18,6 +18,8 @@ use crate::editor::Document;
 use crate::editor_view::{EditorEvent, EditorPane};
 use crate::fs_ops;
 use crate::model::{Activation, Folder};
+use crate::palette::{Command, Palette};
+use crate::palette_view::PaletteDelegate;
 use crate::panel::{Activate, FolderView};
 use crate::preview::Registry;
 use crate::preview_view::PreviewPane;
@@ -47,6 +49,7 @@ actions!(
         Filter,
         EditFile,
         SelectTheme,
+        CommandPalette,
         Expand,
         Collapse,
         Quit,
@@ -79,6 +82,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("ctrl-f", Filter, table),
         KeyBinding::new("f4", EditFile, table),
         KeyBinding::new("ctrl-k ctrl-t", SelectTheme, ctx),
+        KeyBinding::new("secondary-p", CommandPalette, ctx),
+        KeyBinding::new("secondary-shift-p", CommandPalette, ctx),
         KeyBinding::new("f5", Copy, table),
         KeyBinding::new("f6", Move, table),
         KeyBinding::new("f7", MakeDir, table),
@@ -260,6 +265,81 @@ impl Commander {
         self.set_active(1 - self.active, cx);
         self.focus_active(window, cx);
         self.update_preview(window, cx);
+    }
+
+    /// Every command offered in the palette.
+    fn palette_commands() -> Vec<(&'static str, Box<dyn Action>)> {
+        vec![
+            ("Open / enter directory", Box::new(Open)),
+            ("Go to parent directory", Box::new(GoUp)),
+            ("Go to first entry", Box::new(GoFirst)),
+            ("Go to last entry", Box::new(GoLast)),
+            ("Switch panel", Box::new(SwitchPanel)),
+            ("Mark / unmark entry", Box::new(ToggleMark)),
+            ("Clear filter or marks", Box::new(Unmark)),
+            ("Filter names", Box::new(Filter)),
+            ("Copy to other panel", Box::new(Copy)),
+            ("Move to other panel", Box::new(Move)),
+            ("New directory", Box::new(MakeDir)),
+            ("Move to trash", Box::new(Delete)),
+            ("Delete permanently", Box::new(DeletePermanently)),
+            ("Edit file", Box::new(EditFile)),
+            ("Toggle preview", Box::new(TogglePreview)),
+            ("Toggle tree mode", Box::new(ToggleTree)),
+            ("Expand directory (tree)", Box::new(Expand)),
+            ("Collapse directory (tree)", Box::new(Collapse)),
+            ("Toggle hidden files", Box::new(ToggleHidden)),
+            ("Refresh", Box::new(Refresh)),
+            ("Select theme", Box::new(SelectTheme)),
+            ("Quit", Box::new(Quit)),
+        ]
+    }
+
+    /// Ctrl-P: a filterable list of all commands with their keys.
+    fn command_palette(&mut self, _: &CommandPalette, window: &mut Window, cx: &mut Context<Self>) {
+        // Keys are looked up from the panel, where all bindings apply.
+        let panel = self.views[self.active].read(cx).focus_handle(cx);
+        let commands = Self::palette_commands()
+            .into_iter()
+            .map(|(label, action)| {
+                let keys = window
+                    .bindings_for_action_in(action.as_ref(), &panel)
+                    .iter()
+                    .map(|binding| {
+                        binding
+                            .keystrokes()
+                            .iter()
+                            .map(|k| k.to_string())
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                Command {
+                    label: label.to_string(),
+                    keys,
+                    payload: action,
+                }
+            })
+            .collect();
+        let delegate = PaletteDelegate::new(Palette::new(commands), move |action, window, cx| {
+            window.close_dialog(cx);
+            // Run once focus is back on the panel, so panel commands apply.
+            window.defer(cx, move |window, cx| window.dispatch_action(action, cx));
+        });
+        let list = cx.new(|cx| ListState::new(delegate, window, cx).searchable(true));
+        list.update(cx, |list, cx| {
+            list.set_selected_index(Some(IndexPath::new(0)), window, cx)
+        });
+        let dialog_list = list.clone();
+        window.open_dialog(cx, move |dialog, _, _| {
+            dialog.title("Commands").w(px(480.)).child(
+                div()
+                    .h(px(400.))
+                    .child(List::new(&dialog_list).search_placeholder("Type a command…")),
+            )
+        });
+        list.update(cx, |list, cx| list.focus(window, cx));
     }
 
     /// Opens the theme picker; the highlighted theme is previewed live.
@@ -728,6 +808,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::filter))
             .on_action(cx.listener(Self::edit_file))
             .on_action(cx.listener(Self::select_theme))
+            .on_action(cx.listener(Self::command_palette))
             .on_action(cx.listener(Self::expand))
             .on_action(cx.listener(Self::collapse))
             .on_action(cx.listener(Self::quit))

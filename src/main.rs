@@ -7,6 +7,8 @@ mod editor_view;
 mod fs_ops;
 mod icons;
 mod model;
+mod palette;
+mod palette_view;
 mod panel;
 mod preview;
 mod preview_view;
