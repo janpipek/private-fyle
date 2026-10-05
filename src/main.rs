@@ -6,6 +6,7 @@ mod commander;
 mod editor;
 mod editor_view;
 mod fs_ops;
+mod git_status;
 mod icons;
 mod jobs;
 mod model;
@@ -24,6 +25,7 @@ mod theme_picker;
 mod themes;
 mod tools;
 mod tools_view;
+mod xattr;
 
 use std::path::PathBuf;
 

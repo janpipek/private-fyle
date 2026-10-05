@@ -23,6 +23,8 @@ pub struct Attrs {
     /// Unix owner id.
     pub uid: Option<u32>,
     pub readonly: bool,
+    /// Creation time, if the file system records it.
+    pub created: Option<SystemTime>,
 }
 
 impl Attrs {
@@ -34,6 +36,7 @@ impl Attrs {
                 mode: Some(meta.mode()),
                 uid: Some(meta.uid()),
                 readonly: meta.permissions().readonly(),
+                created: meta.created().ok(),
             }
         }
         #[cfg(not(unix))]
@@ -42,6 +45,7 @@ impl Attrs {
                 mode: None,
                 uid: None,
                 readonly: meta.permissions().readonly(),
+                created: meta.created().ok(),
             }
         }
     }
@@ -421,6 +425,7 @@ mod tests {
             mode: Some(mode),
             uid: None,
             readonly: false,
+            created: None,
         };
         assert_eq!(attrs(0o100644).permissions(false), "-rw-r--r--");
         assert_eq!(attrs(0o40755).permissions(true), "drwxr-xr-x");
@@ -428,6 +433,7 @@ mod tests {
             mode: None,
             uid: None,
             readonly: true,
+            created: None,
         };
         assert_eq!(windows.permissions(false), "r-");
         assert_eq!(windows.owner(), "");

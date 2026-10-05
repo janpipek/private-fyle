@@ -67,6 +67,8 @@ pub struct Folder {
     show_hidden: bool,
     tree: bool,
     expanded: BTreeSet<PathBuf>,
+    /// Bumped whenever the listing is (re)read, so views can drop caches.
+    generation: u64,
 }
 
 impl Folder {
@@ -84,6 +86,7 @@ impl Folder {
             show_hidden: false,
             tree: false,
             expanded: BTreeSet::new(),
+            generation: 0,
         }
     }
 
@@ -101,6 +104,11 @@ impl Folder {
 
     pub fn entries(&self) -> &[Row] {
         &self.entries
+    }
+
+    /// Changes whenever the listing is read again (see [`Folder::load`]).
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     pub fn cursor(&self) -> usize {
@@ -184,6 +192,7 @@ impl Folder {
         }];
         self.path = root;
         self.results = Some(title);
+        self.generation += 1;
         self.marked.clear();
         self.filter.clear();
         self.cursor = 0;
@@ -206,6 +215,7 @@ impl Folder {
     /// Search results are not re-run; entries that disappeared are dropped.
     pub fn load(&mut self) -> Result<(), String> {
         if self.results.is_some() {
+            self.generation += 1;
             let selected = self.current().map(|e| e.path.clone());
             self.all.retain(|r| r.is_parent || r.path.exists());
             self.marked.retain(|p| p.exists());
@@ -426,6 +436,7 @@ impl Folder {
         self.results = None;
         self.path = path;
         self.all = entries;
+        self.generation += 1;
         self.marked
             .retain(|p| self.all.iter().any(|e| &e.path == p));
         self.apply_filter();

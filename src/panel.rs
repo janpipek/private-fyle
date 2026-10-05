@@ -1,6 +1,10 @@
 //! Table view of a [`Folder`] model. Holds no file state of its own: it
 //! renders the model and forwards cursor moves, sorting and activation.
 
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::table::{
     Column, ColumnSort, DataTable, TableDelegate, TableEvent, TableState,
@@ -11,6 +15,7 @@ use gpui_kit::*;
 
 use crate::columns::ColumnKind;
 use crate::fs_ops;
+use crate::git_status;
 use crate::icons::{self, FileIcon};
 use crate::model::{Folder, Sort};
 use gpui_kit::assets::IconName as Lucide;
@@ -33,6 +38,9 @@ pub struct FolderView {
     /// Filter-as-you-type input, while open.
     filter_input: Option<Entity<InputState>>,
     _filter_subscription: Option<Subscription>,
+    /// Listing generation the Git column was last computed for.
+    git_generation: Option<u64>,
+    _git_task: Task<()>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -48,6 +56,9 @@ impl FolderView {
         let delegate = FileTable {
             folder: folder.clone(),
             columns,
+            extra: HashMap::new(),
+            extra_generation: 0,
+            git: None,
         };
         let table = cx.new(|cx| {
             TableState::new(delegate, window, cx)
@@ -57,7 +68,10 @@ impl FolderView {
                 .loop_selection(false)
         });
         let subscriptions = vec![
-            cx.observe(&folder, |this, _, cx| this.sync_cursor(cx)),
+            cx.observe(&folder, |this, _, cx| {
+                this.sync_cursor(cx);
+                this.refresh_git(cx);
+            }),
             cx.subscribe(&table, |this, _, event: &TableEvent, cx| match event {
                 TableEvent::SelectRow(row) => this.set_cursor(*row, cx),
                 TableEvent::DoubleClickedRow(row) => {
@@ -67,16 +81,50 @@ impl FolderView {
                 _ => {}
             }),
         ];
-        let this = Self {
+        let mut this = Self {
             folder,
             table,
             active: false,
             filter_input: None,
             _filter_subscription: None,
+            git_generation: None,
+            _git_task: Task::ready(()),
             _subscriptions: subscriptions,
         };
         this.sync_cursor(cx);
+        this.refresh_git(cx);
         this
+    }
+
+    /// With a Git column: re-runs `git status` in the background whenever
+    /// the listing was read again.
+    fn refresh_git(&mut self, cx: &mut Context<Self>) {
+        if !self
+            .table
+            .read(cx)
+            .delegate()
+            .columns
+            .contains(&ColumnKind::Git)
+        {
+            return;
+        }
+        let folder = self.folder.read(cx);
+        let generation = folder.generation();
+        if self.git_generation == Some(generation) {
+            return;
+        }
+        self.git_generation = Some(generation);
+        let dir = folder.path().to_path_buf();
+        let table = self.table.clone();
+        self._git_task = cx.spawn(async move |_, cx| {
+            let status = cx
+                .background_spawn(async move { git_status::status(&dir) })
+                .await;
+            let _ = table.update(cx, |table, cx| {
+                table.delegate_mut().git = status.map(Arc::new);
+                cx.notify();
+            });
+        });
     }
 
     pub fn focus_handle(&self, cx: &App) -> FocusHandle {
@@ -242,6 +290,32 @@ impl Render for FolderView {
 pub struct FileTable {
     folder: Entity<Folder>,
     columns: Vec<ColumnKind>,
+    /// Xattr cells, read lazily per shown row and kept until the listing
+    /// is read again.
+    extra: HashMap<PathBuf, Extra>,
+    extra_generation: u64,
+    git: Option<Arc<git_status::Status>>,
+}
+
+/// Attributes that need extra system calls, read only for rows shown.
+struct Extra {
+    xattrs: String,
+    selinux: String,
+}
+
+impl FileTable {
+    fn extra(&mut self, path: &Path, generation: u64) -> &Extra {
+        if self.extra_generation != generation {
+            self.extra.clear();
+            self.extra_generation = generation;
+        }
+        self.extra
+            .entry(path.to_path_buf())
+            .or_insert_with(|| Extra {
+                xattrs: crate::xattr::names(path).join(", "),
+                selinux: crate::xattr::selinux_context(path).unwrap_or_default(),
+            })
+    }
 }
 
 impl TableDelegate for FileTable {
@@ -302,6 +376,27 @@ impl TableDelegate for FileTable {
         _: &mut Window,
         cx: &mut Context<TableState<Self>>,
     ) -> impl IntoElement {
+        let kind = self.columns[col_ix];
+        if matches!(kind, ColumnKind::Xattrs | ColumnKind::Selinux) {
+            let folder = self.folder.read(cx);
+            let Some(row) = folder.entries().get(row_ix).filter(|r| !r.is_parent) else {
+                return div().into_any_element();
+            };
+            let (path, generation) = (row.path.clone(), folder.generation());
+            let extra = self.extra(&path, generation);
+            let text = match kind {
+                ColumnKind::Xattrs => extra.xattrs.clone(),
+                _ => extra.selinux.clone(),
+            };
+            let theme = cx.theme();
+            return div()
+                .truncate()
+                .text_xs()
+                .font_family(theme.mono_font_family.clone())
+                .text_color(theme.muted_foreground)
+                .child(text)
+                .into_any_element();
+        }
         let folder = self.folder.read(cx);
         let Some(row) = folder.entries().get(row_ix) else {
             return div().into_any_element();
@@ -398,6 +493,31 @@ impl TableDelegate for FileTable {
                 .text_color(theme.muted_foreground)
                 .when(!entry.is_parent, |d| d.child(entry.attrs.owner()))
                 .into_any_element(),
+            ColumnKind::Created => div()
+                .text_color(theme.muted_foreground)
+                .when_some(entry.attrs.created.filter(|_| !entry.is_parent), |d, t| {
+                    d.child(fs_ops::format_time(t))
+                })
+                .into_any_element(),
+            ColumnKind::Git => {
+                let mark = self
+                    .git
+                    .as_ref()
+                    .filter(|_| !entry.is_parent)
+                    .and_then(|git| git.mark(&entry.path, entry.is_dir));
+                let color = match mark {
+                    Some(git_status::Mark::Ignored) => theme.muted_foreground,
+                    Some(git_status::Mark::Untracked | git_status::Mark::Added) => theme.success,
+                    Some(git_status::Mark::Conflicted | git_status::Mark::Deleted) => theme.danger,
+                    _ => theme.warning,
+                };
+                div()
+                    .font_family(theme.mono_font_family.clone())
+                    .text_color(color)
+                    .when_some(mark, |d, mark| d.child(mark.symbol()))
+                    .into_any_element()
+            }
+            ColumnKind::Xattrs | ColumnKind::Selinux => unreachable!("handled above"),
         }
     }
 }

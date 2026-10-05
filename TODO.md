@@ -13,11 +13,12 @@
   - [ ] Shell command on selection with output capture (ties into tools).
 - [ ] Zed theme import (converter from Zed's theme JSON).
 - [ ] More attribute columns (open-ended; add a `ColumnKind` + renderer):
-      git status, EXIF data, SELinux context, xattrs, created time.
+      EXIF data.
 - [ ] macOS support (later): CI job, app menu, Cmd shortcuts, app bundle.
 
 ## Done
 
+- [x] Columns: created time, git status, xattrs, SELinux context.
 - [x] Lua plugins (`<config dir>/fyle/plugins/*.lua`) define tools (mlua, Lua 5.4 vendored).
 - [x] Search: regex option; content hits show their matching line.
 - [x] Tools: conversions (image, CSV) share one "Convert" group.

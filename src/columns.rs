@@ -17,6 +17,15 @@ pub enum ColumnKind {
     Permissions,
     /// File owner (Unix).
     Owner,
+    /// Creation (birth) time, where the file system records it.
+    Created,
+    /// Git status (`M`, `A`, `?`, …); a directory shows the most important
+    /// state inside it.
+    Git,
+    /// Names of extended attributes (Linux).
+    Xattrs,
+    /// SELinux context (Linux).
+    Selinux,
 }
 
 impl ColumnKind {
@@ -30,6 +39,10 @@ impl ColumnKind {
             Self::Modified => "modified",
             Self::Permissions => "permissions",
             Self::Owner => "owner",
+            Self::Created => "created",
+            Self::Git => "git",
+            Self::Xattrs => "xattrs",
+            Self::Selinux => "selinux",
         }
     }
 
@@ -41,6 +54,10 @@ impl ColumnKind {
             Self::Modified => "Modified",
             Self::Permissions => "Permissions",
             Self::Owner => "Owner",
+            Self::Created => "Created",
+            Self::Git => "Git",
+            Self::Xattrs => "Xattrs",
+            Self::Selinux => "SELinux",
         }
     }
 
@@ -52,6 +69,10 @@ impl ColumnKind {
             Self::Modified => 140.,
             Self::Permissions => 100.,
             Self::Owner => 90.,
+            Self::Created => 140.,
+            Self::Git => 40.,
+            Self::Xattrs => 160.,
+            Self::Selinux => 220.,
         }
     }
 
@@ -62,7 +83,12 @@ impl ColumnKind {
             Self::Ext => Some(SortKey::Ext),
             Self::Size => Some(SortKey::Size),
             Self::Modified => Some(SortKey::Modified),
-            Self::Permissions | Self::Owner => None,
+            Self::Permissions
+            | Self::Owner
+            | Self::Created
+            | Self::Git
+            | Self::Xattrs
+            | Self::Selinux => None,
         }
     }
 }
@@ -87,5 +113,19 @@ mod tests {
         use ColumnKind::*;
         assert_eq!(normalize(&[Size, Name, Owner, Size]), [Name, Size, Owner]);
         assert_eq!(normalize(&[]), [Name]);
+    }
+
+    #[test]
+    fn parses_setting_names() {
+        #[derive(Deserialize)]
+        struct S {
+            columns: Vec<ColumnKind>,
+        }
+        let s: S = toml::from_str(r#"columns = ["created", "git", "xattrs", "selinux"]"#).unwrap();
+        use ColumnKind::*;
+        assert_eq!(s.columns, [Created, Git, Xattrs, Selinux]);
+        for c in s.columns {
+            assert_eq!(format!("{c:?}").to_lowercase(), c.id());
+        }
     }
 }

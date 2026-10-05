@@ -2063,6 +2063,7 @@ dependencies = [
  "grep-regex",
  "grep-searcher",
  "ignore",
+ "libc",
  "mlua",
  "open",
  "serde",
