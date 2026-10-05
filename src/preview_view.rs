@@ -132,15 +132,40 @@ impl PreviewPane {
                     d.child(note("Showing the first 512 KiB.".into()))
                 })
                 .into_any_element(),
-            Content::Image { path } => div()
+            Content::Image { path, info } => v_flex()
                 .size_full()
                 .p_2()
+                .gap_2()
                 .child(
-                    img(path.clone())
-                        .size_full()
-                        .object_fit(ObjectFit::Contain)
-                        .with_fallback(|| div().child("Cannot decode image").into_any_element()),
+                    div().flex_1().min_h_0().child(
+                        img(path.clone())
+                            .size_full()
+                            .object_fit(ObjectFit::Contain)
+                            .with_fallback(|| {
+                                div().child("Cannot decode image").into_any_element()
+                            }),
+                    ),
                 )
+                .when(!info.is_empty(), |d| {
+                    d.child(
+                        v_flex()
+                            .flex_none()
+                            .gap_0p5()
+                            .text_xs()
+                            .children(info.iter().map(|(label, value)| {
+                                h_flex()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .w(px(90.))
+                                            .flex_none()
+                                            .text_color(theme.muted_foreground)
+                                            .child(label.clone()),
+                                    )
+                                    .child(div().min_w_0().truncate().child(value.clone()))
+                            })),
+                    )
+                })
                 .into_any_element(),
             Content::Directory {
                 dirs,

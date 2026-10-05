@@ -65,7 +65,7 @@ Done (details in `TODO.md` under "Done"):
 | `panel.rs` | `FolderView` (DataTable delegate `FileTable`) and the filter bar |
 | `fs_ops.rs` | `Entry`, `Attrs`, read_dir, copy/move/delete/trash, formatting |
 | `columns.rs` | `ColumnKind`. A new attribute column means a variant here plus a renderer in `panel.rs`. |
-| `preview/` | `Previewer` trait and `Registry`. Order: directory, image, archive, markdown, table, text, binary. `preview_view.rs` has one render arm per `Content` variant. |
+| `preview/` | `Previewer` trait and `Registry`. Order: directory, image, pdf, archive, markdown, table, text, binary. `preview_view.rs` has one render arm per `Content` variant. |
 | `editor.rs` / `editor_view.rs` | `Document` model (UTF-8, ≤ 8 MiB, atomic save) and the editor pane |
 | `tools/` | Tool, Action and Registry model; `defaults.toml`; built-ins (git website, just tasks, image gallery); `exec.rs` runs them |
 | `search.rs`, `jobs.rs`, `places.rs`, `rename.rs`, `openers.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs` | UI-independent models, each with tests |

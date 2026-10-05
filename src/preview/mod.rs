@@ -17,6 +17,7 @@ mod binary;
 mod directory;
 mod image;
 mod markdown;
+mod pdf;
 mod table;
 pub mod text;
 
@@ -29,6 +30,7 @@ pub use binary::BinaryPreviewer;
 pub use directory::DirectoryPreviewer;
 pub use image::ImagePreviewer;
 pub use markdown::MarkdownPreviewer;
+pub use pdf::PdfPreviewer;
 pub use table::TablePreviewer;
 pub use text::TextPreviewer;
 
@@ -96,8 +98,12 @@ pub enum Content {
         language: Option<&'static str>,
         truncated: bool,
     },
-    /// An image the view loads from `path`.
-    Image { path: PathBuf },
+    /// An image the view loads from `path` (a PDF's rendered first page),
+    /// with labelled details (EXIF data, PDF info).
+    Image {
+        path: PathBuf,
+        info: Vec<(String, String)>,
+    },
     /// Summary of a directory's direct children.
     Directory {
         dirs: usize,
@@ -158,6 +164,7 @@ impl Registry {
         let mut registry = Self::default();
         registry.register(DirectoryPreviewer);
         registry.register(ImagePreviewer);
+        registry.register(PdfPreviewer);
         registry.register(ArchivePreviewer);
         registry.register(MarkdownPreviewer);
         registry.register(TablePreviewer);
