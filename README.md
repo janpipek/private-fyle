@@ -139,7 +139,7 @@ permissions); `src/editor_view.rs` is the editor pane.
 picks the glyph for each kind.
 
 Previews follow the same split. `src/preview/` is the model: a `Registry`
-of `Previewer`s (directory, image with EXIF, PDF via poppler, archive, Markdown,
+of `Previewer`s (directory, image with EXIF, PDF via poppler, audio/video via ffmpeg, archive, Markdown,
 CSV table, text, binary fallback) turns a path into
 plain `Content` data; the first previewer whose `matches` accepts the file's
 `Probe` (name, extension, size, first 8 KiB) wins. `src/preview_view.rs` loads

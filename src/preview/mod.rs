@@ -17,6 +17,7 @@ mod binary;
 mod directory;
 mod image;
 mod markdown;
+mod media;
 mod pdf;
 mod table;
 pub mod text;
@@ -30,12 +31,26 @@ pub use binary::BinaryPreviewer;
 pub use directory::DirectoryPreviewer;
 pub use image::ImagePreviewer;
 pub use markdown::MarkdownPreviewer;
+pub use media::MediaPreviewer;
 pub use pdf::PdfPreviewer;
 pub use table::TablePreviewer;
 pub use text::TextPreviewer;
 
 /// Bytes read up front for type detection.
 const HEAD_LEN: usize = 8 * 1024;
+
+/// Where to keep a file generated from `source` (a rendered page, a video
+/// frame): in the temp directory, named after the source path and its
+/// modification time, so it is reused until the source changes.
+pub(crate) fn cache_file(source: &Path, ext: &str) -> io::Result<PathBuf> {
+    use std::hash::{Hash, Hasher};
+    let modified = fs::metadata(source)?.modified()?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (source, modified).hash(&mut hasher);
+    let dir = std::env::temp_dir().join("fyle-preview-cache");
+    fs::create_dir_all(&dir)?;
+    Ok(dir.join(format!("{:016x}.{ext}", hasher.finish())))
+}
 
 /// What a previewer can cheaply know about a file before loading it.
 #[derive(Debug)]
@@ -120,6 +135,8 @@ pub enum Content {
         rows: Vec<Vec<String>>,
         truncated: bool,
     },
+    /// Labelled details only (e.g. an audio file's tags and format).
+    Info { info: Vec<(String, String)> },
     /// Contents of an archive.
     Archive {
         items: Vec<ArchiveItem>,
@@ -165,6 +182,7 @@ impl Registry {
         registry.register(DirectoryPreviewer);
         registry.register(ImagePreviewer);
         registry.register(PdfPreviewer);
+        registry.register(MediaPreviewer);
         registry.register(ArchivePreviewer);
         registry.register(MarkdownPreviewer);
         registry.register(TablePreviewer);

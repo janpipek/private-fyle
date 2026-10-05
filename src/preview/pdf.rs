@@ -1,7 +1,6 @@
 //! PDF: the first page rendered by poppler's `pdftoppm`, with `pdfinfo`'s
 //! summary. Without poppler, a note saying what to install.
 
-use std::hash::{Hash, Hasher};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -43,13 +42,8 @@ impl Previewer for PdfPreviewer {
 /// Renders page 1 into a PNG in the temp directory, reused while the PDF
 /// is unchanged.
 fn render_first_page(pdf: &Path) -> io::Result<PathBuf> {
-    let modified = std::fs::metadata(pdf)?.modified()?;
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    (pdf, modified).hash(&mut hasher);
-    let dir = std::env::temp_dir().join("fyle-pdf-preview");
-    std::fs::create_dir_all(&dir)?;
-    let prefix = dir.join(format!("{:016x}", hasher.finish()));
-    let png = prefix.with_extension("png");
+    let png = super::cache_file(pdf, "png")?;
+    let prefix = png.with_extension("");
     if png.exists() {
         return Ok(png);
     }

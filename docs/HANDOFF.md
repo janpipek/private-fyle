@@ -44,7 +44,8 @@ Done (details in `TODO.md` under "Done"):
   progress and cancel. Also rename and bulk rename, and yank/cut/paste.
 - **Viewing and editing:** F3 preview covers text (highlighted), images,
   directories, hex, Markdown, CSV tables, archive listings, PDF (first
-  page via poppler) and EXIF. F4 is the
+  page via poppler), EXIF, and audio/video details with a video frame
+  (ffmpeg). F4 is the
   built-in editor, with an optional external editor; Shift-F4 creates a
   new file.
 - **Navigation:** find files and search contents (Alt-F7; literal or
@@ -68,7 +69,7 @@ Done (details in `TODO.md` under "Done"):
 | `panel.rs` | `FolderView` (DataTable delegate `FileTable`) and the filter bar |
 | `fs_ops.rs` | `Entry`, `Attrs`, read_dir, copy/move/delete/trash, formatting |
 | `columns.rs` | `ColumnKind`. A new attribute column means a variant here plus a renderer in `panel.rs`. |
-| `preview/` | `Previewer` trait and `Registry`. Order: directory, image, pdf, archive, markdown, table, text, binary. `preview_view.rs` has one render arm per `Content` variant. |
+| `preview/` | `Previewer` trait and `Registry`. Order: directory, image, pdf, media, archive, markdown, table, text, binary. `preview_view.rs` has one render arm per `Content` variant. |
 | `editor.rs` / `editor_view.rs` | `Document` model (UTF-8, ≤ 8 MiB, atomic save) and the editor pane |
 | `tools/` | Tool, Action and Registry model; `defaults.toml`; built-ins (git website, just tasks, image gallery); `exec.rs` runs them |
 | `search.rs`, `jobs.rs`, `places.rs`, `rename.rs`, `openers.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs` | UI-independent models, each with tests |
@@ -126,7 +127,7 @@ Done (details in `TODO.md` under "Done"):
 1. **Tabs per panel:** parked by the owner; ask before starting.
 2. **Shell command on the selection** with output capture: the owner found
    it unclear. Only "open terminal here" (F9) was wanted, and it is done.
-3. **More previews:** audio/video metadata, PDF pages beyond the first.
+3. **More previews:** PDF pages beyond the first.
 4. **EXIF column** (the preview shows EXIF already).
 
 Dropped by the owner: Zed theme import and icon themes.

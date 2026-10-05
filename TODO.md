@@ -2,7 +2,6 @@
 
 - [ ] Embedded terminal (idea, undecided): alacritty_terminal + PTY rendered
       in gpui as Zed does, vs. libghostty; see discussion.
-- [ ] More preview types (pluggable via `preview::Previewer`): audio/video metadata.
 - [ ] Ideas from yazi (terminal file manager):
   - [ ] Tabs per panel (parked).
   - [ ] Richer previews: PDF pages beyond the first, video thumbnails, scrolling
@@ -14,6 +13,7 @@
 
 ## Done
 
+- [x] Previews: audio/video details (ffprobe) and a video frame (ffmpeg).
 - [x] Search: the preview scrolls to a content hit's matching line.
 - [x] Previews: PDF first page and info (poppler), EXIF data under images.
 - [x] Columns: created time, git status, xattrs, SELinux context.

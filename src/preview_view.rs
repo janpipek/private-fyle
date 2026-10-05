@@ -191,27 +191,9 @@ impl PreviewPane {
                             }),
                     ),
                 )
-                .when(!info.is_empty(), |d| {
-                    d.child(
-                        v_flex()
-                            .flex_none()
-                            .gap_0p5()
-                            .text_xs()
-                            .children(info.iter().map(|(label, value)| {
-                                h_flex()
-                                    .gap_2()
-                                    .child(
-                                        div()
-                                            .w(px(90.))
-                                            .flex_none()
-                                            .text_color(theme.muted_foreground)
-                                            .child(label.clone()),
-                                    )
-                                    .child(div().min_w_0().truncate().child(value.clone()))
-                            })),
-                    )
-                })
+                .when(!info.is_empty(), |d| d.child(details(info, cx)))
                 .into_any_element(),
+            Content::Info { info } => v_flex().p_4().child(details(info, cx)).into_any_element(),
             Content::Directory {
                 dirs,
                 files,
@@ -398,4 +380,25 @@ impl Render for PreviewPane {
                     .child(body),
             )
     }
+}
+
+/// Labelled details (EXIF, PDF info, media streams), one per line.
+fn details(info: &[(String, String)], cx: &App) -> impl IntoElement {
+    let muted = cx.theme().muted_foreground;
+    v_flex()
+        .flex_none()
+        .gap_0p5()
+        .text_xs()
+        .children(info.iter().map(|(label, value)| {
+            h_flex()
+                .gap_2()
+                .child(
+                    div()
+                        .w(px(90.))
+                        .flex_none()
+                        .text_color(muted)
+                        .child(label.clone()),
+                )
+                .child(div().min_w_0().truncate().child(value.clone()))
+        }))
 }
