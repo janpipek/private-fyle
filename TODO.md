@@ -1,7 +1,5 @@
 # TODO
 
-- [ ] Tools: conversions (image, CSV, ...) as their own "Convert" group
-      rather than under the file type's group.
 - [ ] Embedded terminal (idea, undecided): alacritty_terminal + PTY rendered
       in gpui as Zed does, vs. libghostty; see discussion.
 - [ ] More preview types (pluggable via `preview::Previewer`): PDF,
@@ -26,6 +24,7 @@
 
 ## Done
 
+- [x] Tools: conversions (image, CSV) share one "Convert" group.
 - [x] Openers ([[opener]] rules by extension/kind/name) and Open with… (Shift-Enter).
 - [x] Yank/cut/paste (Ctrl-C/X/V) between panels; paths also on the system clipboard.
 - [x] Editor: Shift-F4 new file, overwrite prompt when changed on disk, optional external editor ([editor] command).

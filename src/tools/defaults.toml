@@ -4,17 +4,6 @@
 # --- Images -----------------------------------------------------------------
 
 [[tool]]
-id = "image.convert"
-group = "Image"
-label = "Convert with ImageMagick…"
-when = { kinds = ["image"] }
-requires = ["magick|convert (ImageMagick)"]
-run = ["{magick}", "{path}", "{parent}/{stem}.{format}"]
-per_target = true
-refresh = true
-params = [{ key = "format", label = "Format", choices = ["webp", "png", "jpg", "avif"] }]
-
-[[tool]]
 id = "image.resize"
 group = "Image"
 label = "Resize with ImageMagick…"
@@ -89,11 +78,23 @@ output = "log"
 refresh = true
 params = [{ key = "package", label = "Package" }]
 
-# --- CSV --------------------------------------------------------------------
+# --- Conversions --------------------------------------------------------------
+# One "Convert" group for every file type, rather than under each type's group.
+
+[[tool]]
+id = "image.convert"
+group = "Convert"
+label = "Convert with ImageMagick…"
+when = { kinds = ["image"] }
+requires = ["magick|convert (ImageMagick)"]
+run = ["{magick}", "{path}", "{parent}/{stem}.{format}"]
+per_target = true
+refresh = true
+params = [{ key = "format", label = "Format", choices = ["webp", "png", "jpg", "avif"] }]
 
 [[tool]]
 id = "csv.convert"
-group = "CSV"
+group = "Convert"
 label = "Convert with DuckDB…"
 when = { exts = ["csv", "tsv"] }
 requires = ["duckdb (DuckDB)"]

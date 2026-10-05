@@ -199,8 +199,8 @@ fn offers_depend_on_targets_and_programs() {
     assert_eq!(
         ids(&one_image),
         [
-            ("image.convert".into(), vec![]),
             ("image.resize".into(), vec![]),
+            ("image.convert".into(), vec![]),
             ("selection.zip".into(), vec![])
         ]
     );
@@ -211,8 +211,8 @@ fn offers_depend_on_targets_and_programs() {
         offered,
         [
             "image.gallery",
-            "image.convert",
             "image.resize",
+            "image.convert",
             "selection.zip"
         ]
     );
@@ -378,6 +378,14 @@ fn defaults_are_valid() {
     let registry = Registry::with_defaults();
     assert!(registry.tool("git.website").is_some());
     assert!(registry.tool("uv.sync").is_some());
+}
+
+#[test]
+fn conversions_share_one_group() {
+    let registry = Registry::with_defaults();
+    for id in ["image.convert", "csv.convert"] {
+        assert_eq!(registry.tool(id).unwrap().group(), "Convert", "{id}");
+    }
 }
 
 // --- built-in tools ------------------------------------------------------------------

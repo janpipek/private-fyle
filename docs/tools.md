@@ -58,7 +58,7 @@ most cases. Built-ins live in `src/tools/defaults.toml`; users add or override
 ```toml
 [[tool]]
 id = "image.convert"
-group = "Image"
+group = "Convert"
 label = "Convert with ImageMagick…"
 when = { kinds = ["image"] }               # all targets must match
 requires = ["magick|convert (ImageMagick)"]
@@ -90,7 +90,7 @@ params = [{ key = "format", label = "Format", choices = ["webp", "png", "jpg"] }
 |---|---|---|
 | GitHub repo → website | `git.website` | Facet `git_repo` with web URL (SSH and HTTPS remotes → `https://host/owner/repo`), `OpenUrl`. A repo directory under the cursor wins over the enclosing repo. |
 | uv project basics | `uv.sync`, `uv.upgrade`, `uv.tree`, `uv.add` | `scope = "dir"`, `facet = "uv_project"` (pyproject + `uv.lock` or `[tool.uv]`), `cwd = "root"`, log output. |
-| Image → convert | `image.convert`, `image.resize` | `kinds = ["image"]`, ImageMagick 7 (`magick`) or 6 (`convert`). |
+| Image → convert, resize | `image.convert`, `image.resize` | `kinds = ["image"]`, ImageMagick 7 (`magick`) or 6 (`convert`). Conversions of every file type share the "Convert" group. |
 | Selection → zip | `selection.zip` | `entries = "any"`, `{names}` relative to the panel directory, archive into the other panel. |
 | CSV → convert | `csv.convert` | DuckDB, choice of parquet/JSON. |
 | Images → web gallery | `image.gallery` | ≥ 2 images, native job writes `gallery.html` next to them. |
