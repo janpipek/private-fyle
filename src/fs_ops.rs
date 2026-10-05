@@ -102,13 +102,26 @@ fn user_name(uid: u32) -> Option<String> {
 
 impl Entry {
     /// The extension shown in its own column; empty for directories.
+    /// The extension, without the dot; empty for directories and names
+    /// like `.gitignore`. Search results name a relative path, so only its
+    /// last component counts.
     pub fn ext(&self) -> &str {
         if self.is_dir {
             return "";
         }
-        match self.name.rfind('.') {
+        let file = self.name.rfind('/').map_or(0, |ix| ix + 1);
+        match self.name[file..].rfind('.') {
             Some(0) | None => "",
-            Some(ix) => &self.name[ix + 1..],
+            Some(ix) => &self.name[file + ix + 1..],
+        }
+    }
+
+    /// The name without `.ext` (see [`Entry::ext`]), for when the extension
+    /// is shown in its own column: `main.rs` → `main`, `.gitignore` stays.
+    pub fn stem(&self) -> &str {
+        match self.ext() {
+            "" => &self.name,
+            ext => &self.name[..self.name.len() - ext.len() - 1],
         }
     }
 }
@@ -388,6 +401,35 @@ pub fn format_time(time: SystemTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn splits_extension_off_the_last_component() {
+        let entry = |name: &str, is_dir| Entry {
+            name: name.into(),
+            path: PathBuf::from(name),
+            is_dir,
+            is_parent: false,
+            size: 0,
+            modified: None,
+            attrs: Attrs::default(),
+        };
+        let split = |name: &str, is_dir| {
+            let e = entry(name, is_dir);
+            (e.stem().to_string(), e.ext().to_string())
+        };
+        let pair = |a: &str, b: &str| (a.to_string(), b.to_string());
+        assert_eq!(split("main.rs", false), pair("main", "rs"));
+        assert_eq!(split("archive.tar.gz", false), pair("archive.tar", "gz"));
+        assert_eq!(split(".gitignore", false), pair(".gitignore", ""));
+        assert_eq!(split(".config.toml", false), pair(".config", "toml"));
+        assert_eq!(split("Makefile", false), pair("Makefile", ""));
+        assert_eq!(split("trailing.", false), pair("trailing.", ""));
+        assert_eq!(split("photos.2024", true), pair("photos.2024", ""));
+        // Search results: relative paths.
+        assert_eq!(split("src/v1.2/notes", false), pair("src/v1.2/notes", ""));
+        assert_eq!(split("docs/.env", false), pair("docs/.env", ""));
+        assert_eq!(split("a.b/c.txt", false), pair("a.b/c", "txt"));
+    }
 
     fn entry(name: &str, is_dir: bool, size: u64) -> Entry {
         Entry {

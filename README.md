@@ -55,7 +55,9 @@ Click a column's sort icon to sort (directories always stay on top); drag
 header borders to resize. Columns… (in the command palette) picks the
 columns from a grouped catalog: file, owner and permissions, Git status,
 extended attributes, and EXIF fields of photos (date taken, camera, lens,
-exposure, aperture, ISO, focal length, dimensions, GPS).
+exposure, aperture, ISO, focal length, dimensions, GPS). With the Ext column
+shown, names leave out their extension (`.gitignore` and other dotfiles stay
+whole).
 
 Windows: ".." from a drive root lists all drives; files with the hidden
 attribute count as hidden.

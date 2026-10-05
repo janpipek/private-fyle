@@ -485,7 +485,12 @@ impl TableDelegate for FileTable {
                         div()
                             .truncate()
                             .when(row.hit_line.is_some(), |d| d.flex_none())
-                            .child(entry.name.clone()),
+                            // The extension has its own column when Ext is shown.
+                            .child(if self.columns.contains(&ColumnKind::Ext) {
+                                entry.stem().to_string()
+                            } else {
+                                entry.name.clone()
+                            }),
                     )
                     // Content search hit: the matching line after the name.
                     .when_some(row.hit_line.as_ref(), |d, (number, text)| {
