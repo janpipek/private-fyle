@@ -290,31 +290,38 @@ impl Render for FolderView {
 pub struct FileTable {
     folder: Entity<Folder>,
     columns: Vec<ColumnKind>,
-    /// Xattr cells, read lazily per shown row and kept until the listing
-    /// is read again.
-    extra: HashMap<PathBuf, Extra>,
+    /// Cells that need extra system calls or file reads (xattrs, EXIF),
+    /// read lazily for the rows shown and kept until the listing is read
+    /// again.
+    extra: HashMap<(PathBuf, ColumnKind), SharedString>,
     extra_generation: u64,
     git: Option<Arc<git_status::Status>>,
 }
 
-/// Attributes that need extra system calls, read only for rows shown.
-struct Extra {
-    xattrs: String,
-    selinux: String,
-}
-
 impl FileTable {
-    fn extra(&mut self, path: &Path, generation: u64) -> &Extra {
+    fn extra(
+        &mut self,
+        path: &Path,
+        is_dir: bool,
+        kind: ColumnKind,
+        generation: u64,
+    ) -> SharedString {
         if self.extra_generation != generation {
             self.extra.clear();
             self.extra_generation = generation;
         }
         self.extra
-            .entry(path.to_path_buf())
-            .or_insert_with(|| Extra {
-                xattrs: crate::xattr::names(path).join(", "),
-                selinux: crate::xattr::selinux_context(path).unwrap_or_default(),
+            .entry((path.to_path_buf(), kind))
+            .or_insert_with(|| {
+                let text = match kind {
+                    ColumnKind::Xattrs => crate::xattr::names(path).join(", "),
+                    ColumnKind::Selinux => crate::xattr::selinux_context(path).unwrap_or_default(),
+                    ColumnKind::Exif if !is_dir => crate::preview::exif_summary(path),
+                    _ => String::new(),
+                };
+                text.into()
             })
+            .clone()
     }
 }
 
@@ -377,22 +384,23 @@ impl TableDelegate for FileTable {
         cx: &mut Context<TableState<Self>>,
     ) -> impl IntoElement {
         let kind = self.columns[col_ix];
-        if matches!(kind, ColumnKind::Xattrs | ColumnKind::Selinux) {
+        if matches!(
+            kind,
+            ColumnKind::Xattrs | ColumnKind::Selinux | ColumnKind::Exif
+        ) {
             let folder = self.folder.read(cx);
             let Some(row) = folder.entries().get(row_ix).filter(|r| !r.is_parent) else {
                 return div().into_any_element();
             };
-            let (path, generation) = (row.path.clone(), folder.generation());
-            let extra = self.extra(&path, generation);
-            let text = match kind {
-                ColumnKind::Xattrs => extra.xattrs.clone(),
-                _ => extra.selinux.clone(),
-            };
+            let (path, is_dir, generation) = (row.path.clone(), row.is_dir, folder.generation());
+            let text = self.extra(&path, is_dir, kind, generation);
             let theme = cx.theme();
             return div()
                 .truncate()
                 .text_xs()
-                .font_family(theme.mono_font_family.clone())
+                .when(kind != ColumnKind::Exif, |d| {
+                    d.font_family(theme.mono_font_family.clone())
+                })
                 .text_color(theme.muted_foreground)
                 .child(text)
                 .into_any_element();
@@ -517,7 +525,9 @@ impl TableDelegate for FileTable {
                     .when_some(mark, |d, mark| d.child(mark.symbol()))
                     .into_any_element()
             }
-            ColumnKind::Xattrs | ColumnKind::Selinux => unreachable!("handled above"),
+            ColumnKind::Xattrs | ColumnKind::Selinux | ColumnKind::Exif => {
+                unreachable!("handled above")
+            }
         }
     }
 }

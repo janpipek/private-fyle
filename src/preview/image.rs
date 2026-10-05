@@ -64,6 +64,35 @@ pub fn exif_info(path: &Path) -> Vec<(String, String)> {
         .collect()
 }
 
+/// One line for the EXIF column: when taken and the camera, e.g.
+/// `2024-05-01 12:30 · Pixel 7`; empty for files without EXIF data.
+pub fn exif_summary(path: &Path) -> String {
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    // Only formats that carry EXIF; saves opening every file.
+    if !matches!(
+        ext.as_str(),
+        "jpg" | "jpeg" | "tif" | "tiff" | "png" | "webp" | "heic" | "heif" | "avif"
+    ) {
+        return String::new();
+    }
+    let info = exif_info(path);
+    let field = |label: &str| {
+        info.iter()
+            .find(|(l, _)| l == label)
+            .map(|(_, v)| v.as_str())
+    };
+    // EXIF dates read "2024-05-01 12:30:45"; minutes are enough here.
+    let taken = field("Taken").map(|t| t.get(..16).unwrap_or(t));
+    [taken, field("Camera")]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,8 +137,10 @@ mod tests {
                 ("Camera".to_string(), "Snap 1".to_string())
             ]
         );
+        assert_eq!(exif_summary(&path), "Snap 1");
         std::fs::write(&path, b"\x89PNG\r\n\x1a\n").unwrap();
         assert!(exif_info(&path).is_empty());
+        assert_eq!(exif_summary(&path), "");
         std::fs::remove_file(&path).unwrap();
     }
 }

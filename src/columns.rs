@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use crate::fs_ops::SortKey;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ColumnKind {
     Name,
@@ -26,6 +26,8 @@ pub enum ColumnKind {
     Xattrs,
     /// SELinux context (Linux).
     Selinux,
+    /// Photos: when taken and the camera, from EXIF data.
+    Exif,
 }
 
 impl ColumnKind {
@@ -43,6 +45,7 @@ impl ColumnKind {
             Self::Git => "git",
             Self::Xattrs => "xattrs",
             Self::Selinux => "selinux",
+            Self::Exif => "exif",
         }
     }
 
@@ -58,6 +61,7 @@ impl ColumnKind {
             Self::Git => "Git",
             Self::Xattrs => "Xattrs",
             Self::Selinux => "SELinux",
+            Self::Exif => "EXIF",
         }
     }
 
@@ -73,6 +77,7 @@ impl ColumnKind {
             Self::Git => 40.,
             Self::Xattrs => 160.,
             Self::Selinux => 220.,
+            Self::Exif => 220.,
         }
     }
 
@@ -88,7 +93,8 @@ impl ColumnKind {
             | Self::Created
             | Self::Git
             | Self::Xattrs
-            | Self::Selinux => None,
+            | Self::Selinux
+            | Self::Exif => None,
         }
     }
 }
@@ -121,9 +127,10 @@ mod tests {
         struct S {
             columns: Vec<ColumnKind>,
         }
-        let s: S = toml::from_str(r#"columns = ["created", "git", "xattrs", "selinux"]"#).unwrap();
+        let s: S =
+            toml::from_str(r#"columns = ["created", "git", "xattrs", "selinux", "exif"]"#).unwrap();
         use ColumnKind::*;
-        assert_eq!(s.columns, [Created, Git, Xattrs, Selinux]);
+        assert_eq!(s.columns, [Created, Git, Xattrs, Selinux, Exif]);
         for c in s.columns {
             assert_eq!(format!("{c:?}").to_lowercase(), c.id());
         }

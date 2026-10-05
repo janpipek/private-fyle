@@ -38,7 +38,7 @@ paused and macOS comes later.
 Done (details in `TODO.md` under "Done"):
 
 - **Panels:** DataTable panels, tree mode, natural sort, configurable
-  columns (incl. created time, git status, xattrs, SELinux), filter as
+  columns (incl. created time, git status, xattrs, SELinux, EXIF), filter as
   you type. Dev builds optimise dependencies (unoptimised gpui lagged).
 - **File operations:** copy, move and trash run as background jobs with
   progress and cancel. Also rename and bulk rename, and yank/cut/paste.
@@ -128,7 +128,6 @@ Done (details in `TODO.md` under "Done"):
 2. **Shell command on the selection** with output capture: the owner found
    it unclear. Only "open terminal here" (F9) was wanted, and it is done.
 3. **More previews:** PDF pages beyond the first.
-4. **EXIF column** (the preview shows EXIF already).
 
 Dropped by the owner: Zed theme import and icon themes.
 

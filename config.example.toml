@@ -45,7 +45,8 @@ height = 760
 # right = "~"
 tree = false              # start panels in tree mode
 # Columns, in order: name, ext, size, modified, permissions, owner, created,
-# git (status letter; runs `git status` per directory), xattrs, selinux.
+# git (status letter; runs `git status` per directory), xattrs, selinux,
+# exif (photos: when taken, camera).
 columns = ["name", "ext", "size", "modified"]
 sort = "name"             # "name" | "ext" | "size" | "modified"
 sort_descending = false

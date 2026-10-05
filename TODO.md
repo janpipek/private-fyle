@@ -7,12 +7,11 @@
   - [ ] Richer previews: PDF pages beyond the first, video thumbnails, scrolling
         and paging inside the preview.
   - [ ] Shell command on selection with output capture (ties into tools).
-- [ ] More attribute columns (open-ended; add a `ColumnKind` + renderer):
-      EXIF data.
 - [ ] macOS support (later): CI job, app menu, Cmd shortcuts, app bundle.
 
 ## Done
 
+- [x] EXIF column (photos: when taken, camera).
 - [x] Previews: audio/video details (ffprobe) and a video frame (ffmpeg).
 - [x] Search: the preview scrolls to a content hit's matching line.
 - [x] Previews: PDF first page and info (poppler), EXIF data under images.
