@@ -14,11 +14,13 @@ use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, Textar
 use gpui_kit::component::list::{List, ListState};
 use gpui_kit::component::progress::Progress as ProgressBar;
 use gpui_kit::component::{
-    ActiveTheme as _, IndexPath, Sizable as _, ThemeRegistry, WindowExt as _, h_flex, v_flex,
+    ActiveTheme as _, Disableable as _, IndexPath, Sizable as _, ThemeRegistry, WindowExt as _,
+    h_flex, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use crate::columns::ColumnKind;
 use crate::editor::Document;
 use crate::editor_view::{EditorEvent, EditorPane};
 use crate::fs_ops;
@@ -63,6 +65,7 @@ actions!(
         EditFile,
         NewFile,
         SelectTheme,
+        SelectColumns,
         OpenWith,
         YankFiles,
         CutFiles,
@@ -1243,6 +1246,7 @@ impl Commander {
             ("Toggle hidden files", Box::new(ToggleHidden)),
             ("Refresh", Box::new(Refresh)),
             ("Select theme", Box::new(SelectTheme)),
+            ("Columns…", Box::new(SelectColumns)),
             ("Tools…", Box::new(ToolsMenu)),
             ("Find files / search contents…", Box::new(FindFiles)),
             ("Cancel running jobs", Box::new(CancelJobs)),
@@ -1314,6 +1318,58 @@ impl Commander {
     }
 
     /// Opens the theme picker; the highlighted theme is previewed live.
+    /// Columns…: the column catalog, grouped, as checkboxes. Changes apply
+    /// to both panels at once and are saved to the settings file.
+    fn select_columns(&mut self, _: &SelectColumns, window: &mut Window, cx: &mut Context<Self>) {
+        let this = cx.entity().downgrade();
+        window.open_dialog(cx, move |dialog, _, cx| {
+            let Some(commander) = this.upgrade() else {
+                return dialog;
+            };
+            let shown = commander.read(cx).views[0].read(cx).columns(cx);
+            let muted = cx.theme().muted_foreground;
+            let groups = crate::columns::catalog()
+                .into_iter()
+                .map(|(group, columns)| {
+                    v_flex()
+                        .gap_1()
+                        .child(div().text_xs().text_color(muted).child(group.to_string()))
+                        .children(columns.into_iter().map(|column| {
+                            let this = this.clone();
+                            let id = SharedString::from(format!("column-{}", column.id()));
+                            Checkbox::new(id)
+                                .label(column.label())
+                                .checked(shown.contains(&column))
+                                .disabled(column == ColumnKind::Name)
+                                .on_click(move |checked, _, cx| {
+                                    let _ = this.update(cx, |this, cx| {
+                                        this.toggle_column(column, *checked, cx);
+                                    });
+                                })
+                        }))
+                });
+            dialog.title("Columns").w(px(360.)).child(
+                div()
+                    .id("columns")
+                    .max_h(px(480.))
+                    .overflow_y_scroll()
+                    .child(v_flex().gap_3().children(groups)),
+            )
+        });
+    }
+
+    fn toggle_column(&mut self, column: ColumnKind, show: bool, cx: &mut Context<Self>) {
+        let current = self.views[0].read(cx).columns(cx);
+        let columns = crate::columns::toggle(&current, column, show);
+        for view in &self.views {
+            view.update(cx, |view, cx| view.set_columns(columns.clone(), cx));
+        }
+        if let Err(e) = settings::save_columns(&columns) {
+            self.status = e.into();
+        }
+        cx.notify();
+    }
+
     fn select_theme(&mut self, _: &SelectTheme, window: &mut Window, cx: &mut Context<Self>) {
         let registry = ThemeRegistry::global(cx);
         let defaults = [
@@ -1957,6 +2013,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::go_to))
             .on_action(cx.listener(Self::add_bookmark))
             .on_action(cx.listener(Self::open_terminal))
+            .on_action(cx.listener(Self::select_columns))
             .on_action(cx.listener(Self::expand))
             .on_action(cx.listener(Self::collapse))
             .on_action(cx.listener(Self::quit))

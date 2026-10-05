@@ -57,6 +57,7 @@ impl FolderView {
             folder: folder.clone(),
             columns,
             extra: HashMap::new(),
+            exif: HashMap::new(),
             extra_generation: 0,
             git: None,
         };
@@ -96,6 +97,22 @@ impl FolderView {
         this
     }
 
+    pub fn columns(&self, cx: &App) -> Vec<ColumnKind> {
+        self.table.read(cx).delegate().columns.clone()
+    }
+
+    /// Shows `columns` (Name first, see [`crate::columns::normalize`]).
+    pub fn set_columns(&mut self, columns: Vec<ColumnKind>, cx: &mut Context<Self>) {
+        self.table.update(cx, |table, cx| {
+            table.delegate_mut().columns = columns;
+            table.refresh(cx);
+            cx.notify();
+        });
+        self.git_generation = None; // a newly shown Git column needs data
+        self.refresh_git(cx);
+        cx.notify();
+    }
+
     /// With a Git column: re-runs `git status` in the background whenever
     /// the listing was read again.
     fn refresh_git(&mut self, cx: &mut Context<Self>) {
@@ -104,7 +121,7 @@ impl FolderView {
             .read(cx)
             .delegate()
             .columns
-            .contains(&ColumnKind::Git)
+            .contains(&ColumnKind::GitStatus)
         {
             return;
         }
@@ -294,6 +311,8 @@ pub struct FileTable {
     /// read lazily for the rows shown and kept until the listing is read
     /// again.
     extra: HashMap<(PathBuf, ColumnKind), SharedString>,
+    /// All EXIF columns of a file, read once for all of them.
+    exif: HashMap<PathBuf, HashMap<&'static str, String>>,
     extra_generation: u64,
     git: Option<Arc<git_status::Status>>,
 }
@@ -308,20 +327,29 @@ impl FileTable {
     ) -> SharedString {
         if self.extra_generation != generation {
             self.extra.clear();
+            self.exif.clear();
             self.extra_generation = generation;
         }
-        self.extra
-            .entry((path.to_path_buf(), kind))
-            .or_insert_with(|| {
-                let text = match kind {
-                    ColumnKind::Xattrs => crate::xattr::names(path).join(", "),
-                    ColumnKind::Selinux => crate::xattr::selinux_context(path).unwrap_or_default(),
-                    ColumnKind::Exif if !is_dir => crate::preview::exif_summary(path),
-                    _ => String::new(),
-                };
-                text.into()
-            })
-            .clone()
+        if let Some(text) = self.extra.get(&(path.to_path_buf(), kind)) {
+            return text.clone();
+        }
+        let text: SharedString = match kind {
+            ColumnKind::Xattrs => crate::xattr::names(path).join(", ").into(),
+            ColumnKind::Selinux => crate::xattr::selinux_context(path)
+                .unwrap_or_default()
+                .into(),
+            ColumnKind::Exif(field) if !is_dir => self
+                .exif
+                .entry(path.to_path_buf())
+                .or_insert_with(|| crate::preview::exif_fields(path))
+                .get(field.key())
+                .cloned()
+                .unwrap_or_default()
+                .into(),
+            _ => SharedString::default(),
+        };
+        self.extra.insert((path.to_path_buf(), kind), text.clone());
+        text
     }
 }
 
@@ -386,7 +414,7 @@ impl TableDelegate for FileTable {
         let kind = self.columns[col_ix];
         if matches!(
             kind,
-            ColumnKind::Xattrs | ColumnKind::Selinux | ColumnKind::Exif
+            ColumnKind::Xattrs | ColumnKind::Selinux | ColumnKind::Exif(_)
         ) {
             let folder = self.folder.read(cx);
             let Some(row) = folder.entries().get(row_ix).filter(|r| !r.is_parent) else {
@@ -398,7 +426,7 @@ impl TableDelegate for FileTable {
             return div()
                 .truncate()
                 .text_xs()
-                .when(kind != ColumnKind::Exif, |d| {
+                .when(!matches!(kind, ColumnKind::Exif(_)), |d| {
                     d.font_family(theme.mono_font_family.clone())
                 })
                 .text_color(theme.muted_foreground)
@@ -507,7 +535,7 @@ impl TableDelegate for FileTable {
                     d.child(fs_ops::format_time(t))
                 })
                 .into_any_element(),
-            ColumnKind::Git => {
+            ColumnKind::GitStatus => {
                 let mark = self
                     .git
                     .as_ref()
@@ -525,7 +553,7 @@ impl TableDelegate for FileTable {
                     .when_some(mark, |d, mark| d.child(mark.symbol()))
                     .into_any_element()
             }
-            ColumnKind::Xattrs | ColumnKind::Selinux | ColumnKind::Exif => {
+            ColumnKind::Xattrs | ColumnKind::Selinux | ColumnKind::Exif(_) => {
                 unreachable!("handled above")
             }
         }

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufReader};
 use std::path::Path;
@@ -64,9 +65,10 @@ pub fn exif_info(path: &Path) -> Vec<(String, String)> {
         .collect()
 }
 
-/// One line for the EXIF column: when taken and the camera, e.g.
-/// `2024-05-01 12:30 · Pixel 7`; empty for files without EXIF data.
-pub fn exif_summary(path: &Path) -> String {
+/// Values for the EXIF columns, by [`crate::columns::ExifField::key`]:
+/// `taken`, `camera`, `lens`, `exposure`, `aperture`, `iso`,
+/// `focal_length`, `dimensions`, `gps`. Empty for files without EXIF data.
+pub fn exif_fields(path: &Path) -> HashMap<&'static str, String> {
     let ext = path
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
@@ -76,21 +78,52 @@ pub fn exif_summary(path: &Path) -> String {
         ext.as_str(),
         "jpg" | "jpeg" | "tif" | "tiff" | "png" | "webp" | "heic" | "heif" | "avif"
     ) {
-        return String::new();
+        return HashMap::new();
     }
-    let info = exif_info(path);
-    let field = |label: &str| {
-        info.iter()
-            .find(|(l, _)| l == label)
-            .map(|(_, v)| v.as_str())
+    let info: HashMap<String, String> = exif_info(path).into_iter().collect();
+    let get = |label: &str| info.get(label).cloned();
+    let mut fields = HashMap::new();
+    let mut put = |key, value: Option<String>| {
+        if let Some(value) = value {
+            fields.insert(key, value);
+        }
     };
     // EXIF dates read "2024-05-01 12:30:45"; minutes are enough here.
-    let taken = field("Taken").map(|t| t.get(..16).unwrap_or(t));
-    [taken, field("Camera")]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" · ")
+    put(
+        "taken",
+        get("Taken").map(|t| t.get(..16).unwrap_or(&t).to_string()),
+    );
+    // Models usually repeat the make ("Canon EOS R6"); some don't ("Pixel 7").
+    put(
+        "camera",
+        match (get("Make"), get("Camera")) {
+            // "Camera" is the Model tag
+            (Some(make), Some(model))
+                if !model.to_lowercase().starts_with(&make.to_lowercase()) =>
+            {
+                Some(format!("{make} {model}"))
+            }
+            (make, model) => model.or(make),
+        },
+    );
+    put("lens", get("Lens"));
+    put("exposure", get("Exposure"));
+    put("aperture", get("Aperture"));
+    put("iso", get("ISO"));
+    put("focal_length", get("Focal length"));
+    put(
+        "dimensions",
+        get("Width")
+            .zip(get("Height"))
+            .map(|(w, h)| format!("{w}×{h}")),
+    );
+    put(
+        "gps",
+        get("Latitude")
+            .zip(get("Longitude"))
+            .map(|(lat, lon)| format!("{lat}, {lon}")),
+    );
+    fields
 }
 
 #[cfg(test)]
@@ -137,10 +170,15 @@ mod tests {
                 ("Camera".to_string(), "Snap 1".to_string())
             ]
         );
-        assert_eq!(exif_summary(&path), "Snap 1");
+        let fields = exif_fields(&path);
+        assert_eq!(
+            fields.get("camera").map(String::as_str),
+            Some("Acme Snap 1")
+        );
+        assert_eq!(fields.len(), 1);
         std::fs::write(&path, b"\x89PNG\r\n\x1a\n").unwrap();
         assert!(exif_info(&path).is_empty());
-        assert_eq!(exif_summary(&path), "");
+        assert!(exif_fields(&path).is_empty());
         std::fs::remove_file(&path).unwrap();
     }
 }

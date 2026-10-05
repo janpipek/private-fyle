@@ -44,9 +44,14 @@ height = 760
 # left = "~/projects"
 # right = "~"
 tree = false              # start panels in tree mode
-# Columns, in order: name, ext, size, modified, permissions, owner, created,
-# git (status letter; runs `git status` per directory), xattrs, selinux,
-# exif (photos: when taken, camera).
+# Columns, in order (Columns… in the command palette edits this list):
+#   file:       name, ext, size, modified, created
+#   unix:       permissions, owner
+#   git:        git.status (runs `git status` per directory)
+#   attributes: xattrs, selinux
+#   exif:       exif.taken, exif.camera, exif.lens, exif.exposure,
+#               exif.aperture, exif.iso, exif.focal_length,
+#               exif.dimensions, exif.gps
 columns = ["name", "ext", "size", "modified"]
 sort = "name"             # "name" | "ext" | "size" | "modified"
 sort_descending = false

@@ -11,7 +11,7 @@
 
 ## Done
 
-- [x] EXIF column (photos: when taken, camera).
+- [x] Columns… dialog: pick columns from a grouped catalog, incl. single EXIF fields.
 - [x] Previews: audio/video details (ffprobe) and a video frame (ffmpeg).
 - [x] Search: the preview scrolls to a content hit's matching line.
 - [x] Previews: PDF first page and info (poppler), EXIF data under images.

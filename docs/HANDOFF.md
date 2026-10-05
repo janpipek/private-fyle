@@ -38,7 +38,8 @@ paused and macOS comes later.
 Done (details in `TODO.md` under "Done"):
 
 - **Panels:** DataTable panels, tree mode, natural sort, configurable
-  columns (incl. created time, git status, xattrs, SELinux, EXIF), filter as
+  columns picked from a grouped catalog (Columns…: file, Unix, Git,
+  attributes, EXIF fields), filter as
   you type. Dev builds optimise dependencies (unoptimised gpui lagged).
 - **File operations:** copy, move and trash run as background jobs with
   progress and cancel. Also rename and bulk rename, and yank/cut/paste.
@@ -68,7 +69,7 @@ Done (details in `TODO.md` under "Done"):
 | `model.rs` | `Folder`: entries, cursor, marks, filter, sort, tree, search results |
 | `panel.rs` | `FolderView` (DataTable delegate `FileTable`) and the filter bar |
 | `fs_ops.rs` | `Entry`, `Attrs`, read_dir, copy/move/delete/trash, formatting |
-| `columns.rs` | `ColumnKind`. A new attribute column means a variant here plus a renderer in `panel.rs`. |
+| `columns.rs` | `ColumnKind` catalog, grouped (`Group`), ids like `exif.iso`. A new column means a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |
 | `preview/` | `Previewer` trait and `Registry`. Order: directory, image, pdf, media, archive, markdown, table, text, binary. `preview_view.rs` has one render arm per `Content` variant. |
 | `editor.rs` / `editor_view.rs` | `Document` model (UTF-8, ≤ 8 MiB, atomic save) and the editor pane |
 | `tools/` | Tool, Action and Registry model; `defaults.toml`; built-ins (git website, just tasks, image gallery); `exec.rs` runs them |

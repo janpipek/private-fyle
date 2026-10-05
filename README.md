@@ -52,7 +52,10 @@ In tree mode, clicking a folder's chevron also expands/collapses it; Enter
 still makes the folder the panel's root.
 
 Click a column's sort icon to sort (directories always stay on top); drag
-header borders to resize.
+header borders to resize. Columns… (in the command palette) picks the
+columns from a grouped catalog: file, owner and permissions, Git status,
+extended attributes, and EXIF fields of photos (date taken, camera, lens,
+exposure, aperture, ISO, focal length, dimensions, GPS).
 
 Windows: ".." from a drive root lists all drives; files with the hidden
 attribute count as hidden.
