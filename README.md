@@ -12,6 +12,9 @@ Defaults: left = current directory, right = home directory.
 
 ## Keys
 
+The menu bar (File, Edit, View, Go, Tools, Help) lists the commands with
+their shortcuts; unavailable ones are greyed out, toggles show a check.
+
 | Key                 | Action                                    |
 | ------------------- | ----------------------------------------- |
 | Up / Down, PgUp/Dn  | Move cursor                               |

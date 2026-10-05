@@ -69,6 +69,7 @@ Done (details in `TODO.md` under "Done"):
 | `model.rs` | `Folder`: entries, cursor, marks, filter, sort, tree, search results |
 | `panel.rs` | `FolderView` (DataTable delegate `FileTable`) and the filter bar |
 | `fs_ops.rs` | `Entry`, `Attrs`, read_dir, copy/move/delete/trash, formatting |
+| `menus.rs` | `Cmd`: every user-visible command with its menu label, palette label, toggle state and availability, plus the menu bar layout. The menu bar and palette are built from it; `commander::action_for` maps each `Cmd` to its action. |
 | `columns.rs` | `ColumnKind` catalog, grouped (`Group`), ids like `exif.iso`. A new column means a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |
 | `preview/` | `Previewer` trait and `Registry`. Order: directory, image, pdf, media, archive, markdown, table, text, binary. `preview_view.rs` has one render arm per `Content` variant. |
 | `editor.rs` / `editor_view.rs` | `Document` model (UTF-8, ≤ 8 MiB, atomic save) and the editor pane |

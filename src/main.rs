@@ -9,6 +9,7 @@ mod fs_ops;
 mod git_status;
 mod icons;
 mod jobs;
+mod menus;
 mod model;
 mod openers;
 mod palette;

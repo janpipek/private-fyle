@@ -12,10 +12,11 @@ use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::component::list::{List, ListState};
+use gpui_kit::component::menu::AppMenuBar;
 use gpui_kit::component::progress::Progress as ProgressBar;
 use gpui_kit::component::{
-    ActiveTheme as _, Disableable as _, IndexPath, Sizable as _, ThemeRegistry, WindowExt as _,
-    h_flex, v_flex,
+    ActiveTheme as _, Disableable as _, GlobalState, IndexPath, Sizable as _, ThemeRegistry,
+    WindowExt as _, h_flex, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -25,6 +26,7 @@ use crate::editor::Document;
 use crate::editor_view::{EditorEvent, EditorPane};
 use crate::fs_ops;
 use crate::jobs::{self, JobKind, Progress, Yank};
+use crate::menus::{self, Cmd};
 use crate::model::{Activation, Folder};
 use crate::palette::{Command, Palette};
 use crate::palette_view::PaletteDelegate;
@@ -215,6 +217,9 @@ pub struct Commander {
     openers: Vec<crate::openers::Opener>,
     /// Entries waiting to be pasted.
     yank: Option<Yank>,
+    menu_bar: Entity<AppMenuBar>,
+    /// What the menu bar was last built for.
+    menu_state: Option<menus::State>,
     bookmarks: Vec<PathBuf>,
     history: History,
     /// Last directory recorded in the history.
@@ -308,6 +313,8 @@ impl Commander {
             programs: Arc::new(Programs::from_env()),
             _tool_task: Task::ready(()),
             yank: None,
+            menu_bar: AppMenuBar::new(cx),
+            menu_state: None,
             openers: settings.openers.clone(),
             bookmarks: settings.bookmarks.clone(),
             history: History::path()
@@ -1222,43 +1229,57 @@ impl Commander {
 
     /// Every command offered in the palette.
     fn palette_commands() -> Vec<(&'static str, Box<dyn Action>)> {
-        vec![
-            ("Open / enter directory", Box::new(Open)),
-            ("Open with…", Box::new(OpenWith)),
-            ("Go to parent directory", Box::new(GoUp)),
-            ("Go to first entry", Box::new(GoFirst)),
-            ("Go to last entry", Box::new(GoLast)),
-            ("Switch panel", Box::new(SwitchPanel)),
-            ("Mark / unmark entry", Box::new(ToggleMark)),
-            ("Clear filter or marks", Box::new(Unmark)),
-            ("Filter names", Box::new(Filter)),
-            ("Copy to other panel", Box::new(Copy)),
-            ("Move to other panel", Box::new(Move)),
-            ("New directory", Box::new(MakeDir)),
-            ("Move to trash", Box::new(Delete)),
-            ("Delete permanently", Box::new(DeletePermanently)),
-            ("Edit file", Box::new(EditFile)),
-            ("New file", Box::new(NewFile)),
-            ("Toggle preview", Box::new(TogglePreview)),
-            ("Toggle tree mode", Box::new(ToggleTree)),
-            ("Expand directory (tree)", Box::new(Expand)),
-            ("Collapse directory (tree)", Box::new(Collapse)),
-            ("Toggle hidden files", Box::new(ToggleHidden)),
-            ("Refresh", Box::new(Refresh)),
-            ("Select theme", Box::new(SelectTheme)),
-            ("Columns…", Box::new(SelectColumns)),
-            ("Tools…", Box::new(ToolsMenu)),
-            ("Find files / search contents…", Box::new(FindFiles)),
-            ("Cancel running jobs", Box::new(CancelJobs)),
-            ("Rename (bulk when several are marked)", Box::new(Rename)),
-            ("Yank (copy) entries for pasting", Box::new(YankFiles)),
-            ("Cut entries for pasting", Box::new(CutFiles)),
-            ("Paste yanked / cut entries here", Box::new(PasteFiles)),
-            ("Go to… (bookmarks, places, frequent)", Box::new(GoTo)),
-            ("Bookmark this directory", Box::new(AddBookmark)),
-            ("Open terminal here", Box::new(OpenTerminal)),
-            ("Quit", Box::new(Quit)),
-        ]
+        Cmd::ALL
+            .into_iter()
+            .map(|cmd| (cmd.palette_label(), action_for(cmd)))
+            .collect()
+    }
+
+    /// What the menus' availability and check marks depend on.
+    fn menu_state(&self, cx: &App) -> menus::State {
+        let folder = self.folders[self.active].read(cx);
+        let current = folder.current();
+        menus::State {
+            has_targets: folder.marked_count() > 0 || current.is_some_and(|e| !e.is_parent),
+            cursor_on_file: current.is_some_and(|e| !e.is_dir),
+            can_paste: self.yank.is_some(),
+            in_directory: folder.results().is_none() && !folder.path().as_os_str().is_empty(),
+            tree: folder.is_tree(),
+            hidden: self.show_hidden,
+            preview: self.preview_on,
+            jobs_running: !self.jobs.is_empty(),
+        }
+    }
+
+    /// Rebuilds the menu bar when what it shows changed.
+    fn update_menu_bar(&mut self, cx: &mut Context<Self>) {
+        let state = self.menu_state(cx);
+        if self.menu_state.as_ref() == Some(&state) {
+            return;
+        }
+        let menus = menus::menu_bar()
+            .into_iter()
+            .map(|(name, items)| OwnedMenu {
+                name: name.into(),
+                disabled: false,
+                items: items
+                    .into_iter()
+                    .map(|item| match item {
+                        menus::Item::Separator => OwnedMenuItem::Separator,
+                        menus::Item::Cmd(cmd) => OwnedMenuItem::Action {
+                            name: cmd.label().into(),
+                            action: action_for(cmd),
+                            os_action: None,
+                            checked: cmd.checked(&state).unwrap_or(false),
+                            disabled: cmd.unavailable(&state).is_some(),
+                        },
+                    })
+                    .collect(),
+            })
+            .collect();
+        self.menu_state = Some(state);
+        GlobalState::global_mut(cx).set_app_menus(menus);
+        self.menu_bar.update(cx, |bar, cx| bar.reload(cx));
     }
 
     /// F1: every command with its keys (the palette, as help).
@@ -1976,6 +1997,7 @@ impl Commander {
 
 impl Render for Commander {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.update_menu_bar(cx);
         let theme = cx.theme();
         let (bg, fg, muted) = (theme.background, theme.foreground, theme.muted_foreground);
         v_flex()
@@ -2021,6 +2043,7 @@ impl Render for Commander {
             .bg(bg)
             .text_color(fg)
             .text_sm()
+            .child(self.menu_bar.clone())
             .child(
                 h_flex()
                     .flex_1()
@@ -2073,6 +2096,49 @@ fn summarize(verb: &str, done: usize, errors: &[String]) -> String {
 }
 
 /// Built-in tools plus the user's `<config dir>/fyle/tools.toml`.
+/// The gpui action behind a [`Cmd`].
+fn action_for(cmd: Cmd) -> Box<dyn Action> {
+    match cmd {
+        Cmd::Open => Box::new(Open),
+        Cmd::OpenWith => Box::new(OpenWith),
+        Cmd::EditFile => Box::new(EditFile),
+        Cmd::NewFile => Box::new(NewFile),
+        Cmd::MakeDir => Box::new(MakeDir),
+        Cmd::Rename => Box::new(Rename),
+        Cmd::Copy => Box::new(Copy),
+        Cmd::Move => Box::new(Move),
+        Cmd::Delete => Box::new(Delete),
+        Cmd::DeletePermanently => Box::new(DeletePermanently),
+        Cmd::Quit => Box::new(Quit),
+        Cmd::CutFiles => Box::new(CutFiles),
+        Cmd::YankFiles => Box::new(YankFiles),
+        Cmd::PasteFiles => Box::new(PasteFiles),
+        Cmd::ToggleMark => Box::new(ToggleMark),
+        Cmd::Unmark => Box::new(Unmark),
+        Cmd::Filter => Box::new(Filter),
+        Cmd::TogglePreview => Box::new(TogglePreview),
+        Cmd::ToggleTree => Box::new(ToggleTree),
+        Cmd::Expand => Box::new(Expand),
+        Cmd::Collapse => Box::new(Collapse),
+        Cmd::ToggleHidden => Box::new(ToggleHidden),
+        Cmd::SelectColumns => Box::new(SelectColumns),
+        Cmd::SelectTheme => Box::new(SelectTheme),
+        Cmd::Refresh => Box::new(Refresh),
+        Cmd::GoUp => Box::new(GoUp),
+        Cmd::GoFirst => Box::new(GoFirst),
+        Cmd::GoLast => Box::new(GoLast),
+        Cmd::SwitchPanel => Box::new(SwitchPanel),
+        Cmd::GoTo => Box::new(GoTo),
+        Cmd::AddBookmark => Box::new(AddBookmark),
+        Cmd::OpenTerminal => Box::new(OpenTerminal),
+        Cmd::ToolsMenu => Box::new(ToolsMenu),
+        Cmd::FindFiles => Box::new(FindFiles),
+        Cmd::CancelJobs => Box::new(CancelJobs),
+        Cmd::CommandPalette => Box::new(CommandPalette),
+        Cmd::Help => Box::new(Help),
+    }
+}
+
 /// Built-in tools, then the user's `tools.toml`, then their Lua plugins.
 fn load_tools() -> (Registry, Option<String>) {
     let mut registry = Registry::with_defaults();
