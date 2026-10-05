@@ -33,6 +33,9 @@ pub struct EditorPane {
     doc: Document,
     state: Entity<EditorState>,
     modified: bool,
+    /// Close once the pending save succeeds (Save in the unsaved-changes
+    /// dialog, possibly via the overwrite prompt).
+    close_after_save: bool,
     _subscription: Subscription,
 }
 
@@ -63,6 +66,7 @@ impl EditorPane {
             doc,
             state,
             modified: false,
+            close_after_save: false,
             _subscription: subscription,
         }
     }
@@ -94,8 +98,15 @@ impl EditorPane {
                 .ok_text("Overwrite")
                 .ok_variant(ButtonVariant::Danger)
                 .show_cancel(true)
-                .on_ok(move |_, _, cx| {
-                    let _ = this.update(cx, |this, cx| this.write(cx));
+                .on_ok({
+                    let this = this.clone();
+                    move |_, _, cx| {
+                        let _ = this.update(cx, |this, cx| this.write(cx));
+                        true
+                    }
+                })
+                .on_cancel(move |_, _, cx| {
+                    let _ = this.update(cx, |this, _| this.close_after_save = false);
                     true
                 })
         });
@@ -110,8 +121,14 @@ impl EditorPane {
                     "Saved {}",
                     self.doc.path().display()
                 )));
+                if std::mem::take(&mut self.close_after_save) {
+                    cx.emit(EditorEvent::Closed);
+                }
             }
-            Err(e) => cx.emit(EditorEvent::Failed(e)),
+            Err(e) => {
+                self.close_after_save = false;
+                cx.emit(EditorEvent::Failed(e));
+            }
         }
         cx.notify();
     }
@@ -123,19 +140,41 @@ impl EditorPane {
             return;
         }
         let this = cx.entity().downgrade();
-        let description = format!("Discard unsaved changes to \"{}\"?", self.doc.name());
+        let description = format!("Save changes to \"{}\" before closing?", self.doc.name());
         window.open_alert_dialog(cx, move |dialog, _, _| {
-            let this = this.clone();
+            let button =
+                |id: &'static str,
+                 label: &'static str,
+                 action: fn(&mut Self, &mut Window, &mut Context<Self>)| {
+                    let this = this.clone();
+                    Button::new(id).label(label).on_click(move |_, window, cx| {
+                        window.close_dialog(cx);
+                        let _ = this.update(cx, |this, cx| action(this, window, cx));
+                    })
+                };
             dialog
                 .title("Unsaved changes")
                 .description(description.clone())
-                .ok_text("Discard")
-                .ok_variant(ButtonVariant::Danger)
-                .show_cancel(true)
-                .on_ok(move |_, _, cx| {
-                    let _ = this.update(cx, |_, cx| cx.emit(EditorEvent::Closed));
-                    true
-                })
+                .footer(
+                    h_flex()
+                        .w_full()
+                        .gap_2()
+                        .child(
+                            button("discard", "Discard", |_, _, cx| {
+                                cx.emit(EditorEvent::Closed)
+                            })
+                            .with_variant(ButtonVariant::Danger),
+                        )
+                        .child(div().flex_1())
+                        .child(button("cancel", "Cancel", |_, _, _| {}))
+                        .child(
+                            button("save", "Save", |this, window, cx| {
+                                this.close_after_save = true;
+                                this.save(&SaveFile, window, cx);
+                            })
+                            .primary(),
+                        ),
+                )
         });
     }
 }
