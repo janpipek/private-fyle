@@ -32,5 +32,11 @@ zip = { version = "8.6.0", default-features = false }
 debug = false
 opt-level = 3
 
+# A smaller, faster release binary at the cost of a slower release build.
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
