@@ -70,6 +70,7 @@ actions!(
         Rename,
         GoTo,
         AddBookmark,
+        OpenTerminal,
         CancelJobs,
         FindFiles,
         ToolsMenu,
@@ -157,6 +158,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("ctrl-g", GoTo, table),
         KeyBinding::new("alt-f1", GoTo, table),
         KeyBinding::new("ctrl-d", AddBookmark, table),
+        KeyBinding::new("f9", OpenTerminal, table),
         KeyBinding::new("alt-f7", FindFiles, table),
         KeyBinding::new("secondary-shift-f", FindFiles, table),
         KeyBinding::new("f3", TogglePreview, ctx),
@@ -223,6 +225,8 @@ pub struct Commander {
     _search_inputs: Vec<Subscription>,
     /// External editor command; empty for the built-in editor.
     editor_command: Vec<String>,
+    /// Configured terminal command; empty to detect one.
+    terminal_command: Vec<String>,
     /// Open editor, shown in place of the inactive panel (before the preview).
     editor: Option<Entity<EditorPane>>,
     _editor_subscription: Option<Subscription>,
@@ -313,6 +317,7 @@ impl Commander {
             _search_inputs: Vec::new(),
             editor: None,
             editor_command: settings.editor.command.clone(),
+            terminal_command: settings.terminal.command.clone(),
             _editor_subscription: None,
             theme: settings.theme.clone(),
             active: 0,
@@ -626,6 +631,32 @@ impl Commander {
         if let Some(path) = History::path() {
             let _ = self.history.save(&path);
         }
+    }
+
+    /// F9: starts a terminal in the active panel's directory.
+    fn open_terminal(&mut self, _: &OpenTerminal, _: &mut Window, cx: &mut Context<Self>) {
+        let dir = self.folders[self.active].read(cx).path().to_path_buf();
+        if dir.as_os_str().is_empty() {
+            return;
+        }
+        let env = std::env::var("TERMINAL").ok();
+        let command = crate::terminal::command(&self.terminal_command, env.as_deref(), &dir, |name| {
+            self.programs.find(name).is_some()
+        });
+        self.status = match command.as_deref() {
+            Some([program, args @ ..]) => {
+                match std::process::Command::new(program)
+                    .args(args)
+                    .current_dir(&dir)
+                    .spawn()
+                {
+                    Ok(_) => format!("Opened {program} in {}", dir.display()).into(),
+                    Err(e) => format!("{program}: {e}").into(),
+                }
+            }
+            _ => "No terminal found: set [terminal] command in config.toml".into(),
+        };
+        cx.notify();
     }
 
     /// Ctrl-D: adds the active directory to the bookmarks.
@@ -1204,6 +1235,7 @@ impl Commander {
             ("Paste yanked / cut entries here", Box::new(PasteFiles)),
             ("Go to… (bookmarks, places, frequent)", Box::new(GoTo)),
             ("Bookmark this directory", Box::new(AddBookmark)),
+            ("Open terminal here", Box::new(OpenTerminal)),
             ("Quit", Box::new(Quit)),
         ]
     }
@@ -1904,6 +1936,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::paste_files))
             .on_action(cx.listener(Self::go_to))
             .on_action(cx.listener(Self::add_bookmark))
+            .on_action(cx.listener(Self::open_terminal))
             .on_action(cx.listener(Self::expand))
             .on_action(cx.listener(Self::collapse))
             .on_action(cx.listener(Self::quit))

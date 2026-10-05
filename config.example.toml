@@ -56,3 +56,10 @@ open_on_start = false     # open the F3 quick preview at startup
 # External editor for F4 / Shift-F4, e.g. ["code"]; the file path is appended.
 # Empty uses the built-in editor.
 command = []
+
+[terminal]
+# Terminal for "Open terminal here" (F9), e.g. ["kitty", "-d", "{dir}"];
+# {dir} is the panel directory, which is also the working directory.
+# Empty: $TERMINAL, else the first known terminal installed (ptyxis,
+# gnome-terminal, konsole, kitty, alacritty, wezterm, foot, ghostty, xterm…).
+command = []

@@ -19,6 +19,7 @@ mod preview_view;
 mod rename;
 mod search;
 mod settings;
+mod terminal;
 mod theme_picker;
 mod themes;
 mod tools;

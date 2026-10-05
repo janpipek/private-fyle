@@ -31,6 +31,16 @@ pub struct Settings {
     pub panels: PanelSettings,
     pub preview: PreviewSettings,
     pub editor: EditorSettings,
+    pub terminal: TerminalSettings,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct TerminalSettings {
+    /// Terminal for "Open terminal here", e.g. `["kitty", "-d", "{dir}"]`;
+    /// it also starts in the directory. Empty: `$TERMINAL`, else the first
+    /// known terminal installed.
+    pub command: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
@@ -116,6 +126,7 @@ impl Default for Settings {
             panels: PanelSettings::default(),
             preview: PreviewSettings::default(),
             editor: EditorSettings::default(),
+            terminal: TerminalSettings::default(),
         }
     }
 }
@@ -286,11 +297,15 @@ mod tests {
 
             [preview]
             open_on_start = true
+
+            [terminal]
+            command = ["kitty", "-d", "{dir}"]
             "#,
         )
         .unwrap();
         assert!(settings.show_hidden);
         assert_eq!(settings.theme, "dark");
+        assert_eq!(settings.terminal.command, ["kitty", "-d", "{dir}"]);
         assert_eq!(settings.window.width, 800.);
         assert_eq!(settings.panels.left, Some(PathBuf::from("/tmp")));
         let right = settings.panels.right.as_ref().unwrap();
