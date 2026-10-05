@@ -4,6 +4,8 @@
 //! so names and availability agree everywhere. `commander.rs` maps each
 //! [`Cmd`] to its gpui action.
 
+use crate::fs_ops::SortKey;
+
 /// A user-visible command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Cmd {
@@ -32,6 +34,11 @@ pub enum Cmd {
     Expand,
     Collapse,
     ToggleHidden,
+    SortByName,
+    SortByExt,
+    SortBySize,
+    SortByModified,
+    SortDescending,
     SelectColumns,
     SelectTheme,
     Refresh,
@@ -64,11 +71,12 @@ pub struct State {
     pub hidden: bool,
     pub preview: bool,
     pub jobs_running: bool,
+    pub sort: crate::model::Sort,
 }
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 40] = [
+    pub const ALL: [Cmd; 45] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::GoUp,
@@ -93,6 +101,11 @@ impl Cmd {
         Cmd::Expand,
         Cmd::Collapse,
         Cmd::ToggleHidden,
+        Cmd::SortByName,
+        Cmd::SortByExt,
+        Cmd::SortBySize,
+        Cmd::SortByModified,
+        Cmd::SortDescending,
         Cmd::Refresh,
         Cmd::SelectTheme,
         Cmd::SelectColumns,
@@ -139,6 +152,11 @@ impl Cmd {
             Cmd::Expand => "Expand Folder",
             Cmd::Collapse => "Collapse Folder",
             Cmd::ToggleHidden => "Hidden Files",
+            Cmd::SortByName => "By Name",
+            Cmd::SortByExt => "By Extension",
+            Cmd::SortBySize => "By Size",
+            Cmd::SortByModified => "By Modified",
+            Cmd::SortDescending => "Descending",
             Cmd::SelectColumns => "Columns…",
             Cmd::SelectTheme => "Theme…",
             Cmd::Refresh => "Refresh",
@@ -170,6 +188,11 @@ impl Cmd {
             Cmd::TogglePreview => "Toggle preview",
             Cmd::ToggleTree => "Toggle tree mode",
             Cmd::ToggleHidden => "Toggle hidden files",
+            Cmd::SortByName => "Sort by name",
+            Cmd::SortByExt => "Sort by extension",
+            Cmd::SortBySize => "Sort by size",
+            Cmd::SortByModified => "Sort by modified time",
+            Cmd::SortDescending => "Toggle descending sort",
             Cmd::Expand => "Expand directory (tree)",
             Cmd::Collapse => "Collapse directory (tree)",
             Cmd::GoUp => "Go to parent directory",
@@ -187,6 +210,18 @@ impl Cmd {
             Cmd::TogglePreview => Some(state.preview),
             Cmd::ToggleTree => Some(state.tree),
             Cmd::ToggleHidden => Some(state.hidden),
+            Cmd::SortDescending => Some(state.sort.descending),
+            cmd => cmd.sort_key().map(|key| state.sort.key == key),
+        }
+    }
+
+    /// For the sort commands: the order they select.
+    pub fn sort_key(self) -> Option<SortKey> {
+        match self {
+            Cmd::SortByName => Some(SortKey::Name),
+            Cmd::SortByExt => Some(SortKey::Ext),
+            Cmd::SortBySize => Some(SortKey::Size),
+            Cmd::SortByModified => Some(SortKey::Modified),
             _ => None,
         }
     }
@@ -224,6 +259,7 @@ impl Cmd {
 pub enum Item {
     Cmd(Cmd),
     Separator,
+    Submenu(&'static str, &'static [Cmd]),
 }
 
 /// The menu bar: menu names and their items.
@@ -258,15 +294,25 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
                 &[Unmark, Filter],
             ]),
         ),
-        (
-            "View",
-            items(&[
+        ("View", {
+            let mut view = items(&[
                 &[TogglePreview, ToggleTree, ToggleHidden],
                 &[Expand, Collapse],
-                &[SelectColumns, SelectTheme],
-                &[Refresh],
-            ]),
-        ),
+            ]);
+            view.push(Item::Separator);
+            view.push(Item::Submenu(
+                "Sort",
+                &[
+                    SortByName,
+                    SortByExt,
+                    SortBySize,
+                    SortByModified,
+                    SortDescending,
+                ],
+            ));
+            view.extend(items(&[&[], &[SelectColumns, SelectTheme], &[Refresh]]));
+            view
+        }),
         (
             "Go",
             items(&[
@@ -294,7 +340,12 @@ mod tests {
         let mut in_menus = std::collections::HashSet::new();
         for (_, items) in menu_bar() {
             for item in items {
-                if let Item::Cmd(cmd) = item {
+                let cmds: &[Cmd] = match &item {
+                    Item::Cmd(cmd) => std::slice::from_ref(cmd),
+                    Item::Submenu(_, cmds) => cmds,
+                    Item::Separator => &[],
+                };
+                for &cmd in cmds {
                     assert!(seen.contains(&cmd), "{cmd:?}");
                     assert!(in_menus.insert(cmd), "{cmd:?} in two menus");
                 }
@@ -350,5 +401,9 @@ mod tests {
         assert_eq!(Cmd::TogglePreview.checked(&busy), Some(true));
         assert_eq!(Cmd::ToggleHidden.checked(&busy), Some(false));
         assert_eq!(Cmd::Copy.checked(&busy), None);
+        // Sort: the current key is checked.
+        assert_eq!(Cmd::SortByName.checked(&busy), Some(true));
+        assert_eq!(Cmd::SortBySize.checked(&busy), Some(false));
+        assert_eq!(Cmd::SortDescending.checked(&busy), Some(false));
     }
 }

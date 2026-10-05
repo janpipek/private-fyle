@@ -71,6 +71,11 @@ actions!(
         SelectAll,
         InvertSelection,
         SelectPattern,
+        SortByName,
+        SortByExt,
+        SortBySize,
+        SortByModified,
+        SortDescending,
         OpenWith,
         YankFiles,
         CutFiles,
@@ -1256,6 +1261,7 @@ impl Commander {
             hidden: self.show_hidden,
             preview: self.preview_on,
             jobs_running: !self.jobs.is_empty(),
+            sort: folder.sort(),
         }
     }
 
@@ -1265,24 +1271,33 @@ impl Commander {
         if self.menu_state.as_ref() == Some(&state) {
             return;
         }
+        let command = |cmd: Cmd| OwnedMenuItem::Action {
+            name: cmd.label().into(),
+            action: action_for(cmd),
+            os_action: None,
+            checked: cmd.checked(&state).unwrap_or(false),
+            disabled: cmd.unavailable(&state).is_some(),
+        };
+        let menu = |name: &'static str, items: Vec<OwnedMenuItem>| OwnedMenu {
+            name: name.into(),
+            disabled: false,
+            items,
+        };
         let menus = menus::menu_bar()
             .into_iter()
-            .map(|(name, items)| OwnedMenu {
-                name: name.into(),
-                disabled: false,
-                items: items
+            .map(|(name, items)| {
+                let items = items
                     .into_iter()
                     .map(|item| match item {
                         menus::Item::Separator => OwnedMenuItem::Separator,
-                        menus::Item::Cmd(cmd) => OwnedMenuItem::Action {
-                            name: cmd.label().into(),
-                            action: action_for(cmd),
-                            os_action: None,
-                            checked: cmd.checked(&state).unwrap_or(false),
-                            disabled: cmd.unavailable(&state).is_some(),
-                        },
+                        menus::Item::Cmd(cmd) => command(cmd),
+                        menus::Item::Submenu(name, cmds) => OwnedMenuItem::Submenu(menu(
+                            name,
+                            cmds.iter().map(|&cmd| command(cmd)).collect(),
+                        )),
                     })
-                    .collect(),
+                    .collect();
+                menu(name, items)
             })
             .collect();
         self.menu_state = Some(state);
@@ -1619,6 +1634,19 @@ impl Commander {
 
     fn toggle_mark(&mut self, _: &ToggleMark, _: &mut Window, cx: &mut Context<Self>) {
         self.update_folder(cx, Folder::toggle_mark);
+    }
+
+    /// View › Sort: a sort command orders the active panel by its key
+    /// (keeping the direction); Descending flips the direction.
+    fn sort_by(&mut self, cmd: Cmd, cx: &mut Context<Self>) {
+        self.update_folder(cx, |folder| {
+            let mut sort = folder.sort();
+            match cmd.sort_key() {
+                Some(key) => sort.key = key,
+                None => sort.descending = !sort.descending,
+            }
+            folder.set_sort(sort);
+        });
     }
 
     fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
@@ -2108,6 +2136,19 @@ impl Render for Commander {
             .on_action(cx.listener(Self::select_all))
             .on_action(cx.listener(Self::invert_selection))
             .on_action(cx.listener(Self::select_pattern))
+            .on_action(cx.listener(|this, _: &SortByName, _, cx| this.sort_by(Cmd::SortByName, cx)))
+            .on_action(cx.listener(|this, _: &SortByExt, _, cx| this.sort_by(Cmd::SortByExt, cx)))
+            .on_action(cx.listener(|this, _: &SortBySize, _, cx| this.sort_by(Cmd::SortBySize, cx)))
+            .on_action(
+                cx.listener(|this, _: &SortByModified, _, cx| {
+                    this.sort_by(Cmd::SortByModified, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &SortDescending, _, cx| {
+                    this.sort_by(Cmd::SortDescending, cx)
+                }),
+            )
             .on_action(cx.listener(Self::expand))
             .on_action(cx.listener(Self::collapse))
             .on_action(cx.listener(Self::quit))
@@ -2211,6 +2252,11 @@ fn action_for(cmd: Cmd) -> Box<dyn Action> {
         Cmd::SelectAll => Box::new(SelectAll),
         Cmd::InvertSelection => Box::new(InvertSelection),
         Cmd::SelectPattern => Box::new(SelectPattern),
+        Cmd::SortByName => Box::new(SortByName),
+        Cmd::SortByExt => Box::new(SortByExt),
+        Cmd::SortBySize => Box::new(SortBySize),
+        Cmd::SortByModified => Box::new(SortByModified),
+        Cmd::SortDescending => Box::new(SortDescending),
     }
 }
 
