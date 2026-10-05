@@ -56,7 +56,8 @@ Done (details in `TODO.md` under "Done"):
   Help) built from `menus.rs`, shared with the palette; shortcuts shown,
   unavailable items disabled, toggles checked. Select all / invert / by
   pattern (Ctrl-A, *, +), Back/Forward (Alt-Left/Right), Configuration,
-  About.
+  About. Right-click file actions use the same command definitions in either
+  panel; clicking a marked entry preserves the group, other entries clear marks.
 - **Commands and appearance:** Ctrl-P command palette, F1 help, a
   configurable keymap. F2 tools (TOML, built-in and Lua plugins) and openers
   (Shift-Enter). A theme picker with live preview.
@@ -74,7 +75,7 @@ Done (details in `TODO.md` under "Done"):
 | `model.rs` | `Folder`: entries, cursor, marks, filter, sort, tree, search results |
 | `panel.rs` | `FolderView` (DataTable delegate `FileTable`) and the filter bar |
 | `fs_ops.rs` | `Entry`, `Attrs`, read_dir, copy/move/delete/trash, formatting |
-| `menus.rs` | `Cmd`: every user-visible command with its menu label, palette label, toggle state and availability, plus the menu bar layout. The menu bar and palette are built from it; `commander::action_for` maps each `Cmd` to its action. |
+| `menus.rs` | `Cmd`: every user-visible command with its menu label, palette label, toggle state and availability, plus the menu bar and context menu layouts. Menus and the palette are built from it; `commander::action_for` maps each `Cmd` to its action. |
 | `columns.rs` | `ColumnKind` catalog, grouped (`Group`), ids like `exif.iso`. A new column means a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |
 | `preview/` | `Previewer` trait and `Registry`. Order: directory, image, pdf, media, archive, markdown, table, text, binary. `preview_view.rs` has one render arm per `Content` variant. |
 | `editor.rs` / `editor_view.rs` | `Document` model (UTF-8, ≤ 8 MiB, atomic save) and the editor pane |
@@ -133,8 +134,6 @@ Done (details in `TODO.md` under "Done"):
 
 1. **Discoverable menus, remaining parts** (the owner's priority; the
    uncommitted TODO entry lists all of it):
-   - Right-click context menu on the selection, built from `menus.rs`
-     (gpui-component has `ContextMenuExt`).
    - Tools menu listing the context-aware tools themselves (today it opens
      the F2 menu). `Registry::offers` runs filesystem probes, so compute it
      when the menu opens, not on every cursor move.

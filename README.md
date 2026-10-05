@@ -14,6 +14,9 @@ Defaults: left = current directory, right = home directory.
 
 The menu bar (File, Edit, View, Go, Tools, Help) lists the commands with
 their shortcuts; unavailable ones are greyed out, toggles show a check.
+Right-click an entry in either panel for file actions. Clicking a marked
+entry keeps the marked group; clicking another entry clears the marks and
+targets that entry. Escape closes the menu and returns focus to that panel.
 
 | Key                 | Action                                    |
 | ------------------- | ----------------------------------------- |

@@ -1,6 +1,6 @@
 //! Commands as the user sees them: names, where they appear in the menu
 //! bar, toggle states and availability. UI-independent; the menu bar and
-//! the command palette (and later the context menu) are built from this,
+//! the command palette and the context menu are built from this,
 //! so names and availability agree everywhere. `commander.rs` maps each
 //! [`Cmd`] to its gpui action.
 
@@ -281,6 +281,33 @@ pub enum Item {
     Submenu(&'static str, &'static [Cmd]),
 }
 
+/// File actions shared with the menu bar and palette, grouped for right-click.
+pub fn context_menu() -> Vec<Item> {
+    use Cmd::*;
+    use Item::{Cmd as Command, Separator};
+    vec![
+        Command(Open),
+        Command(OpenWith),
+        Command(EditFile),
+        Separator,
+        Command(CutFiles),
+        Command(YankFiles),
+        Command(PasteFiles),
+        Separator,
+        Command(Copy),
+        Command(Move),
+        Command(Rename),
+        Separator,
+        Command(Delete),
+        Command(DeletePermanently),
+        Separator,
+        Command(NewFile),
+        Command(MakeDir),
+        Separator,
+        Command(ToolsMenu),
+    ]
+}
+
 /// The menu bar: menu names and their items.
 pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
     use Cmd::*;
@@ -378,7 +405,7 @@ mod tests {
 
     #[test]
     fn menus_have_no_stray_separators() {
-        for (name, items) in menu_bar() {
+        for (name, items) in menu_bar().into_iter().chain([("Context", context_menu())]) {
             assert!(!items.is_empty(), "{name}");
             assert_ne!(items.first(), Some(&Item::Separator), "{name}");
             assert_ne!(items.last(), Some(&Item::Separator), "{name}");
@@ -388,6 +415,45 @@ mod tests {
                     .any(|w| w == [Item::Separator, Item::Separator]),
                 "{name}"
             );
+        }
+    }
+
+    #[test]
+    fn context_actions_share_definitions_and_availability() {
+        let commands: Vec<_> = context_menu()
+            .into_iter()
+            .filter_map(|item| match item {
+                Item::Cmd(cmd) => Some(cmd),
+                _ => None,
+            })
+            .collect();
+        let mut seen = std::collections::HashSet::new();
+        for &cmd in &commands {
+            assert!(Cmd::ALL.contains(&cmd));
+            assert!(seen.insert(cmd));
+        }
+        let parent = State {
+            in_directory: true,
+            ..State::default()
+        };
+        for cmd in [
+            Cmd::Rename,
+            Cmd::Copy,
+            Cmd::Move,
+            Cmd::Delete,
+            Cmd::DeletePermanently,
+            Cmd::CutFiles,
+            Cmd::YankFiles,
+            Cmd::OpenWith,
+            Cmd::EditFile,
+            Cmd::PasteFiles,
+        ] {
+            assert!(commands.contains(&cmd));
+            assert!(cmd.unavailable(&parent).is_some(), "{cmd:?}");
+        }
+        for cmd in [Cmd::Open, Cmd::NewFile, Cmd::MakeDir] {
+            assert!(commands.contains(&cmd));
+            assert!(cmd.unavailable(&parent).is_none());
         }
     }
 

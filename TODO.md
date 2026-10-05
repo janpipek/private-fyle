@@ -14,9 +14,9 @@
   - Help: Keyboard shortcuts, Configuration, About; F1 opens Help.
   - Show configured shortcuts beside actions and checked states for toggles;
     disable inapplicable actions with an explanation where practical.
-  - Add a right-click menu for selected files. Share command definitions,
-    names and availability across the menu bar, command palette and context
-    menu. Implement missing actions as separate features.
+  - Right-click file actions are implemented, sharing command definitions,
+    names and availability with the menu bar and command palette.
+    Implement missing actions as separate features.
 - [ ] Copy/move conflict resolution (including paste): when a destination
       already exists, offer Skip, Replace, and Keep both (choose a unique
       name); for directory conflicts, offer Merge. Show source/destination
@@ -67,6 +67,9 @@
 
 ## Done
 
+- [x] Right-click file actions in either panel, sharing command labels,
+      availability and shortcuts with the menu bar; preserve marks when
+      clicking a marked entry.
 - [x] Columns… dialog: pick columns from a grouped catalog, incl. single EXIF fields.
 - [x] Previews: audio/video details (ffprobe) and a video frame (ffmpeg).
 - [x] Search: the preview scrolls to a content hit's matching line.

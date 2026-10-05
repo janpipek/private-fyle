@@ -194,6 +194,18 @@ impl Folder {
         changed
     }
 
+    /// Target a context-menu row, preserving a marked selection only when
+    /// the clicked entry belongs to it. Invalid rows leave selection alone.
+    pub fn select_context_row(&mut self, ix: usize) {
+        let Some(row) = self.entries.get(ix) else {
+            return;
+        };
+        if !self.marked.contains(&row.path) {
+            self.marked.clear();
+        }
+        self.set_cursor(ix);
+    }
+
     /// Title of the search whose results are shown, if any.
     pub fn results(&self) -> Option<&str> {
         self.results.as_deref()
@@ -711,6 +723,33 @@ mod tests {
 
         folder.clear_marks();
         assert_eq!(folder.targets(), [dir.0.join("b.txt")]); // cursor entry
+    }
+
+    #[test]
+    fn context_click_targets_clicked_entry_or_its_marked_group() {
+        let dir = TempDir::new("context-selection");
+        let mut folder = loaded(&dir);
+        folder.set_cursor(2);
+        folder.toggle_mark();
+        folder.toggle_mark();
+        let marked = vec![dir.0.join("a.txt"), dir.0.join("b.txt")];
+
+        folder.select_context_row(2);
+        assert_eq!(folder.current().unwrap().name, "a.txt");
+        assert_eq!(folder.targets(), marked);
+        folder.select_context_row(usize::MAX);
+        assert_eq!(folder.current().unwrap().name, "a.txt");
+        assert_eq!(folder.targets(), marked);
+
+        folder.select_context_row(1);
+        assert_eq!(folder.marked_count(), 0);
+        assert_eq!(folder.targets(), [dir.0.join("sub")]);
+        folder.mark_all();
+        folder.select_context_row(0); // Parent is never a file-operation target.
+        assert_eq!(folder.marked_count(), 0);
+        assert!(folder.targets().is_empty());
+        folder.select_context_row(3);
+        assert_eq!(folder.targets(), [dir.0.join("b.txt")]);
     }
 
     #[test]

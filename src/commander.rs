@@ -12,7 +12,7 @@ use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::component::list::{List, ListState};
-use gpui_kit::component::menu::AppMenuBar;
+use gpui_kit::component::menu::{AppMenuBar, PopupMenu};
 use gpui_kit::component::progress::Progress as ProgressBar;
 use gpui_kit::component::{
     ActiveTheme as _, Disableable as _, GlobalState, IndexPath, Sizable as _, ThemeRegistry,
@@ -366,6 +366,24 @@ impl Commander {
 
     /// Called once the entity exists (the preview needs `self`'s context).
     pub fn init(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for (ix, view) in self.views.iter().enumerate() {
+            let commander = cx.weak_entity();
+            let focus = view.read(cx).focus_handle(cx);
+            view.update(cx, |view, cx| {
+                view.set_context_menu(
+                    move |menu, _, cx| {
+                        let Some(commander) = commander.upgrade() else {
+                            return menu;
+                        };
+                        commander.update(cx, |this, cx| {
+                            this.set_active(ix, cx);
+                            this.file_context_menu(menu.action_context(focus.clone()), cx)
+                        })
+                    },
+                    cx,
+                );
+            });
+        }
         self.update_preview(window, cx);
     }
 
@@ -1321,6 +1339,22 @@ impl Commander {
         self.menu_state = Some(state);
         GlobalState::global_mut(cx).set_app_menus(menus);
         self.menu_bar.update(cx, |bar, cx| bar.reload(cx));
+    }
+
+    fn file_context_menu(&self, mut menu: PopupMenu, cx: &App) -> PopupMenu {
+        let state = self.menu_state(cx);
+        for item in menus::context_menu() {
+            menu = match item {
+                menus::Item::Cmd(cmd) => menu.menu_with_disabled(
+                    cmd.label(),
+                    action_for(cmd),
+                    cmd.unavailable(&state).is_some(),
+                ),
+                menus::Item::Separator => menu.separator(),
+                menus::Item::Submenu(..) => unreachable!("file context menu has no submenus"),
+            };
+        }
+        menu
     }
 
     /// F1: every command with its keys (the palette, as help).

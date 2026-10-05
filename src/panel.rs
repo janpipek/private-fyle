@@ -1,11 +1,14 @@
 //! Table view of a [`Folder`] model. Holds no file state of its own: it
 //! renders the model and forwards cursor moves, sorting and activation.
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::table::{
     Column, ColumnSort, DataTable, TableDelegate, TableEvent, TableState,
 };
@@ -22,6 +25,8 @@ use gpui_kit::assets::IconName as Lucide;
 
 /// Emitted when the user activates the cursor entry with the mouse.
 pub struct Activate;
+
+type ContextMenuBuilder = Box<dyn Fn(PopupMenu, &mut Window, &mut App) -> PopupMenu>;
 
 actions!(fyle_panel, [CloseFilter]);
 
@@ -60,6 +65,9 @@ impl FolderView {
             exif: HashMap::new(),
             extra_generation: 0,
             git: None,
+            context_menu: None,
+            focus: None,
+            context_row: Rc::new(Cell::new(None)),
         };
         let table = cx.new(|cx| {
             TableState::new(delegate, window, cx)
@@ -146,6 +154,20 @@ impl FolderView {
 
     pub fn focus_handle(&self, cx: &App) -> FocusHandle {
         self.table.focus_handle(cx)
+    }
+
+    pub fn set_context_menu(
+        &self,
+        builder: impl Fn(PopupMenu, &mut Window, &mut App) -> PopupMenu + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        let focus = self.focus_handle(cx);
+        self.table.update(cx, |table, cx| {
+            let delegate = table.delegate_mut();
+            delegate.context_menu = Some(Box::new(builder));
+            delegate.focus = Some(focus);
+            cx.notify();
+        });
     }
 
     pub fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
@@ -315,6 +337,9 @@ pub struct FileTable {
     exif: HashMap<PathBuf, HashMap<&'static str, String>>,
     extra_generation: u64,
     git: Option<Arc<git_status::Status>>,
+    context_menu: Option<ContextMenuBuilder>,
+    focus: Option<FocusHandle>,
+    context_row: Rc<Cell<Option<usize>>>,
 }
 
 impl FileTable {
@@ -354,6 +379,49 @@ impl FileTable {
 }
 
 impl TableDelegate for FileTable {
+    fn render_tr(
+        &mut self,
+        row_ix: usize,
+        _: &mut Window,
+        _: &mut Context<TableState<Self>>,
+    ) -> Stateful<Div> {
+        let context_row = self.context_row.clone();
+        div()
+            .id(("row", row_ix))
+            .when_some(self.focus.clone(), |row, focus| {
+                // Focus before the table's context menu captures where to return
+                // on dismissal, including when the other panel was active.
+                row.capture_any_mouse_down(move |event, window, cx| {
+                    if event.button == MouseButton::Right {
+                        context_row.set(Some(row_ix));
+                        focus.focus(window, cx);
+                    }
+                })
+            })
+    }
+
+    fn context_menu(
+        &mut self,
+        row_ix: usize,
+        menu: PopupMenu,
+        window: &mut Window,
+        cx: &mut Context<TableState<Self>>,
+    ) -> PopupMenu {
+        // The table retains its last right-clicked row even on a header or
+        // blank-space click. Only build actions for a fresh row mouse press.
+        if self.context_row.take() != Some(row_ix) {
+            return menu;
+        }
+        self.folder.update(cx, |folder, cx| {
+            folder.select_context_row(row_ix);
+            cx.notify();
+        });
+        match &self.context_menu {
+            Some(build) => build(menu, window, cx),
+            None => menu,
+        }
+    }
+
     fn columns_count(&self, _: &App) -> usize {
         self.columns.len()
     }
