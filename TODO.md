@@ -3,14 +3,12 @@
 - [ ] Embedded terminal (idea, undecided): alacritty_terminal + PTY rendered
       in gpui as Zed does, vs. libghostty; see discussion.
 - [ ] More preview types (pluggable via `preview::Previewer`): audio/video metadata.
-- [ ] Icon themes: loadable icon sets (e.g. Zed icon themes), optional per-type colours.
 - [ ] Search: the preview could scroll to the matching line.
 - [ ] Ideas from yazi (terminal file manager):
-  - [ ] Tabs per panel.
+  - [ ] Tabs per panel (parked).
   - [ ] Richer previews: PDF pages beyond the first, video thumbnails, scrolling
         and paging inside the preview.
   - [ ] Shell command on selection with output capture (ties into tools).
-- [ ] Zed theme import (converter from Zed's theme JSON).
 - [ ] More attribute columns (open-ended; add a `ColumnKind` + renderer):
       EXIF data.
 - [ ] macOS support (later): CI job, app menu, Cmd shortcuts, app bundle.

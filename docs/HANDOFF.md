@@ -33,22 +33,25 @@ paused and macOS comes later.
 - Lua plugins are approved in principle: `mlua` with `lua54` and
   `vendored`.
 
-## Status (33 commits, about 9.8k lines of Rust, 74 tests passing)
+## Status (46 commits, about 11.3k lines of Rust, 89 tests passing)
 
 Done (details in `TODO.md` under "Done"):
 
 - **Panels:** DataTable panels, tree mode, natural sort, configurable
-  columns, filter as you type.
+  columns (incl. created time, git status, xattrs, SELinux), filter as
+  you type. Dev builds optimise dependencies (unoptimised gpui lagged).
 - **File operations:** copy, move and trash run as background jobs with
   progress and cancel. Also rename and bulk rename, and yank/cut/paste.
 - **Viewing and editing:** F3 preview covers text (highlighted), images,
-  directories, hex, Markdown, CSV tables and archive listings. F4 is the
+  directories, hex, Markdown, CSV tables, archive listings, PDF (first
+  page via poppler) and EXIF. F4 is the
   built-in editor, with an optional external editor; Shift-F4 creates a
   new file.
-- **Navigation:** find files and search contents (Alt-F7). Go to (Ctrl-G)
+- **Navigation:** find files and search contents (Alt-F7; literal or
+  regex, hits show the matching line). F9 opens a terminal. Go to (Ctrl-G)
   lists bookmarks, desktop places and frecency history.
 - **Commands and appearance:** Ctrl-P command palette, F1 help, a
-  configurable keymap. F2 tools (TOML-defined and built-in) and openers
+  configurable keymap. F2 tools (TOML, built-in and Lua plugins) and openers
   (Shift-Enter). A theme picker with live preview.
 - **Settings:** TOML in `<config dir>/fyle/config.toml`. The test checks
   that `config.example.toml` equals the defaults, so update both together.
@@ -120,33 +123,20 @@ Done (details in `TODO.md` under "Done"):
 
 ## Next steps (suggested order)
 
-1. **Convert group:** move `image.convert` and `csv.convert` in
-   `tools/defaults.toml` to a group named "Convert", and add tests. This
-   is decided and small.
-2. **Release size:** the release binary is 102 MB, 84 MB stripped and
-   21 MB gzipped. The owner wants it under 100 MB.
-   - Try `[profile.release]` with `strip = true`, `lto = "thin"` or `true`,
-     `codegen-units = 1` and `opt-level = "s"`, and measure each.
-   - If that's not enough, consider dropping gpui-kit's
-     `tree-sitter-languages` feature or limiting the grammars. Ask the
-     owner first: it costs syntax highlighting.
-3. **Shell command on the selection:** capture the output and show it in
-   a dialog, reusing `tools/exec.rs` and `show_log`. Add an "open terminal
-   here" action as well.
-4. **Lua plugins:** `<config>/fyle/plugins/*.lua` define tools and are
-   adapted to the `Tool` trait (see the `TODO.md` entry).
-5. **Search:** add a regex option (`fixed_strings(false)`) and show the
-   matching line. `Hit.line` already exists; it isn't displayed yet.
-6. **Tabs per panel.**
-7. **More columns** (git status, xattrs, SELinux, created time) and more
-   previews (PDF, EXIF).
-8. **Zed theme import** and icon themes.
+1. **Tabs per panel:** parked by the owner; ask before starting.
+2. **Shell command on the selection** with output capture: the owner found
+   it unclear. Only "open terminal here" (F9) was wanted, and it is done.
+3. **Search:** the preview could scroll to a content hit's matching line.
+4. **More previews:** audio/video metadata, PDF pages beyond the first.
+5. **EXIF column** (the preview shows EXIF already).
+
+Dropped by the owner: Zed theme import and icon themes.
 
 ## Open decisions (ask the owner)
 
-- **Embedded terminal.** The recommendation was: none for now (step 3
-  covers most needs). Later, if wanted, use `alacritty_terminal` plus a PTY
-  rendered in gpui, like Zed (GPL-compatible). libghostty was judged
-  overkill: it needs the Zig toolchain, its C API was unstable, and
-  rendering would still be ours.
-- **Release size:** whether losing some syntax grammars is acceptable.
+- **Embedded terminal.** The recommendation was: none for now (F9 opens an
+  external terminal). Later, if wanted, use `alacritty_terminal` plus a PTY
+  rendered in gpui, like Zed (GPL-compatible).
+- **Release size** is settled: under 100 MB was a wish, not a rule. The
+  release profile (strip, LTO, one codegen unit) gives 75 MB, 19 MB
+  gzipped, with every grammar kept.
