@@ -24,6 +24,9 @@ trash = "5"
 zip = { version = "8.6.0", default-features = false }
 
 # Dependencies (gpui, tree-sitter grammars, ...) without debug info keep the
-# dev build small and fast to link; fyle's own code keeps it.
+# dev build small and fast to link; fyle's own code keeps it. They are
+# optimised because unoptimised gpui makes scrolling and input lag; they
+# rarely change, so this costs only the first build.
 [profile.dev.package."*"]
 debug = false
+opt-level = 3

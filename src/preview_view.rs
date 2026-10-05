@@ -3,6 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use gpui_kit::component::input::{Editor, EditorState};
 use gpui_kit::component::text::TextView;
@@ -19,6 +20,9 @@ enum State {
     Ready(Preview),
     Failed(String),
 }
+
+/// How long the cursor must rest on an entry before its preview loads.
+const LOAD_DELAY: Duration = Duration::from_millis(60);
 
 pub struct PreviewPane {
     registry: Arc<Registry>,
@@ -66,6 +70,9 @@ impl PreviewPane {
         self.state = State::Loading;
         let registry = self.registry.clone();
         self._load = cx.spawn_in(window, async move |this, cx| {
+            // Holding an arrow key moves the cursor faster than this; the
+            // next target drops the task, so only the entry it stops on loads.
+            cx.background_executor().timer(LOAD_DELAY).await;
             let result = cx
                 .background_spawn(async move { registry.preview(&path) })
                 .await;
