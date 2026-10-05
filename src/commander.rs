@@ -78,6 +78,8 @@ actions!(
         SortDescending,
         GoBack,
         GoForward,
+        OpenConfig,
+        About,
         OpenWith,
         YankFiles,
         CutFiles,
@@ -1511,6 +1513,50 @@ impl Commander {
         self.open_in_editor(entry.path.clone(), Document::open(&entry.path), window, cx);
     }
 
+    /// Help › Configuration: edits `config.toml`, created from the example
+    /// first if missing.
+    fn open_config(&mut self, _: &OpenConfig, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(editor) = &self.editor
+            && editor.read(cx).is_modified()
+        {
+            self.status = "Save or close the open file first".into();
+            cx.notify();
+            return;
+        }
+        match settings::ensure_file() {
+            Ok(path) => {
+                self.open_in_editor(path.clone(), Document::open(&path), window, cx);
+                if self.editor_command.is_empty() {
+                    self.status = format!(
+                        "Editing {}; most settings apply after a restart",
+                        path.display()
+                    )
+                    .into();
+                }
+            }
+            Err(e) => self.status = e.into(),
+        }
+        cx.notify();
+    }
+
+    /// Help › About.
+    fn about(&mut self, _: &About, window: &mut Window, cx: &mut Context<Self>) {
+        window.open_alert_dialog(cx, |dialog, _, cx| {
+            let muted = cx.theme().muted_foreground;
+            dialog.title(format!("Fyle {}", env!("CARGO_PKG_VERSION"))).description(
+                v_flex()
+                    .gap_2()
+                    .child("A two-panel file manager in the spirit of Krusader and Midnight Commander.")
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(muted)
+                            .child("Built with GPUI Kit. Licensed under the GPL, version 3 or later."),
+                    ),
+            )
+        });
+    }
+
     /// Shift-F4: asks for a name, creates an empty file and edits it.
     fn new_file(&mut self, _: &NewFile, window: &mut Window, cx: &mut Context<Self>) {
         let dir = self.folders[self.active].read(cx).path().to_path_buf();
@@ -2118,6 +2164,8 @@ impl Render for Commander {
             .on_action(cx.listener(Self::open))
             .on_action(cx.listener(Self::go_up))
             .on_action(cx.listener(Self::go_back))
+            .on_action(cx.listener(Self::open_config))
+            .on_action(cx.listener(Self::about))
             .on_action(cx.listener(Self::go_forward))
             .on_action(cx.listener(Self::go_first))
             .on_action(cx.listener(Self::go_last))
@@ -2277,6 +2325,8 @@ fn action_for(cmd: Cmd) -> Box<dyn Action> {
         Cmd::SortDescending => Box::new(SortDescending),
         Cmd::GoBack => Box::new(GoBack),
         Cmd::GoForward => Box::new(GoForward),
+        Cmd::OpenConfig => Box::new(OpenConfig),
+        Cmd::About => Box::new(About),
     }
 }
 

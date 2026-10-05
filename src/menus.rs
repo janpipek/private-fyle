@@ -56,6 +56,8 @@ pub enum Cmd {
     CancelJobs,
     CommandPalette,
     Help,
+    OpenConfig,
+    About,
 }
 
 /// What availability and toggle states depend on, taken from the window.
@@ -80,7 +82,7 @@ pub struct State {
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 47] = [
+    pub const ALL: [Cmd; 49] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::GoBack,
@@ -127,6 +129,8 @@ impl Cmd {
         Cmd::OpenTerminal,
         Cmd::CommandPalette,
         Cmd::Help,
+        Cmd::OpenConfig,
+        Cmd::About,
         Cmd::Quit,
     ];
 
@@ -180,6 +184,8 @@ impl Cmd {
             Cmd::CancelJobs => "Cancel Running Jobs",
             Cmd::CommandPalette => "Command Palette…",
             Cmd::Help => "Keyboard Shortcuts",
+            Cmd::OpenConfig => "Configuration",
+            Cmd::About => "About Fyle",
         }
     }
 
@@ -210,6 +216,7 @@ impl Cmd {
             Cmd::GoLast => "Go to last entry",
             Cmd::SwitchPanel => "Switch panel",
             Cmd::Help => "Help: commands and keys",
+            Cmd::OpenConfig => "Edit configuration (config.toml)",
             other => other.label(),
         }
     }
@@ -335,7 +342,10 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
             ]),
         ),
         ("Tools", items(&[&[ToolsMenu, FindFiles], &[CancelJobs]])),
-        ("Help", items(&[&[Help, CommandPalette]])),
+        (
+            "Help",
+            items(&[&[Help, CommandPalette], &[OpenConfig], &[About]]),
+        ),
     ]
 }
 

@@ -226,6 +226,28 @@ pub fn save_theme_to(path: &Path, name: &str) -> Result<(), String> {
     std::fs::write(path, doc.to_string()).map_err(|e| error(&e))
 }
 
+/// The commented example settings, shipped with the program.
+pub const EXAMPLE: &str = include_str!("../config.example.toml");
+
+/// The settings file, created from [`EXAMPLE`] if it does not exist yet
+/// (so Help › Configuration always has something to open).
+pub fn ensure_file() -> Result<PathBuf, String> {
+    let path = Settings::path().ok_or("No config directory on this platform")?;
+    ensure_file_at(&path)?;
+    Ok(path)
+}
+
+pub fn ensure_file_at(path: &Path) -> Result<(), String> {
+    if path.exists() {
+        return Ok(());
+    }
+    let error = |e: std::io::Error| format!("{}: {e}", path.display());
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(error)?;
+    }
+    std::fs::write(path, EXAMPLE).map_err(error)
+}
+
 /// Writes `[panels] columns` into the settings file, keeping the rest of
 /// the file intact. Creates the file if needed.
 pub fn save_columns(columns: &[crate::columns::ColumnKind]) -> Result<PathBuf, String> {
@@ -388,6 +410,22 @@ mod tests {
         let settings = Settings::parse(&text).unwrap();
         assert_eq!(settings.theme, "Tokyo Night");
         assert!(settings.show_hidden);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn ensure_file_creates_the_example_once() {
+        let dir = std::env::temp_dir().join(format!("fyle-ensure-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("fyle").join("config.toml");
+        ensure_file_at(&path).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), EXAMPLE);
+        std::fs::write(&path, "theme = \"dark\"\n").unwrap();
+        ensure_file_at(&path).unwrap(); // existing file untouched
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "theme = \"dark\"\n"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
