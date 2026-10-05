@@ -295,14 +295,24 @@ impl Folder {
         self.sort = sort;
         if self.results.is_some() {
             let selected = self.current().map(|e| e.path.clone());
-            let mut entries: Vec<Entry> = self.all.drain(..).map(|r| r.entry).collect();
+            let mut lines = std::collections::HashMap::new();
+            let mut entries: Vec<Entry> = self
+                .all
+                .drain(..)
+                .map(|r| {
+                    if let Some(line) = r.hit_line {
+                        lines.insert(r.entry.path.clone(), line);
+                    }
+                    r.entry
+                })
+                .collect();
             fs_ops::sort_entries(&mut entries, sort.key, sort.descending);
             self.all = entries
                 .into_iter()
                 .map(|entry| Row {
+                    hit_line: lines.remove(&entry.path),
                     entry,
                     depth: 0,
-                    hit_line: None,
                 })
                 .collect();
             self.apply_filter();
@@ -650,6 +660,7 @@ mod tests {
 
         folder.set_sort(Sort::default()); // sorts in place, no re-listing
         assert_eq!(names(&folder), ["..", "a.txt", "b.txt", "sub/deep.txt"]);
+        assert_eq!(folder.entries()[1].hit_line, Some((3, "found".into())));
 
         fs::remove_file(dir.0.join("b.txt")).unwrap();
         folder.load().unwrap(); // drops vanished hits
