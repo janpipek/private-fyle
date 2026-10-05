@@ -9,15 +9,16 @@ FROM fedora:44
 # (xkbcommon, fontconfig/freetype, xcb, wayland), clang for bindgen-based
 # crates, just/uv for the Justfile, node/npm for the agent, fonts so gpui has
 # something to render, and the Vulkan/Mesa runtime used only with --gui.
+# Codex needs ps (procps-ng) to track its background app-server process.
 RUN dnf install -y --setopt=install_weak_deps=False \
-        gcc gcc-c++ make cmake git pkgconf-pkg-config \
+        gcc gcc-c++ make cmake git pkgconf-pkg-config procps-ng \
         libxkbcommon-devel libxkbcommon-x11-devel fontconfig-devel freetype-devel \
         libxcb-devel wayland-devel \
         clang clang-devel \
         just uv nodejs npm \
         dejavu-sans-fonts dejavu-sans-mono-fonts \
         vulkan-loader mesa-vulkan-drivers mesa-dri-drivers \
-        xdg-utils \
+        xdg-utils xorg-x11-server-Xvfb xdotool ImageMagic \
     && dnf clean all
 
 # Rust via rustup, so the toolchain tracks upstream stable like the host's.
