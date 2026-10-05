@@ -299,7 +299,11 @@ impl Folder {
             fs_ops::sort_entries(&mut entries, sort.key, sort.descending);
             self.all = entries
                 .into_iter()
-                .map(|entry| Row { entry, depth: 0, hit_line: None })
+                .map(|entry| Row {
+                    entry,
+                    depth: 0,
+                    hit_line: None,
+                })
                 .collect();
             self.apply_filter();
             self.select_path(selected.as_deref());
@@ -432,7 +436,11 @@ impl Folder {
         for entry in entries {
             let descend = self.tree && !entry.is_parent && self.expanded.contains(&entry.path);
             let path = entry.path.clone();
-            out.push(Row { entry, depth, hit_line: None });
+            out.push(Row {
+                entry,
+                depth,
+                hit_line: None,
+            });
             if descend {
                 let _ = self.list(&path, depth + 1, out);
             }

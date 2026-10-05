@@ -30,9 +30,8 @@ pub fn command(
     exists: impl Fn(&str) -> bool,
 ) -> Option<Vec<String>> {
     let dir = dir.to_string_lossy();
-    let expand = |args: &[&str]| -> Vec<String> {
-        args.iter().map(|a| a.replace("{dir}", &dir)).collect()
-    };
+    let expand =
+        |args: &[&str]| -> Vec<String> { args.iter().map(|a| a.replace("{dir}", &dir)).collect() };
     if !configured.is_empty() {
         let args: Vec<&str> = configured.iter().map(String::as_str).collect();
         return Some(expand(&args));
@@ -49,7 +48,11 @@ pub fn command(
     KNOWN
         .iter()
         .find(|(name, _)| exists(name))
-        .map(|(name, args)| std::iter::once(name.to_string()).chain(expand(args)).collect())
+        .map(|(name, args)| {
+            std::iter::once(name.to_string())
+                .chain(expand(args))
+                .collect()
+        })
 }
 
 #[cfg(test)]
@@ -77,7 +80,11 @@ mod tests {
         let cmd = command(&[], Some("/usr/bin/alacritty"), dir, |_| false);
         assert_eq!(
             cmd,
-            Some(strings(&["/usr/bin/alacritty", "--working-directory", "/w"]))
+            Some(strings(&[
+                "/usr/bin/alacritty",
+                "--working-directory",
+                "/w"
+            ]))
         );
         let cmd = command(&[], Some("st"), dir, |_| false);
         assert_eq!(cmd, Some(strings(&["st"])));
