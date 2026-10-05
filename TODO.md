@@ -1,5 +1,61 @@
 # TODO
 
+- [ ] Discoverable menus (priority): a visible menu bar so users can see what
+      fyle can do, ahead of tabs and thumbnails.
+  - File: Open, Open with…, New file/folder, Rename, Copy/Move to other panel,
+    Trash, Quit.
+  - Edit: Cut, Copy, Paste, Select all, Invert selection, Select by pattern.
+  - View: Preview, Tree, Hidden files, Columns, Sort, Theme; add List/Icon view
+    when icon view is available.
+  - Go: Parent, Go to…, Bookmarks, Terminal here; add Back/Forward when available.
+  - Tools: context-aware actions grouped by purpose, adapting to the active
+    directory and selection (repository tasks for code, conversion/resizing
+    for images); add output/history when available.
+  - Help: Keyboard shortcuts, Configuration, About; F1 opens Help.
+  - Show configured shortcuts beside actions and checked states for toggles;
+    disable inapplicable actions with an explanation where practical.
+  - Add a right-click menu for selected files. Share command definitions,
+    names and availability across the menu bar, command palette and context
+    menu. Implement missing actions as separate features.
+- [ ] Copy/move conflict resolution (including paste): when a destination
+      already exists, offer Skip, Replace, and Keep both (choose a unique
+      name); for directory conflicts, offer Merge. Show source/destination
+      details (path, type, size, modified time) to help the user decide.
+      Support applying a choice to remaining conflicts and cancelling the
+      operation. Directory merging must handle conflicts within the tree;
+      file/directory type mismatches need an explicit decision. Never
+      overwrite silently.
+- [ ] Browse archives as virtual directories in a panel: enter an archive,
+      navigate its folders, and return to the containing directory. Start
+      with the formats already supported by archive preview (zip, tar,
+      tar.gz/tgz). Support selecting entries, previewing files, and extracting
+      selected entries or the whole archive to the opposite panel, reusing
+      copy conflict resolution. Show the archive path and internal location
+      clearly. Keep archive browsing read-only initially; extraction must
+      prevent entries from writing outside the chosen destination.
+- [ ] Breadcrumb paths per panel: display the current path as clickable
+      segments so users can jump directly to any ancestor. Allow switching
+      to an editable full path for typing or pasting a location, and copying
+      the full path. Support keyboard navigation and long paths; archive
+      browsing should clearly distinguish the archive from its internal path.
+  - Add a locations icon beside each panel's breadcrumb path, opening a
+    grouped list of drives/mounted volumes, desktop/environment favourites
+    and places, and user favourites/bookmarks. Reuse the existing Go to/Places
+    data; choosing a location navigates that panel. Provide a tooltip and
+    keyboard access so the icon's purpose is discoverable.
+- [ ] Selection helpers: Select all, Clear selection, Invert selection, and
+      Select by filename pattern or extension. Expose them in Edit and the
+      command palette, with configurable shortcuts; work in both list and
+      icon views. Operate on visible entries, excluding the parent entry.
+- [ ] Optional directory sizes: calculate recursive folder sizes and the
+      total size of selected entries on demand, in the background with
+      cancellation. Do not scan directories automatically during browsing;
+      keep normal listing fast. Indicate incomplete results or read errors.
+- [ ] Optional icon view per panel, alongside the existing list view:
+      a grid of icons with file names, using preview thumbnails for images
+      and file-type icons for other entries. Switch through View → List/Icon
+      view; each panel chooses its own mode. Support adjustable icon/thumbnail
+      size and the same selection, navigation and file actions as list view.
 - [ ] Embedded terminal (idea, undecided): alacritty_terminal + PTY rendered
       in gpui as Zed does, vs. libghostty; see discussion.
 - [ ] Ideas from yazi (terminal file manager):

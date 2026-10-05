@@ -4,7 +4,7 @@
 //
 // This opens an interactive dev environment (build/test/edit). It does NOT
 // auto-launch the agent with permissions skipped; that autonomous mode is the
-// CLI's job (`just sandbox --claude`). Here you run `claude` yourself.
+// CLI's job (`just sandbox --claude`). Here you run `claude` or `codex` yourself.
 {
   "name": "fyle-dev",
   "build": {
@@ -16,6 +16,9 @@
   // target/ (which records absolute paths) is shared with the host.
   "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind",
   "workspaceFolder": "${localWorkspaceFolder}",
+
+  // Share Codex login/config with the CLI launcher, including after rebuilds.
+  "mounts": ["source=fyle-codex,target=/home/dev/.codex,type=volume"],
 
   // keep-id: run as the host UID so files stay host-owned and editable.
   // label=disable: access the bind mount under enforcing SELinux without

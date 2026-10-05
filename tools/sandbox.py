@@ -15,6 +15,7 @@ Examples:
     python tools/sandbox.py build              # build the image (cached)
     python tools/sandbox.py run                # plain bash shell (default)
     python tools/sandbox.py run --claude       # autonomous Claude (skips permissions)
+    python tools/sandbox.py run --codex        # interactive Codex
     python tools/sandbox.py run --gui --mount ~/Pictures
     python tools/sandbox.py run -- cargo test # one-shot command, then exit
 """
@@ -92,6 +93,8 @@ def run(cli: str, args: argparse.Namespace) -> int:
         "-v", f"{REPO}:{REPO}",
         "-w", str(REPO),
         "-e", "HOME=/home/dev",
+        # Keep Codex login/config across ephemeral containers and IDE sessions.
+        "-v", "fyle-codex:/home/dev/.codex",
         "--hostname", "fyle-sandbox",
     ]
 
@@ -111,6 +114,8 @@ def run(cli: str, args: argparse.Namespace) -> int:
     elif args.claude:
         # The container is the boundary, so the agent runs unattended.
         cmd += ["claude", "--dangerously-skip-permissions"]
+    elif args.codex:
+        cmd += ["codex"]
     else:
         cmd += ["bash"]
 
@@ -129,7 +134,9 @@ def main(argv: list[str] | None = None) -> int:
     run_p = sub.add_parser("run", help="run the sandbox (default)")
     run_p.add_argument("--gui", action="store_true", help="wire up Wayland + GPU so the gpui window can open")
     run_p.add_argument("--mount", metavar="DIR", action="append", default=[], help="mount a directory read-only (repeatable)")
-    run_p.add_argument("--claude", action="store_true", help="launch autonomous Claude (--dangerously-skip-permissions) instead of a shell")
+    agent = run_p.add_mutually_exclusive_group()
+    agent.add_argument("--claude", action="store_true", help="launch autonomous Claude (--dangerously-skip-permissions) instead of a shell")
+    agent.add_argument("--codex", action="store_true", help="launch interactive Codex instead of a shell")
     run_p.add_argument("--dry-run", action="store_true", help="print the container command without running it")
     run_p.add_argument("command", nargs=argparse.REMAINDER, help="optional one-shot command (after --)")
 

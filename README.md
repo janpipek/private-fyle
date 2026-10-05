@@ -114,7 +114,7 @@ CI builds and tests on Linux (Windows job disabled for now) (`.github/workflows/
 ## Development sandbox
 
 A Fedora 44 container (rootless Podman, or Docker) with the Rust toolchain,
-the build dependencies and Claude Code, so an agent can work on the repo
+the build dependencies, Claude Code and Codex CLI, so an agent can work on the repo
 autonomously with the container as the safety boundary. The repo is
 bind-mounted read-write at its host path (sharing `target/`), and the
 container runs as your UID, so files stay yours.
@@ -123,11 +123,22 @@ container runs as your UID, so files stay yours.
 just sandbox-build              # build the image (also done on first run)
 just sandbox                    # bash shell
 just sandbox --claude           # Claude Code with permissions skipped
+just sandbox --codex            # interactive Codex (default permissions)
 just sandbox --gui --mount ~/   # Wayland + GPU, extra dirs read-only
 just sandbox -- cargo test      # one-shot command
 ```
 
 `.devcontainer/` uses the same image for VS Code, JetBrains and Zed.
+
+After adding Codex to an existing setup, run `just sandbox-build` (or rebuild
+your IDE's dev container). Sign in once with
+`just sandbox -- codex login --device-auth`, then run `just sandbox --codex`.
+Follow the browser link and enter the code; device code login must be enabled
+in your ChatGPT security settings or workspace permissions
+([OpenAI authentication docs](https://developers.openai.com/codex/auth#login-on-headless-devices)).
+The `fyle-codex` named volume keeps Codex credentials, configuration and sessions
+across container exits and rebuilds, and is shared by the CLI launcher and IDE
+dev container.
 
 ## Architecture
 

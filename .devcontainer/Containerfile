@@ -32,15 +32,15 @@ RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile mini
         --default-toolchain "$RUST_TOOLCHAIN" --component rustfmt,clippy \
     && chmod -R a+rwX "$CARGO_HOME"
 
-# Claude Code, global so it is on PATH for any runtime user.
-RUN npm install -g @anthropic-ai/claude-code
+# Coding agents, global so they are on PATH for any runtime user.
+RUN npm install -g @anthropic-ai/claude-code @openai/codex
 
 # The bind-mounted repo has host ownership; without this git refuses to operate
 # on it ("dubious ownership"). System-wide so it holds for every user/IDE.
 RUN git config --system --add safe.directory '*'
 
 # A world-writable HOME that works whatever UID we run as.
-RUN install -d -m 0777 /home/dev /home/dev/.cache /home/dev/.npm
+RUN install -d -m 0777 /home/dev /home/dev/.cache /home/dev/.npm /home/dev/.codex
 ENV HOME=/home/dev \
     XDG_CACHE_HOME=/home/dev/.cache \
     npm_config_cache=/home/dev/.npm
