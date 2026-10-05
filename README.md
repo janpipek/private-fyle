@@ -22,6 +22,7 @@ their shortcuts; unavailable ones are greyed out, toggles show a check.
 | Enter / dbl-click   | Enter directory, or open the file (first matching `[[opener]]`, else the system default) |
 | Shift-Enter         | Open with…: matching openers, system default, built-in editor |
 | Backspace           | Parent directory                          |
+| Alt-Left / Alt-Right | Back / forward through visited directories (per panel) |
 | Tab                 | Switch active panel                       |
 | Space / Insert      | Mark entry                                |
 | Ctrl-A / * / +      | Select all / invert selection / select by pattern (glob or substring) |

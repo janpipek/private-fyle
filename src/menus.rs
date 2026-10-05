@@ -42,6 +42,8 @@ pub enum Cmd {
     SelectColumns,
     SelectTheme,
     Refresh,
+    GoBack,
+    GoForward,
     GoUp,
     GoFirst,
     GoLast,
@@ -72,13 +74,17 @@ pub struct State {
     pub preview: bool,
     pub jobs_running: bool,
     pub sort: crate::model::Sort,
+    pub can_go_back: bool,
+    pub can_go_forward: bool,
 }
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 45] = [
+    pub const ALL: [Cmd; 47] = [
         Cmd::Open,
         Cmd::OpenWith,
+        Cmd::GoBack,
+        Cmd::GoForward,
         Cmd::GoUp,
         Cmd::GoFirst,
         Cmd::GoLast,
@@ -160,6 +166,8 @@ impl Cmd {
             Cmd::SelectColumns => "Columns…",
             Cmd::SelectTheme => "Theme…",
             Cmd::Refresh => "Refresh",
+            Cmd::GoBack => "Back",
+            Cmd::GoForward => "Forward",
             Cmd::GoUp => "Parent Folder",
             Cmd::GoFirst => "First Entry",
             Cmd::GoLast => "Last Entry",
@@ -195,6 +203,8 @@ impl Cmd {
             Cmd::SortDescending => "Toggle descending sort",
             Cmd::Expand => "Expand directory (tree)",
             Cmd::Collapse => "Collapse directory (tree)",
+            Cmd::GoBack => "Go back (previous directory)",
+            Cmd::GoForward => "Go forward",
             Cmd::GoUp => "Go to parent directory",
             Cmd::GoFirst => "Go to first entry",
             Cmd::GoLast => "Go to last entry",
@@ -249,6 +259,8 @@ impl Cmd {
             }
             Cmd::Expand | Cmd::Collapse if !state.tree => Some("Only in tree mode"),
             Cmd::CancelJobs if !state.jobs_running => Some("No running jobs"),
+            Cmd::GoBack if !state.can_go_back => Some("No previous folder"),
+            Cmd::GoForward if !state.can_go_forward => Some("No next folder"),
             _ => None,
         }
     }
@@ -316,7 +328,8 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
         (
             "Go",
             items(&[
-                &[GoUp, GoFirst, GoLast, SwitchPanel],
+                &[GoBack, GoForward, GoUp],
+                &[GoFirst, GoLast, SwitchPanel],
                 &[GoTo, AddBookmark],
                 &[OpenTerminal],
             ]),

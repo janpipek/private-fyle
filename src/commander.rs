@@ -76,6 +76,8 @@ actions!(
         SortBySize,
         SortByModified,
         SortDescending,
+        GoBack,
+        GoForward,
         OpenWith,
         YankFiles,
         CutFiles,
@@ -154,6 +156,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("enter", Open, table),
         KeyBinding::new("shift-enter", OpenWith, table),
         KeyBinding::new("backspace", GoUp, table),
+        KeyBinding::new("alt-left", GoBack, table),
+        KeyBinding::new("alt-right", GoForward, table),
         KeyBinding::new("tab", SwitchPanel, table),
         KeyBinding::new("shift-tab", SwitchPanel, table),
         KeyBinding::new("home", GoFirst, table),
@@ -430,6 +434,16 @@ impl Commander {
     fn go_up(&mut self, _: &GoUp, _: &mut Window, cx: &mut Context<Self>) {
         let result = self.update_folder(cx, Folder::go_up);
         self.set_error(result, cx);
+    }
+
+    fn go_back(&mut self, _: &GoBack, _: &mut Window, cx: &mut Context<Self>) {
+        let result = self.update_folder(cx, Folder::go_back);
+        self.set_error(result.map(drop), cx);
+    }
+
+    fn go_forward(&mut self, _: &GoForward, _: &mut Window, cx: &mut Context<Self>) {
+        let result = self.update_folder(cx, Folder::go_forward);
+        self.set_error(result.map(drop), cx);
     }
 
     fn go_first(&mut self, _: &GoFirst, _: &mut Window, cx: &mut Context<Self>) {
@@ -1262,6 +1276,8 @@ impl Commander {
             preview: self.preview_on,
             jobs_running: !self.jobs.is_empty(),
             sort: folder.sort(),
+            can_go_back: folder.can_go_back(),
+            can_go_forward: folder.can_go_forward(),
         }
     }
 
@@ -2101,6 +2117,8 @@ impl Render for Commander {
             .key_context(CONTEXT)
             .on_action(cx.listener(Self::open))
             .on_action(cx.listener(Self::go_up))
+            .on_action(cx.listener(Self::go_back))
+            .on_action(cx.listener(Self::go_forward))
             .on_action(cx.listener(Self::go_first))
             .on_action(cx.listener(Self::go_last))
             .on_action(cx.listener(Self::switch_panel))
@@ -2257,6 +2275,8 @@ fn action_for(cmd: Cmd) -> Box<dyn Action> {
         Cmd::SortBySize => Box::new(SortBySize),
         Cmd::SortByModified => Box::new(SortByModified),
         Cmd::SortDescending => Box::new(SortDescending),
+        Cmd::GoBack => Box::new(GoBack),
+        Cmd::GoForward => Box::new(GoForward),
     }
 }
 

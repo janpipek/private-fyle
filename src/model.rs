@@ -69,6 +69,29 @@ pub struct Folder {
     expanded: BTreeSet<PathBuf>,
     /// Bumped whenever the listing is (re)read, so views can drop caches.
     generation: u64,
+    /// Directories visited before / after (Back, Forward), with the entry
+    /// the cursor was on, most recent last.
+    back: Vec<Visit>,
+    forward: Vec<Visit>,
+}
+
+/// A directory in the Back/Forward history and its cursor entry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Visit {
+    path: PathBuf,
+    selected: Option<PathBuf>,
+}
+
+/// History entries kept per direction.
+const HISTORY_LEN: usize = 100;
+
+fn push_capped(list: &mut Vec<Visit>, visit: Visit) {
+    if list.last() != Some(&visit) {
+        list.push(visit);
+    }
+    if list.len() > HISTORY_LEN {
+        list.remove(0);
+    }
 }
 
 impl Folder {
@@ -87,6 +110,8 @@ impl Folder {
             tree: false,
             expanded: BTreeSet::new(),
             generation: 0,
+            back: Vec::new(),
+            forward: Vec::new(),
         }
     }
 
@@ -467,7 +492,70 @@ impl Folder {
         self.load_or_ancestor()
     }
 
+    /// Shows `path`, recording the directory left in the Back history.
     fn replace(&mut self, path: PathBuf, select: Option<PathBuf>) -> Result<(), String> {
+        let left = self.visit();
+        self.replace_untracked(path, select)?;
+        if let Some(visit) = left.filter(|v| v.path != self.path) {
+            push_capped(&mut self.back, visit);
+            self.forward.clear();
+        }
+        Ok(())
+    }
+
+    /// The directory shown now as a history entry (none for search results).
+    fn visit(&self) -> Option<Visit> {
+        (self.results.is_none()).then(|| Visit {
+            path: self.path.clone(),
+            selected: self.current().map(|e| e.path.clone()),
+        })
+    }
+
+    /// Back: the previous directory, cursor where it was. Returns whether
+    /// there was one.
+    pub fn go_back(&mut self) -> Result<bool, String> {
+        self.travel(true)
+    }
+
+    pub fn go_forward(&mut self) -> Result<bool, String> {
+        self.travel(false)
+    }
+
+    pub fn can_go_back(&self) -> bool {
+        !self.back.is_empty()
+    }
+
+    pub fn can_go_forward(&self) -> bool {
+        !self.forward.is_empty()
+    }
+
+    /// One step back (or forward): the current directory goes onto the
+    /// other list. A directory that is gone is dropped from the history.
+    fn travel(&mut self, back: bool) -> Result<bool, String> {
+        let from = if back {
+            &mut self.back
+        } else {
+            &mut self.forward
+        };
+        let Some(target) = from.pop() else {
+            return Ok(false);
+        };
+        let here = self.visit();
+        self.replace_untracked(target.path, target.selected)?;
+        if let Some(here) = here {
+            push_capped(
+                if back {
+                    &mut self.forward
+                } else {
+                    &mut self.back
+                },
+                here,
+            );
+        }
+        Ok(true)
+    }
+
+    fn replace_untracked(&mut self, path: PathBuf, select: Option<PathBuf>) -> Result<(), String> {
         let mut entries = Vec::new();
         self.list(&path, 0, &mut entries)
             .map_err(|e| format!("{}: {e}", fs_ops::display_path(&path)))?;
@@ -623,6 +711,43 @@ mod tests {
 
         folder.clear_marks();
         assert_eq!(folder.targets(), [dir.0.join("b.txt")]); // cursor entry
+    }
+
+    #[test]
+    fn back_and_forward() {
+        let dir = TempDir::new("history");
+        fs::create_dir(dir.0.join("sub").join("deep")).unwrap();
+        let mut folder = loaded(&dir);
+        let sub = dir.0.join("sub");
+        assert!(!folder.can_go_back());
+        assert_eq!(folder.go_back(), Ok(false));
+
+        folder.set_cursor(2); // a.txt
+        folder.navigate(sub.clone()).unwrap();
+        folder.navigate(sub.join("deep")).unwrap();
+        folder.load().unwrap(); // a reload is no visit
+        assert_eq!(folder.go_back(), Ok(true));
+        assert_eq!(folder.path(), sub);
+        assert_eq!(folder.go_back(), Ok(true));
+        assert_eq!(folder.path(), dir.0);
+        assert_eq!(folder.current().unwrap().name, "a.txt"); // cursor restored
+        assert!(!folder.can_go_back());
+
+        assert_eq!(folder.go_forward(), Ok(true));
+        assert_eq!(folder.path(), sub);
+        // A new visit clears Forward.
+        folder.go_up().unwrap();
+        assert!(!folder.can_go_forward());
+        assert_eq!(folder.go_back(), Ok(true));
+        assert_eq!(folder.path(), sub);
+
+        // A vanished directory is dropped with an error.
+        folder.navigate(sub.join("deep")).unwrap();
+        folder.go_back().unwrap();
+        fs::remove_dir(sub.join("deep")).unwrap();
+        assert!(folder.go_forward().is_err());
+        assert!(!folder.can_go_forward());
+        assert_eq!(folder.path(), sub);
     }
 
     #[test]
