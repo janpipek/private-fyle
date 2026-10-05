@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
+use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::component::list::{List, ListState};
 use gpui_kit::component::progress::Progress as ProgressBar;
@@ -219,6 +220,8 @@ pub struct Commander {
     next_job_id: usize,
     jobs_ticking: bool,
     _jobs_ticker: Task<()>,
+    /// Find files: "Containing text" is a regular expression (remembered).
+    search_regex: Rc<Cell<bool>>,
     /// Set to stop the running search.
     search_cancel: Option<Arc<AtomicBool>>,
     _search_task: Task<()>,
@@ -312,6 +315,7 @@ impl Commander {
             next_job_id: 0,
             jobs_ticking: false,
             _jobs_ticker: Task::ready(()),
+            search_regex: Rc::default(),
             search_cancel: None,
             _search_task: Task::ready(()),
             _search_inputs: Vec::new(),
@@ -757,6 +761,7 @@ impl Commander {
             })
             .collect();
         let (dialog_name, dialog_content) = (name.clone(), content.clone());
+        let regex = self.search_regex.clone();
         let location = fs_ops::display_path(&root);
         window.open_alert_dialog(cx, move |dialog, _, cx| {
             let muted = cx.theme().muted_foreground;
@@ -784,7 +789,17 @@ impl Commander {
                                 .gap_1()
                                 .child("Containing text")
                                 .child(Input::new(&content)),
-                        ),
+                        )
+                        .child({
+                            let regex = regex.clone();
+                            Checkbox::new("search-regex")
+                                .label("Regular expression")
+                                .checked(regex.get())
+                                .on_click(move |checked, window, _| {
+                                    regex.set(*checked);
+                                    window.refresh();
+                                })
+                        }),
                 )
                 .ok_text("Find")
                 .show_cancel(true)
@@ -811,6 +826,7 @@ impl Commander {
             root: root.to_path_buf(),
             name: name.read(cx).value().to_string(),
             content: content.read(cx).value().to_string(),
+            regex: self.search_regex.get(),
             hidden: self.show_hidden,
             ignore_files: true,
         }
@@ -825,7 +841,9 @@ impl Commander {
         let mut title = match (query.name.trim(), query.content.trim()) {
             ("", "") => "all files".to_string(),
             (name, "") => format!("\"{name}\""),
+            ("", text) if query.regex => format!("matching /{text}/"),
             ("", text) => format!("containing \"{text}\""),
+            (name, text) if query.regex => format!("\"{name}\" matching /{text}/"),
             (name, text) => format!("\"{name}\" containing \"{text}\""),
         };
         title = format!("Search {title}");
@@ -839,12 +857,12 @@ impl Commander {
 
         let cancel = Arc::new(AtomicBool::new(false));
         self.search_cancel = Some(cancel.clone());
-        let found: Arc<Mutex<Vec<fs_ops::Entry>>> = Arc::default();
+        let found: Arc<Mutex<Vec<search::Hit>>> = Arc::default();
         let (bg_found, bg_cancel) = (found.clone(), cancel.clone());
         self._search_task = cx.spawn_in(window, async move |this, cx| {
             let mut search = cx.background_spawn(async move {
                 search::run(&query, &bg_cancel, |hit| {
-                    bg_found.lock().unwrap().push(hit.entry)
+                    bg_found.lock().unwrap().push(hit)
                 })
             });
             loop {

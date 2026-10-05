@@ -35,7 +35,7 @@ Defaults: left = current directory, right = home directory.
 | Ctrl-T              | Toggle tree mode (per panel)              |
 | F1                  | Help: all commands with their keys (runnable, like Ctrl-P) |
 | F2                  | Tools for the selection / directory (see [`docs/tools.md`](docs/tools.md)) |
-| Alt-F7 / Ctrl-Shift-F | Find files by name (glob or substring) and/or containing text, below the panel directory; results fill the panel (Enter shows a hit in its folder, Backspace returns, Esc stops) |
+| Alt-F7 / Ctrl-Shift-F | Find files by name (glob or substring) and/or containing text (literal or regex; hits show the matching line), below the panel directory; results fill the panel (Enter shows a hit in its folder, Backspace returns, Esc stops) |
 | Ctrl-G / Alt-F1     | Go to: bookmarks (★), desktop places (⌂: home, user folders, GTK/KDE bookmarks, drives), frequently visited directories (↻) |
 | Ctrl-D              | Bookmark the current directory (saved in `config.toml`) |
 | F9                  | Open a terminal in the panel directory (`[terminal]` in `config.toml`) |

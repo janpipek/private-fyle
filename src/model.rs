@@ -8,6 +8,7 @@ use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
 use crate::fs_ops::{self, Entry, SortKey};
+use crate::search::Hit;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Sort {
@@ -37,6 +38,8 @@ pub enum Activation {
 pub struct Row {
     pub entry: Entry,
     pub depth: usize,
+    /// For a content search hit: the first matching line (1-based) and its text.
+    pub hit_line: Option<(u64, String)>,
 }
 
 impl Deref for Row {
@@ -177,6 +180,7 @@ impl Folder {
                 attrs: Default::default(),
             },
             depth: 0,
+            hit_line: None,
         }];
         self.path = root;
         self.results = Some(title);
@@ -187,10 +191,13 @@ impl Folder {
     }
 
     /// Appends search hits, keeping the cursor on its entry.
-    pub fn add_results(&mut self, entries: Vec<Entry>) {
+    pub fn add_results(&mut self, hits: Vec<Hit>) {
         let selected = self.current().map(|e| e.path.clone());
-        self.all
-            .extend(entries.into_iter().map(|entry| Row { entry, depth: 0 }));
+        self.all.extend(hits.into_iter().map(|hit| Row {
+            entry: hit.entry,
+            depth: 0,
+            hit_line: hit.line,
+        }));
         self.apply_filter();
         self.select_path(selected.as_deref());
     }
@@ -292,7 +299,7 @@ impl Folder {
             fs_ops::sort_entries(&mut entries, sort.key, sort.descending);
             self.all = entries
                 .into_iter()
-                .map(|entry| Row { entry, depth: 0 })
+                .map(|entry| Row { entry, depth: 0, hit_line: None })
                 .collect();
             self.apply_filter();
             self.select_path(selected.as_deref());
@@ -425,7 +432,7 @@ impl Folder {
         for entry in entries {
             let descend = self.tree && !entry.is_parent && self.expanded.contains(&entry.path);
             let path = entry.path.clone();
-            out.push(Row { entry, depth });
+            out.push(Row { entry, depth, hit_line: None });
             if descend {
                 let _ = self.list(&path, depth + 1, out);
             }
@@ -611,14 +618,17 @@ mod tests {
         let mut folder = loaded(&dir);
         let entry = |rel: &str| {
             let path = dir.0.join(rel);
-            Entry {
-                name: rel.into(),
-                is_dir: path.is_dir(),
-                path,
-                is_parent: false,
-                size: 0,
-                modified: None,
-                attrs: Default::default(),
+            Hit {
+                entry: Entry {
+                    name: rel.into(),
+                    is_dir: path.is_dir(),
+                    path,
+                    is_parent: false,
+                    size: 0,
+                    modified: None,
+                    attrs: Default::default(),
+                },
+                line: (rel == "a.txt").then(|| (3, "found".to_string())),
             }
         };
 
@@ -628,6 +638,7 @@ mod tests {
         folder.add_results(vec![entry("sub/deep.txt"), entry("b.txt")]);
         folder.add_results(vec![entry("a.txt")]);
         assert_eq!(names(&folder), ["..", "sub/deep.txt", "b.txt", "a.txt"]);
+        assert_eq!(folder.entries()[3].hit_line, Some((3, "found".into())));
 
         folder.set_sort(Sort::default()); // sorts in place, no re-listing
         assert_eq!(names(&folder), ["..", "a.txt", "b.txt", "sub/deep.txt"]);

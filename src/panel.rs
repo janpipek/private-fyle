@@ -350,7 +350,22 @@ impl TableDelegate for FileTable {
                     .text_color(color)
                     .children(chevron)
                     .child(icon)
-                    .child(div().truncate().child(entry.name.clone()))
+                    .child(
+                        div()
+                            .truncate()
+                            .when(row.hit_line.is_some(), |d| d.flex_none())
+                            .child(entry.name.clone()),
+                    )
+                    // Content search hit: the matching line after the name.
+                    .when_some(row.hit_line.as_ref(), |d, (number, text)| {
+                        d.child(
+                            div()
+                                .min_w_0()
+                                .truncate()
+                                .text_color(theme.muted_foreground)
+                                .child(format!("{number}: {}", text.trim())),
+                        )
+                    })
                     .into_any_element()
             }
             ColumnKind::Ext => div()

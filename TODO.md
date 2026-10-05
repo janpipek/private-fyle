@@ -5,7 +5,7 @@
 - [ ] More preview types (pluggable via `preview::Previewer`): PDF,
       audio/video metadata, EXIF next to images.
 - [ ] Icon themes: loadable icon sets (e.g. Zed icon themes), optional per-type colours.
-- [ ] Search: show the matching line of content hits (preview could scroll to it); regex option.
+- [ ] Search: the preview could scroll to the matching line.
 - [ ] Ideas from yazi (terminal file manager):
   - [ ] Tabs per panel.
   - [ ] Richer previews: PDF, video thumbnails, scrolling
@@ -24,6 +24,7 @@
 
 ## Done
 
+- [x] Search: regex option; content hits show their matching line.
 - [x] Tools: conversions (image, CSV) share one "Convert" group.
 - [x] Openers ([[opener]] rules by extension/kind/name) and Open with… (Shift-Enter).
 - [x] Yank/cut/paste (Ctrl-C/X/V) between panels; paths also on the system clipboard.

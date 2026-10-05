@@ -18,9 +18,11 @@ pub struct Query {
     /// File name pattern: a glob if it contains `*`, `?` or `[`, otherwise a
     /// substring. Case-insensitive; empty matches every name.
     pub name: String,
-    /// Text the file must contain (literal, smart case: case-insensitive
-    /// unless it has capitals). Empty: no content search.
+    /// Text the file must contain (smart case: case-insensitive unless it
+    /// has capitals). Empty: no content search.
     pub content: String,
+    /// `content` is a regular expression rather than literal text.
+    pub regex: bool,
     pub hidden: bool,
     /// Honour `.gitignore` and similar files.
     pub ignore_files: bool,
@@ -87,7 +89,7 @@ pub fn run(
     let matcher = (!content.is_empty())
         .then(|| {
             RegexMatcherBuilder::new()
-                .fixed_strings(true)
+                .fixed_strings(!query.regex)
                 .case_smart(true)
                 .build(content)
                 .map_err(|e| e.to_string())
@@ -223,6 +225,7 @@ mod tests {
             root: root.to_path_buf(),
             name: name.into(),
             content: content.into(),
+            regex: false,
             hidden: false,
             ignore_files: true,
         }
@@ -275,6 +278,19 @@ mod tests {
 
         // Capitals make it case-sensitive; name and content combine.
         assert_eq!(names(&query(&root, "*.rs", "Hello")), ["src/main.rs"]);
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn searches_contents_by_regex() {
+        let root = tree("regex");
+        let pattern = r"fn \w+\(\)";
+        assert!(names(&query(&root, "", pattern)).is_empty()); // literal
+        let mut regex = query(&root, "", pattern);
+        regex.regex = true;
+        assert_eq!(names(&regex), ["src/lib.rs", "src/main.rs"]);
+        regex.content = "(".into();
+        assert!(run(&regex, &AtomicBool::new(false), |_| {}).is_err());
         fs::remove_dir_all(&root).unwrap();
     }
 
