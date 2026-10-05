@@ -300,6 +300,48 @@ impl Folder {
         self.marked.clear();
     }
 
+    /// Paths of the shown entries that can be marked (not "..").
+    fn markable(&self) -> impl Iterator<Item = &PathBuf> {
+        self.entries
+            .iter()
+            .filter(|e| !e.is_parent)
+            .map(|e| &e.path)
+    }
+
+    /// Marks every shown entry (the filter limits what is shown).
+    pub fn mark_all(&mut self) {
+        let paths: Vec<_> = self.markable().cloned().collect();
+        self.marked.extend(paths);
+    }
+
+    /// Marks the unmarked shown entries and unmarks the marked ones.
+    pub fn invert_marks(&mut self) {
+        let paths: Vec<_> = self.markable().cloned().collect();
+        for path in paths {
+            if !self.marked.remove(&path) {
+                self.marked.insert(path);
+            }
+        }
+    }
+
+    /// Marks the shown entries whose name matches `pattern` (a glob if it
+    /// has `*`, `?` or `[`, else a substring; case-insensitive). Returns
+    /// how many matched.
+    pub fn mark_matching(&mut self, pattern: &str) -> Result<usize, String> {
+        let matcher = crate::search::NameMatcher::new(pattern)?;
+        let paths: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|e| !e.is_parent)
+            // Search results show relative paths; match the file name.
+            .filter(|e| matcher.matches(e.name.rsplit('/').next().unwrap_or(&e.name)))
+            .map(|e| e.path.clone())
+            .collect();
+        let count = paths.len();
+        self.marked.extend(paths);
+        Ok(count)
+    }
+
     /// Re-sorts, keeping the cursor on the same entry.
     pub fn set_sort(&mut self, sort: Sort) {
         self.sort = sort;
@@ -581,6 +623,42 @@ mod tests {
 
         folder.clear_marks();
         assert_eq!(folder.targets(), [dir.0.join("b.txt")]); // cursor entry
+    }
+
+    #[test]
+    fn mark_all_invert_and_by_pattern() {
+        let dir = TempDir::new("markmany");
+        let mut folder = loaded(&dir); // .., sub, a.txt, b.txt
+        let marked = |f: &Folder| {
+            let mut names: Vec<_> = f
+                .entries()
+                .iter()
+                .filter(|e| f.is_marked(&e.path))
+                .map(|e| e.name.clone())
+                .collect();
+            names.sort();
+            names
+        };
+        folder.mark_all();
+        assert_eq!(marked(&folder), ["a.txt", "b.txt", "sub"]);
+        folder.set_cursor(2);
+        folder.toggle_mark(); // unmark a.txt
+        folder.invert_marks();
+        assert_eq!(marked(&folder), ["a.txt"]);
+
+        folder.clear_marks();
+        assert_eq!(folder.mark_matching("*.TXT"), Ok(2));
+        assert_eq!(marked(&folder), ["a.txt", "b.txt"]);
+        folder.clear_marks();
+        assert_eq!(folder.mark_matching("su"), Ok(1)); // substring
+        assert_eq!(marked(&folder), ["sub"]);
+        assert!(folder.mark_matching("[").is_err());
+
+        // Only what the filter shows.
+        folder.clear_marks();
+        folder.set_filter("a");
+        folder.mark_all();
+        assert_eq!(marked(&folder), ["a.txt"]);
     }
 
     #[test]

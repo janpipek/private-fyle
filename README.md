@@ -24,6 +24,7 @@ their shortcuts; unavailable ones are greyed out, toggles show a check.
 | Backspace           | Parent directory                          |
 | Tab                 | Switch active panel                       |
 | Space / Insert      | Mark entry                                |
+| Ctrl-A / * / +      | Select all / invert selection / select by pattern (glob or substring) |
 | / or Ctrl-F         | Filter as you type (Enter keeps the filter, Esc clears it) |
 | Esc                 | Clear the filter, else the marks          |
 | Shift-F4            | New file: create and edit it |

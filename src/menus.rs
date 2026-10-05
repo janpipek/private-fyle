@@ -22,6 +22,9 @@ pub enum Cmd {
     YankFiles,
     PasteFiles,
     ToggleMark,
+    SelectAll,
+    InvertSelection,
+    SelectPattern,
     Unmark,
     Filter,
     TogglePreview,
@@ -65,7 +68,7 @@ pub struct State {
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 37] = [
+    pub const ALL: [Cmd; 40] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::GoUp,
@@ -73,6 +76,9 @@ impl Cmd {
         Cmd::GoLast,
         Cmd::SwitchPanel,
         Cmd::ToggleMark,
+        Cmd::SelectAll,
+        Cmd::InvertSelection,
+        Cmd::SelectPattern,
         Cmd::Unmark,
         Cmd::Filter,
         Cmd::Copy,
@@ -123,6 +129,9 @@ impl Cmd {
             Cmd::YankFiles => "Copy",
             Cmd::PasteFiles => "Paste",
             Cmd::ToggleMark => "Mark / Unmark",
+            Cmd::SelectAll => "Select All",
+            Cmd::InvertSelection => "Invert Selection",
+            Cmd::SelectPattern => "Select by Pattern…",
             Cmd::Unmark => "Clear Filter or Marks",
             Cmd::Filter => "Filter…",
             Cmd::TogglePreview => "Preview",
@@ -245,7 +254,8 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
             "Edit",
             items(&[
                 &[CutFiles, YankFiles, PasteFiles],
-                &[ToggleMark, Unmark, Filter],
+                &[ToggleMark, SelectAll, InvertSelection, SelectPattern],
+                &[Unmark, Filter],
             ]),
         ),
         (

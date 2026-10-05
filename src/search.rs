@@ -45,14 +45,14 @@ pub struct Summary {
     pub cancelled: bool,
 }
 
-enum NameMatcher {
+pub(crate) enum NameMatcher {
     Any,
     Substring(String),
     Glob(GlobMatcher),
 }
 
 impl NameMatcher {
-    fn new(pattern: &str) -> Result<Self, String> {
+    pub(crate) fn new(pattern: &str) -> Result<Self, String> {
         let pattern = pattern.trim();
         if pattern.is_empty() {
             Ok(Self::Any)
@@ -68,7 +68,7 @@ impl NameMatcher {
         }
     }
 
-    fn matches(&self, name: &str) -> bool {
+    pub(crate) fn matches(&self, name: &str) -> bool {
         match self {
             Self::Any => true,
             Self::Substring(s) => name.to_lowercase().contains(s),

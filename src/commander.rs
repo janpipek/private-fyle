@@ -68,6 +68,9 @@ actions!(
         NewFile,
         SelectTheme,
         SelectColumns,
+        SelectAll,
+        InvertSelection,
+        SelectPattern,
         OpenWith,
         YankFiles,
         CutFiles,
@@ -155,6 +158,9 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", Unmark, table),
         KeyBinding::new("insert", ToggleMark, table),
         KeyBinding::new("space", ToggleMark, table),
+        KeyBinding::new("secondary-a", SelectAll, table),
+        KeyBinding::new("*", InvertSelection, table),
+        KeyBinding::new("+", SelectPattern, table),
         KeyBinding::new("f1", Help, ctx),
         KeyBinding::new("f2", ToolsMenu, table),
         KeyBinding::new("secondary-c", YankFiles, table),
@@ -248,6 +254,7 @@ pub struct Commander {
     status: SharedString,
     _subscriptions: Vec<Subscription>,
     _mkdir_subscription: Option<Subscription>,
+    _pattern_subscription: Option<Subscription>,
 }
 
 impl Commander {
@@ -339,6 +346,7 @@ impl Commander {
             status: settings_error.map_or(status, Into::into),
             _subscriptions: subscriptions,
             _mkdir_subscription: None,
+            _pattern_subscription: None,
         };
         this.views[0].update(cx, |view, cx| view.set_active(true, cx));
         this.focus_active(window, cx);
@@ -1613,6 +1621,67 @@ impl Commander {
         self.update_folder(cx, Folder::toggle_mark);
     }
 
+    fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
+        self.update_folder(cx, Folder::mark_all);
+    }
+
+    fn invert_selection(&mut self, _: &InvertSelection, _: &mut Window, cx: &mut Context<Self>) {
+        self.update_folder(cx, Folder::invert_marks);
+    }
+
+    /// Select by pattern: asks for a glob (or substring) and marks the
+    /// matching entries, adding to the current marks.
+    fn select_pattern(&mut self, _: &SelectPattern, window: &mut Window, cx: &mut Context<Self>) {
+        let input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("e.g. *.jpg or report")
+                .default_value("*")
+        });
+        let this = cx.entity().downgrade();
+        // Enter in the input confirms, same as the OK button.
+        self._pattern_subscription = Some(cx.subscribe_in(
+            &input,
+            window,
+            |this, input, event: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    let pattern = input.read(cx).value();
+                    this.mark_matching(&pattern, cx);
+                    window.close_dialog(cx);
+                    this.focus_active(window, cx);
+                }
+            },
+        ));
+        let dialog_input = input.clone();
+        window.open_alert_dialog(cx, move |dialog, _, _| {
+            let (this, input) = (this.clone(), dialog_input.clone());
+            dialog
+                .title("Select by pattern")
+                .description(Input::new(&dialog_input))
+                .ok_text("Select")
+                .show_cancel(true)
+                .on_ok(move |_, window, cx| {
+                    let pattern = input.read(cx).value();
+                    let _ = this.update(cx, |this, cx| {
+                        this.mark_matching(&pattern, cx);
+                        this.focus_active(window, cx);
+                    });
+                    true
+                })
+        });
+        input.update(cx, |input, cx| {
+            input.focus(window, cx);
+            input.select_all(window, cx);
+        });
+    }
+
+    fn mark_matching(&mut self, pattern: &str, cx: &mut Context<Self>) {
+        self.status = match self.update_folder(cx, |f| f.mark_matching(pattern)) {
+            Ok(n) => format!("{n} matching \"{pattern}\" marked").into(),
+            Err(e) => e.into(),
+        };
+        cx.notify();
+    }
+
     /// Esc in a panel: stops a running search, else clears the filter if
     /// one is set, else the marks.
     fn unmark(&mut self, _: &Unmark, _: &mut Window, cx: &mut Context<Self>) {
@@ -2036,6 +2105,9 @@ impl Render for Commander {
             .on_action(cx.listener(Self::add_bookmark))
             .on_action(cx.listener(Self::open_terminal))
             .on_action(cx.listener(Self::select_columns))
+            .on_action(cx.listener(Self::select_all))
+            .on_action(cx.listener(Self::invert_selection))
+            .on_action(cx.listener(Self::select_pattern))
             .on_action(cx.listener(Self::expand))
             .on_action(cx.listener(Self::collapse))
             .on_action(cx.listener(Self::quit))
@@ -2136,6 +2208,9 @@ fn action_for(cmd: Cmd) -> Box<dyn Action> {
         Cmd::CancelJobs => Box::new(CancelJobs),
         Cmd::CommandPalette => Box::new(CommandPalette),
         Cmd::Help => Box::new(Help),
+        Cmd::SelectAll => Box::new(SelectAll),
+        Cmd::InvertSelection => Box::new(InvertSelection),
+        Cmd::SelectPattern => Box::new(SelectPattern),
     }
 }
 
