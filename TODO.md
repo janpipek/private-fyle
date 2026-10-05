@@ -11,12 +11,6 @@
   - [ ] Richer previews: PDF, video thumbnails, scrolling
         and paging inside the preview.
   - [ ] Shell command on selection with output capture (ties into tools).
-  - [ ] Lua plugins via `mlua` (features `lua54`, `vendored`: Lua compiled in,
-        nothing to install; prototype builds for Linux and Windows). A plugin
-        defines tools (`id`, `group`, `label`, `applies(ctx)`, `params`,
-        `plan(ctx)` returning an action table) adapted to the `Tool` trait;
-        plugins live in `<config dir>/fyle/plugins/*.lua`. Same trust rule as
-        tools.toml: only from the user's config.
 - [ ] Zed theme import (converter from Zed's theme JSON).
 - [ ] More attribute columns (open-ended; add a `ColumnKind` + renderer):
       git status, EXIF data, SELinux context, xattrs, created time.
@@ -24,6 +18,7 @@
 
 ## Done
 
+- [x] Lua plugins (`<config dir>/fyle/plugins/*.lua`) define tools (mlua, Lua 5.4 vendored).
 - [x] Search: regex option; content hits show their matching line.
 - [x] Tools: conversions (image, CSV) share one "Convert" group.
 - [x] Openers ([[opener]] rules by extension/kind/name) and Open with… (Shift-Enter).

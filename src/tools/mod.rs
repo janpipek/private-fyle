@@ -13,14 +13,16 @@
 //! 5. The UI shows/confirms the action and hands it to [`exec`] to run, in the
 //!    background.
 //!
-//! Tools come in two forms: declarative [`command::CommandTool`]s (defined in
-//! TOML: built-in `defaults.toml` plus the user's `tools.toml`) and Rust
-//! implementations of [`Tool`] for anything needing logic ([`builtin`]).
+//! Tools come in three forms: declarative [`command::CommandTool`]s (defined in
+//! TOML: built-in `defaults.toml` plus the user's `tools.toml`), Rust
+//! implementations of [`Tool`] for anything needing logic ([`builtin`]), and
+//! the user's Lua plugins ([`lua`]).
 
 pub mod builtin;
 pub mod command;
 pub mod detect;
 pub mod exec;
+pub mod lua;
 pub mod programs;
 
 use std::collections::HashMap;
@@ -394,6 +396,15 @@ impl Registry {
             self.register(Box::new(tool));
         }
         Ok(())
+    }
+
+    /// Registers the tools of every Lua plugin in `dir`; returns the errors.
+    pub fn load_plugins(&mut self, dir: &Path) -> Vec<String> {
+        let (tools, errors) = lua::load_dir(dir);
+        for tool in tools {
+            self.register(Box::new(tool));
+        }
+        errors
     }
 
     /// Applicable tools, grouped (groups in registration order).

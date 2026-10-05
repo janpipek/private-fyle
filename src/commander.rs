@@ -644,9 +644,10 @@ impl Commander {
             return;
         }
         let env = std::env::var("TERMINAL").ok();
-        let command = crate::terminal::command(&self.terminal_command, env.as_deref(), &dir, |name| {
-            self.programs.find(name).is_some()
-        });
+        let command =
+            crate::terminal::command(&self.terminal_command, env.as_deref(), &dir, |name| {
+                self.programs.find(name).is_some()
+            });
         self.status = match command.as_deref() {
             Some([program, args @ ..]) => {
                 match std::process::Command::new(program)
@@ -861,9 +862,7 @@ impl Commander {
         let (bg_found, bg_cancel) = (found.clone(), cancel.clone());
         self._search_task = cx.spawn_in(window, async move |this, cx| {
             let mut search = cx.background_spawn(async move {
-                search::run(&query, &bg_cancel, |hit| {
-                    bg_found.lock().unwrap().push(hit)
-                })
+                search::run(&query, &bg_cancel, |hit| bg_found.lock().unwrap().push(hit))
             });
             loop {
                 let timer = cx.background_executor().timer(Duration::from_millis(120));
@@ -2014,20 +2013,25 @@ fn summarize(verb: &str, done: usize, errors: &[String]) -> String {
 }
 
 /// Built-in tools plus the user's `<config dir>/fyle/tools.toml`.
+/// Built-in tools, then the user's `tools.toml`, then their Lua plugins.
 fn load_tools() -> (Registry, Option<String>) {
     let mut registry = Registry::with_defaults();
-    let Some(path) = dirs::config_dir().map(|d| d.join("fyle").join("tools.toml")) else {
+    let Some(config) = dirs::config_dir().map(|d| d.join("fyle")) else {
         return (registry, None);
     };
-    let error = match std::fs::read_to_string(&path) {
+    let path = config.join("tools.toml");
+    let mut errors: Vec<String> = match std::fs::read_to_string(&path) {
         Ok(text) => registry
             .load_toml(&text)
             .err()
-            .map(|e| format!("{}: {e}", path.display())),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-        Err(e) => Some(format!("{}: {e}", path.display())),
+            .map(|e| format!("{}: {e}", path.display()))
+            .into_iter()
+            .collect(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => vec![format!("{}: {e}", path.display())],
     };
-    (registry, error)
+    errors.extend(registry.load_plugins(&config.join("plugins")));
+    (registry, (!errors.is_empty()).then(|| errors.join("; ")))
 }
 
 /// Shows a command's output in a scrollable dialog.

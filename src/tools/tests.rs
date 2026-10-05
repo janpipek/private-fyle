@@ -480,3 +480,157 @@ fn describes_actions_for_confirmation() {
     assert!(!action.is_harmless());
     assert!(Action::OpenUrl("https://x".into()).is_harmless());
 }
+
+// --- Lua plugins -------------------------------------------------------------------
+
+const PLUGIN: &str = r#"
+return {
+  {
+    id = "md.pdf",
+    group = "Markdown",
+    label = "Convert to PDF…",
+    requires = { "pandoc" },
+    params = { { key = "engine", label = "Engine", choices = { "typst", "xelatex" } } },
+    applies = function(ctx)
+      return #ctx.targets == 1 and ctx.targets[1].ext == "md"
+    end,
+    plan = function(ctx, values)
+      local t = ctx.targets[1]
+      return { run = { ctx.programs.pandoc, t.path, "--pdf-engine=" .. values.engine,
+                       "-o", t.parent .. "/" .. t.stem .. ".pdf" },
+               output = "log", refresh = true }
+    end,
+  },
+  {
+    id = "where",
+    group = "Info",
+    label = "Pick a place",
+    plan = function(ctx)
+      return { pick = { title = "Places", items = {
+        { label = "here", action = { open_url = "file://" .. ctx.dir } },
+        { label = "other", detail = ctx.other, action = { sequence = {
+          { run = { "true" } }, { open_url = "file://" .. ctx.other } } } },
+      } } }
+    end,
+  },
+}
+"#;
+
+#[cfg(unix)]
+#[test]
+fn lua_plugins_define_tools() {
+    let tmp = TempDir::new("lua");
+    let mut registry = Registry::default();
+    for tool in lua::load("test.lua", PLUGIN).unwrap() {
+        registry.register(Box::new(tool));
+    }
+    let programs = fake_programs(&tmp, &["pandoc"]);
+    let ids = |context: &ToolContext| {
+        registry
+            .offers(context, &detect(context), &programs)
+            .into_iter()
+            .map(|o| o.id)
+            .collect::<Vec<_>>()
+    };
+    let md = ctx(&tmp.0, &[("notes.md", false)]);
+    assert_eq!(ids(&md), ["md.pdf", "where"]);
+    assert_eq!(ids(&ctx(&tmp.0, &[("a.txt", false)])), ["where"]); // applies
+
+    let tool = registry.tool("md.pdf").unwrap();
+    assert_eq!(tool.group(), "Markdown");
+    assert_eq!(tool.params(&md)[0].default_value(), "typst");
+
+    let facts = detect(&md);
+    let Action::Run(spec) = registry
+        .plan("md.pdf", &md, &facts, &programs, &Values::new())
+        .unwrap()
+    else {
+        panic!("expected Run");
+    };
+    assert_eq!(spec.program, tmp.0.join("bin/pandoc"));
+    let parent = tmp.0.display();
+    assert_eq!(
+        spec.args,
+        [
+            format!("{parent}/notes.md"),
+            "--pdf-engine=typst".into(),
+            "-o".into(),
+            format!("{parent}/notes.pdf"),
+        ]
+    );
+    assert_eq!(
+        (spec.output, spec.refresh, spec.cwd.clone()),
+        (Output::Log, true, tmp.0.clone())
+    );
+
+    let action = registry
+        .plan("where", &md, &facts, &programs, &Values::new())
+        .unwrap();
+    assert_eq!(action.describe(), ["Places: 2 choices"]);
+    let Action::Pick { items, .. } = action else {
+        panic!()
+    };
+    assert_eq!(items[1].detail.as_deref(), Some("/other"));
+    assert_eq!(items[1].action.describe(), ["true", "Open file:///other"]);
+}
+
+#[test]
+fn lua_plugin_errors_are_reported() {
+    let err = |source: &str| match lua::load("bad.lua", source) {
+        Ok(_) => panic!("loaded {source:?}"),
+        Err(e) => e,
+    };
+    assert!(err("return {").starts_with("bad.lua:"));
+    assert!(
+        err("return { { group = 'g', label = 'l', plan = function() end } }")
+            .contains("missing `id`")
+    );
+    assert!(err("return { { id = 'x', group = 'g', label = 'l' } }").contains("`plan`"));
+
+    // Runtime errors surface when planning, with the tool id.
+    let tools = lua::load(
+        "t.lua",
+        "return { { id = 'x', group = 'g', label = 'l', plan = function() error('nope') end },
+                  { id = 'y', group = 'g', label = 'l', plan = function() return {} end } }",
+    )
+    .unwrap();
+    let mut registry = Registry::default();
+    for tool in tools {
+        registry.register(Box::new(tool));
+    }
+    let context = ctx(Path::new("/tmp"), &[]);
+    let plan = |id| {
+        registry
+            .plan(
+                id,
+                &context,
+                &Facts::default(),
+                &Programs::new(vec![]),
+                &Values::new(),
+            )
+            .unwrap_err()
+    };
+    assert!(plan("x").contains("nope"), "{}", plan("x"));
+    assert!(plan("y").contains("needs one of run"), "{}", plan("y"));
+}
+
+#[test]
+fn lua_plugins_load_from_a_directory() {
+    let tmp = TempDir::new("luadir");
+    tmp.file(
+        "b.lua",
+        "return { { id = 'b', group = 'g', label = 'B', plan = function() end } }",
+    );
+    tmp.file(
+        "a.lua",
+        "return { { id = 'a', group = 'g', label = 'A', plan = function() end } }",
+    );
+    tmp.file("broken.lua", "this is not lua");
+    tmp.file("notes.txt", "ignored");
+    let (tools, errors) = lua::load_dir(&tmp.0);
+    let ids: Vec<_> = tools.iter().map(|t| t.id().to_string()).collect();
+    assert_eq!(ids, ["a", "b"]);
+    assert_eq!(errors.len(), 1);
+    assert!(errors[0].starts_with("broken.lua:"));
+    assert!(lua::load_dir(&tmp.0.join("missing")).0.is_empty());
+}

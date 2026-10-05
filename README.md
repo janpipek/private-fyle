@@ -130,7 +130,7 @@ commands. `src/fs_ops.rs` contains the file system operations.
 `src/tools/` is the model for context-dependent tools (run ruff on Python
 files, uv commands in uv projects, convert images, …); see
 [`docs/tools.md`](docs/tools.md). F2 opens them; your own go in
-`<config dir>/fyle/tools.toml`.
+`<config dir>/fyle/tools.toml`, or in Lua plugins in `<config dir>/fyle/plugins/*.lua`.
 `src/editor.rs` loads/saves edited files (UTF-8 only, atomic save keeping
 permissions); `src/editor_view.rs` is the editor pane.
 `src/search.rs` finds files and searches contents with ripgrep's libraries

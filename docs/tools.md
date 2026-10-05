@@ -49,7 +49,7 @@ will run before it runs.
 | `CommandSpec` | Program, args, working directory, output mode (`status`, `log`, `detached`), refresh panels afterwards. |
 | `Report` | Summary line, captured log, refresh flag. |
 
-## Two ways to define a tool
+## Three ways to define a tool
 
 **Declarative (TOML)** for "run this command on these files", which covers
 most cases. Built-ins live in `src/tools/defaults.toml`; users add or override
@@ -84,6 +84,42 @@ params = [{ key = "format", label = "Format", choices = ["webp", "png", "jpg"] }
 `git.website` (URL from `.git/config`), `just.tasks` (lists recipes, returns a
 `Pick`), `image.gallery` (writes HTML in-process).
 
+**Lua plugins** when a user needs logic without rebuilding fyle
+(`src/tools/lua.rs`, `mlua` with Lua 5.4 compiled in). Every
+`<config dir>/fyle/plugins/*.lua` returns a list of tools; each has `id`,
+`group`, `label`, optional `requires` and `params` (as in TOML), an optional
+`applies(ctx)` and a `plan(ctx, values)` returning an action table:
+
+```lua
+return {
+  {
+    id = "md.pdf",
+    group = "Markdown",
+    label = "Convert to PDF…",
+    requires = { "pandoc" },
+    params = { { key = "engine", label = "Engine", choices = { "typst", "xelatex" } } },
+    applies = function(ctx)
+      return #ctx.targets == 1 and ctx.targets[1].ext == "md"
+    end,
+    plan = function(ctx, values)
+      local t = ctx.targets[1]
+      return { run = { ctx.programs.pandoc, t.path, "--pdf-engine=" .. values.engine,
+                       "-o", t.parent .. "/" .. t.stem .. ".pdf" },
+               output = "log", refresh = true }
+    end,
+  },
+}
+```
+
+- `ctx`: `dir`, `other`, `targets` (`path`, `name`, `stem`, `ext`, `parent`,
+  `is_dir`, `kind`), `facets` (kind → project root, e.g. `ctx.facets.git_repo`),
+  and in `plan` also `programs` (alias → resolved path).
+- Actions: `{ run = {…}, cwd, output, refresh }`, `{ open_url = "…" }`,
+  `{ sequence = { … } }`, `{ pick = { title, items = { { label, detail, action } } } }`.
+- `error("…")` in `plan` shows in the status line; an `applies` that fails
+  hides the tool. A plugin that fails to load is reported at startup.
+- Plugin tools register after `tools.toml`, so they can replace any tool by `id`.
+
 ## The examples, mapped
 
 | Example | Tool | How |
@@ -101,7 +137,8 @@ params = [{ key = "format", label = "Format", choices = ["webp", "png", "jpg"] }
 
 - **New command tool:** add a `[[tool]]` to `defaults.toml` (or the user's
   `tools.toml`).
-- **New logic tool:** implement `Tool`, add it to `builtin::all()`.
+- **New logic tool:** implement `Tool`, add it to `builtin::all()`, or (as a
+  user) write a Lua plugin.
 - **New project type:** add a `Facet`/`FacetKind` variant and a probe in
   `detect.rs`; TOML tools can then use `facet = "…"`.
 - **New file kind:** extend `icons.rs` (kinds are shared with icons) or match
@@ -116,7 +153,7 @@ params = [{ key = "format", label = "Format", choices = ["webp", "png", "jpg"] }
   arguments embedded in a program's own language, like the SQL in
   `csv.convert`, are not escaped; a `'` in a file name breaks that command.
 - **Missing programs** make a tool disabled, not hidden.
-- **Trust:** tools come only from fyle itself and the user's config.
+- **Trust:** tools (TOML and Lua plugins) come only from fyle itself and the user's config.
   Project-local tool files (a repo shipping its own `tools.toml`) are not
   loaded; supporting them would need a trust prompt.
 - **Confirmation:** every action that runs something is confirmed with the
