@@ -1,0 +1,28 @@
+// Dev Containers definition for fyle. Shares one image with the CLI launcher
+// (tools/sandbox.py) so they can't drift. Works across editors that speak the
+// Dev Containers spec: VS Code, JetBrains, Zed.
+//
+// This opens an interactive dev environment (build/test/edit). It does NOT
+// auto-launch the agent with permissions skipped; that autonomous mode is the
+// CLI's job (`just sandbox --claude`). Here you run `claude` yourself.
+{
+  "name": "fyle-dev",
+  "build": {
+    "dockerfile": "Containerfile",
+    "context": "."
+  },
+
+  // Mount the repo at the SAME absolute path it has on the host, so cargo's
+  // target/ (which records absolute paths) is shared with the host.
+  "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind",
+  "workspaceFolder": "${localWorkspaceFolder}",
+
+  // keep-id: run as the host UID so files stay host-owned and editable.
+  // label=disable: access the bind mount under enforcing SELinux without
+  // recursively relabelling host directories.
+  "runArgs": ["--userns=keep-id", "--security-opt=label=disable"],
+
+  "containerEnv": {
+    "HOME": "/home/dev"
+  }
+}

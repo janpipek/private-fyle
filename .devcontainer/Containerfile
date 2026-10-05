@@ -1,0 +1,49 @@
+# Development sandbox image for fyle (same design as arraw's ADR 0044).
+#
+# Fedora 44 to match the development host. The working tree is bind-mounted at
+# run time, so code changes never invalidate the image. Used by
+# tools/sandbox.py and by .devcontainer/devcontainer.json.
+FROM fedora:44
+
+# One layer: the C toolchain and the native libraries gpui links against
+# (xkbcommon, fontconfig/freetype, xcb, wayland), clang for bindgen-based
+# crates, just/uv for the Justfile, node/npm for the agent, fonts so gpui has
+# something to render, and the Vulkan/Mesa runtime used only with --gui.
+RUN dnf install -y --setopt=install_weak_deps=False \
+        gcc gcc-c++ make cmake git pkgconf-pkg-config \
+        libxkbcommon-devel libxkbcommon-x11-devel fontconfig-devel freetype-devel \
+        libxcb-devel wayland-devel \
+        clang clang-devel \
+        just uv nodejs npm \
+        dejavu-sans-fonts dejavu-sans-mono-fonts \
+        vulkan-loader mesa-vulkan-drivers mesa-dri-drivers \
+        xdg-utils \
+    && dnf clean all
+
+# Rust via rustup, so the toolchain tracks upstream stable like the host's.
+# RUSTUP_HOME is read-only at run time; CARGO_HOME is world-writable because the
+# sandbox runs as the host UID (--userns=keep-id) and cargo writes its registry
+# cache there.
+ARG RUST_TOOLCHAIN=stable
+ENV RUSTUP_HOME=/opt/rustup \
+    CARGO_HOME=/opt/cargo \
+    PATH=/opt/cargo/bin:$PATH
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal \
+        --default-toolchain "$RUST_TOOLCHAIN" --component rustfmt,clippy \
+    && chmod -R a+rwX "$CARGO_HOME"
+
+# Claude Code, global so it is on PATH for any runtime user.
+RUN npm install -g @anthropic-ai/claude-code
+
+# The bind-mounted repo has host ownership; without this git refuses to operate
+# on it ("dubious ownership"). System-wide so it holds for every user/IDE.
+RUN git config --system --add safe.directory '*'
+
+# A world-writable HOME that works whatever UID we run as.
+RUN install -d -m 0777 /home/dev /home/dev/.cache /home/dev/.npm
+ENV HOME=/home/dev \
+    XDG_CACHE_HOME=/home/dev/.cache \
+    npm_config_cache=/home/dev/.npm
+
+# Headless by default; tools/sandbox.py --gui adds the Wayland/GPU wiring.
+CMD ["bash"]

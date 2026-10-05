@@ -100,6 +100,24 @@ one replaces it.
 
 CI builds and tests on Linux (Windows job disabled for now) (`.github/workflows/ci.yml`).
 
+## Development sandbox
+
+A Fedora 44 container (rootless Podman, or Docker) with the Rust toolchain,
+the build dependencies and Claude Code, so an agent can work on the repo
+autonomously with the container as the safety boundary. The repo is
+bind-mounted read-write at its host path (sharing `target/`), and the
+container runs as your UID, so files stay yours.
+
+```sh
+just sandbox-build              # build the image (also done on first run)
+just sandbox                    # bash shell
+just sandbox --claude           # Claude Code with permissions skipped
+just sandbox --gui --mount ~/   # Wayland + GPU, extra dirs read-only
+just sandbox -- cargo test      # one-shot command
+```
+
+`.devcontainer/` uses the same image for VS Code, JetBrains and Zed.
+
 ## Architecture
 
 Model first: `src/model.rs` holds each panel's state (`Folder`: path, rows,
