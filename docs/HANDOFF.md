@@ -33,7 +33,7 @@ paused and macOS comes later.
 - Lua plugins are approved in principle: `mlua` with `lua54` and
   `vendored`.
 
-## Status (46 commits, about 11.3k lines of Rust, 89 tests passing)
+## Status (58 commits, about 13.1k lines of Rust, 102 tests passing)
 
 Done (details in `TODO.md` under "Done"):
 
@@ -52,6 +52,11 @@ Done (details in `TODO.md` under "Done"):
 - **Navigation:** find files and search contents (Alt-F7; literal or
   regex, hits show the matching line). F9 opens a terminal. Go to (Ctrl-G)
   lists bookmarks, desktop places and frecency history.
+- **Menus:** a menu bar (File, Edit, View with a Sort submenu, Go, Tools,
+  Help) built from `menus.rs`, shared with the palette; shortcuts shown,
+  unavailable items disabled, toggles checked. Select all / invert / by
+  pattern (Ctrl-A, *, +), Back/Forward (Alt-Left/Right), Configuration,
+  About.
 - **Commands and appearance:** Ctrl-P command palette, F1 help, a
   configurable keymap. F2 tools (TOML, built-in and Lua plugins) and openers
   (Shift-Enter). A theme picker with live preview.
@@ -126,12 +131,36 @@ Done (details in `TODO.md` under "Done"):
 
 ## Next steps (suggested order)
 
-1. **Tabs per panel:** parked by the owner; ask before starting.
-2. **Shell command on the selection** with output capture: the owner found
+1. **Discoverable menus, remaining parts** (the owner's priority; the
+   uncommitted TODO entry lists all of it):
+   - Right-click context menu on the selection, built from `menus.rs`
+     (gpui-component has `ContextMenuExt`).
+   - Tools menu listing the context-aware tools themselves (today it opens
+     the F2 menu). `Registry::offers` runs filesystem probes, so compute it
+     when the menu opens, not on every cursor move.
+   - Explanations for disabled items: `Cmd::unavailable` returns a reason,
+     but `OwnedMenuItem` cannot show it. Perhaps show it in the status line.
+   - Not verified in the GUI: no display in the sandbox. Check the menu bar
+     appearance, that keyboard focus returns to the panel after a menu
+     closes, and that `*` / `+` bind on the owner's keyboard layout.
+2. **Copy/move conflict resolution** (also in the uncommitted TODO).
+3. **Tabs per panel:** parked by the owner; ask before starting.
+4. **Shell command on the selection** with output capture: the owner found
    it unclear. Only "open terminal here" (F9) was wanted, and it is done.
-3. **More previews:** PDF pages beyond the first.
+5. **More previews:** PDF pages beyond the first.
 
 Dropped by the owner: Zed theme import and icon themes.
+
+## Sandbox notes
+
+- No git identity is configured: commits were made with
+  `git -c user.name=… -c user.email=…` for the owner. There are no GitHub
+  credentials, so nothing was pushed from the sandbox.
+- Others edit the tree at the same time (README sandbox/Codex section,
+  `.devcontainer/`, `Justfile`, `tools/sandbox.py`, the TODO menus and
+  conflicts entries). Stage only your own hunks.
+- poppler and ffmpeg are not installed, so PDF and media previews are
+  tested only up to parsing.
 
 ## Open decisions (ask the owner)
 
