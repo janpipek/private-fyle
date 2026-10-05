@@ -3,7 +3,6 @@
 - [ ] Embedded terminal (idea, undecided): alacritty_terminal + PTY rendered
       in gpui as Zed does, vs. libghostty; see discussion.
 - [ ] More preview types (pluggable via `preview::Previewer`): audio/video metadata.
-- [ ] Search: the preview could scroll to the matching line.
 - [ ] Ideas from yazi (terminal file manager):
   - [ ] Tabs per panel (parked).
   - [ ] Richer previews: PDF pages beyond the first, video thumbnails, scrolling
@@ -15,6 +14,7 @@
 
 ## Done
 
+- [x] Search: the preview scrolls to a content hit's matching line.
 - [x] Previews: PDF first page and info (poppler), EXIF data under images.
 - [x] Columns: created time, git status, xattrs, SELinux context.
 - [x] Lua plugins (`<config dir>/fyle/plugins/*.lua`) define tools (mlua, Lua 5.4 vendored).

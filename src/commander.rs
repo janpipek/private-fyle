@@ -1503,15 +1503,18 @@ impl Commander {
         cx.notify();
     }
 
-    /// Points the quick view at the active panel's cursor entry.
+    /// Points the quick view at the active panel's cursor entry, at the
+    /// matching line for a content search hit.
     fn update_preview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let target = self
+        let row = self
             .preview_on
             .then(|| self.folders[self.active].read(cx).current())
-            .flatten()
-            .map(|row| row.path.clone());
-        self.preview
-            .update(cx, |preview, cx| preview.set_target(target, window, cx));
+            .flatten();
+        let target = row.map(|row| row.path.clone());
+        let line = row.and_then(|row| row.hit_line.as_ref()).map(|(n, _)| *n);
+        self.preview.update(cx, |preview, cx| {
+            preview.set_target(target, line, window, cx)
+        });
     }
 
     fn toggle_tree(&mut self, _: &ToggleTree, _: &mut Window, cx: &mut Context<Self>) {

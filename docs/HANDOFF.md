@@ -126,9 +126,8 @@ Done (details in `TODO.md` under "Done"):
 1. **Tabs per panel:** parked by the owner; ask before starting.
 2. **Shell command on the selection** with output capture: the owner found
    it unclear. Only "open terminal here" (F9) was wanted, and it is done.
-3. **Search:** the preview could scroll to a content hit's matching line.
-4. **More previews:** audio/video metadata, PDF pages beyond the first.
-5. **EXIF column** (the preview shows EXIF already).
+3. **More previews:** audio/video metadata, PDF pages beyond the first.
+4. **EXIF column** (the preview shows EXIF already).
 
 Dropped by the owner: Zed theme import and icon themes.
 

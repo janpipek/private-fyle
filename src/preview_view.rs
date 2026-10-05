@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use gpui_kit::component::input::{Editor, EditorState};
+use gpui_kit::component::input::{Editor, EditorState, Position};
 use gpui_kit::component::text::TextView;
 use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -27,10 +27,13 @@ const LOAD_DELAY: Duration = Duration::from_millis(60);
 pub struct PreviewPane {
     registry: Arc<Registry>,
     target: Option<PathBuf>,
+    /// Line (1-based) to show in text content, e.g. a search hit's.
+    line: Option<u64>,
     state: State,
     /// Reused read-only editor for text content.
     editor: Entity<EditorState>,
     _load: Task<()>,
+    _reveal: Task<()>,
 }
 
 impl PreviewPane {
@@ -44,22 +47,31 @@ impl PreviewPane {
         Self {
             registry,
             target: None,
+            line: None,
             state: State::Empty,
             editor,
             _load: Task::ready(()),
+            _reveal: Task::ready(()),
         }
     }
 
-    /// Shows `path`; a new target cancels the previous load.
+    /// Shows `path`, scrolled to `line` if it is text; a new target cancels
+    /// the previous load.
     pub fn set_target(
         &mut self,
         path: Option<PathBuf>,
+        line: Option<u64>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if path == self.target {
+            if line != self.line {
+                self.line = line;
+                self.reveal_line(window, cx);
+            }
             return;
         }
+        self.line = line;
         self.target = path.clone();
         let Some(path) = path else {
             self.state = State::Empty;
@@ -84,7 +96,39 @@ impl PreviewPane {
     /// Loads the current target again (e.g. after it was edited).
     pub fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let target = self.target.take();
-        self.set_target(target, window, cx);
+        self.set_target(target, self.line, window, cx);
+    }
+
+    /// Moves the text view to [`Self::line`] without taking focus. Again
+    /// after a moment too: scrolling needs the editor's layout, which new
+    /// content only has once drawn.
+    fn reveal_line(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(line) = self.line else {
+            self._reveal = Task::ready(());
+            return;
+        };
+        if !matches!(&self.state, State::Ready(p) if matches!(p.content, Content::Text { .. })) {
+            return;
+        }
+        let editor = self.editor.clone();
+        let reveal = move |window: &mut Window, cx: &mut App| {
+            // Moving the cursor focuses the editor; give focus back.
+            let focused = window.focused(cx);
+            let position = Position::new(line.saturating_sub(1) as u32, 0);
+            editor.update(cx, |editor, cx| {
+                editor.set_cursor_position(position, window, cx)
+            });
+            if let Some(focused) = focused {
+                focused.focus(window, cx);
+            }
+        };
+        reveal(window, cx);
+        self._reveal = cx.spawn_in(window, async move |_, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(50))
+                .await;
+            let _ = cx.update(|window, cx| reveal(window, cx));
+        });
     }
 
     fn show(
@@ -105,6 +149,7 @@ impl PreviewPane {
             }
             Err(e) => State::Failed(e),
         };
+        self.reveal_line(window, cx);
         cx.notify();
     }
 
