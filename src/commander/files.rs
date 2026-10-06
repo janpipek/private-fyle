@@ -18,7 +18,9 @@ use super::keys::{
 use crate::editor::Document;
 use crate::editor_view::{EditorEvent, EditorPane};
 use crate::jobs::{self, Extraction, JobKind, Yank};
+use crate::menus::Cmd;
 use crate::model::Folder;
+use crate::remote::jobs::{Side, plan_transfer};
 use crate::tools::{self};
 use crate::{archive, rename};
 
@@ -55,7 +57,7 @@ impl Commander {
     /// Remembers the targets for pasting; their paths also go to the
     /// system clipboard as text.
     pub fn set_yank(&mut self, cut: bool, cx: &mut Context<Self>) {
-        if self.refuse_in_archive(cx) {
+        if self.refuse_in_archive(cx) || self.refuse_on_remote(cx) {
             return;
         }
         let paths = self.folders[self.active].read(cx).targets();
@@ -78,7 +80,7 @@ impl Commander {
 
     /// Ctrl-V: copies (or moves, after a cut) the yanked entries here.
     pub fn paste_files(&mut self, _: &PasteFiles, window: &mut Window, cx: &mut Context<Self>) {
-        if self.refuse_in_archive(cx) {
+        if self.refuse_in_archive(cx) || self.refuse_on_remote(cx) {
             return;
         }
         let Some(yank) = self.yank.clone() else {
@@ -106,6 +108,10 @@ impl Commander {
     /// Shift-F6: renames the cursor entry, or all marked entries at once
     /// by editing one name per line.
     pub fn rename(&mut self, _: &Rename, window: &mut Window, cx: &mut Context<Self>) {
+        if self.folders[self.active].read(cx).is_remote() {
+            self.rename_remote(window, cx);
+            return;
+        }
         if self.refuse_in_archive(cx) {
             return;
         }
@@ -194,7 +200,7 @@ impl Commander {
 
     /// F4: edits the cursor file in place of the inactive panel.
     pub fn edit_file(&mut self, _: &EditFile, window: &mut Window, cx: &mut Context<Self>) {
-        if self.refuse_in_archive(cx) {
+        if self.refuse_in_archive(cx) || self.refuse_on_remote(cx) {
             return;
         }
         if let Some(editor) = &self.editor
@@ -218,7 +224,7 @@ impl Commander {
 
     /// Shift-F4: asks for a name, creates an empty file and edits it.
     pub fn new_file(&mut self, _: &NewFile, window: &mut Window, cx: &mut Context<Self>) {
-        if self.refuse_in_archive(cx) {
+        if self.refuse_in_archive(cx) || self.refuse_on_remote(cx) {
             return;
         }
         let dir = self.folders[self.active].read(cx).path().to_path_buf();
@@ -326,6 +332,30 @@ impl Commander {
     }
 
     pub fn confirm_transfer(&mut self, op: Transfer, window: &mut Window, cx: &mut Context<Self>) {
+        // A remote on either side is handled by its provider.
+        let (from, to) = self.panel_sides(cx);
+        let in_archive = self.folders[self.active].read(cx).archive().is_some();
+        if in_archive && to != Side::Local {
+            self.status = "Extracting into a remote folder is not supported yet".into();
+            cx.notify();
+            return;
+        }
+        if !in_archive {
+            match plan_transfer(op == Transfer::Copy, &from, &to, |name| {
+                self.remote_info(name)
+            }) {
+                Ok(None) => {}
+                Ok(Some(plan)) => {
+                    self.confirm_remote_transfer(plan, op, window, cx);
+                    return;
+                }
+                Err(reason) => {
+                    self.status = reason.into();
+                    cx.notify();
+                    return;
+                }
+            }
+        }
         if self.folders[1 - self.active].read(cx).archive().is_some() {
             self.status = "The other panel shows an archive, which is read-only".into();
             cx.notify();
@@ -395,6 +425,9 @@ impl Commander {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.refuse_on_remote(cx) {
+            return;
+        }
         let folder = self.folders[self.active].read(cx);
         let file = folder
             .current()
@@ -434,6 +467,11 @@ impl Commander {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if crate::remote::is_remote(&dest) {
+            self.status = "Extracting into a remote folder is not supported yet".into();
+            cx.notify();
+            return;
+        }
         let what = match extraction.wanted.as_slice() {
             [one] if one.is_empty() => format!(
                 "\"{}\" to a folder",
@@ -487,6 +525,10 @@ impl Commander {
 
     /// Moves the targets to the system trash, or deletes them for good.
     pub fn confirm_delete(&mut self, permanent: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.folders[self.active].read(cx).is_remote() {
+            self.confirm_remote_delete(permanent, window, cx);
+            return;
+        }
         if self.refuse_in_archive(cx) {
             return;
         }
@@ -531,6 +573,13 @@ impl Commander {
 
     pub fn make_dir(&mut self, _: &MakeDir, window: &mut Window, cx: &mut Context<Self>) {
         if self.refuse_in_archive(cx) {
+            return;
+        }
+        if self.folders[self.active].read(cx).is_remote()
+            && let Some(reason) = Cmd::MakeDir.unavailable(&self.menu_state(cx))
+        {
+            self.status = reason.into();
+            cx.notify();
             return;
         }
         if self.folders[self.active]
@@ -581,6 +630,10 @@ impl Commander {
     pub fn create_dir(&mut self, name: &str, cx: &mut Context<Self>) {
         let name = name.trim();
         if name.is_empty() {
+            return;
+        }
+        if self.folders[self.active].read(cx).is_remote() {
+            self.create_remote_dir(name, cx);
             return;
         }
         let path = self.folders[self.active].read(cx).path().join(name);

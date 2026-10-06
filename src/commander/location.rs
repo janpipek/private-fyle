@@ -9,6 +9,7 @@ use super::Commander;
 use crate::breadcrumbs::NavigationGuard;
 use crate::location_view::LocationDelegate;
 use crate::places;
+use crate::remote;
 
 impl Commander {
     /// Loads `path` away from the UI thread and applies it only if it is still
@@ -22,6 +23,29 @@ impl Commander {
     ) {
         self.set_active(panel, cx);
         self.focus_active(window, cx);
+        let path = match remote::Location::parse(&path) {
+            Ok(Some(location)) => location.panel_path(),
+            Ok(None) => path,
+            Err(e) => {
+                self.status = format!("{}: {e}", path.display()).into();
+                cx.notify();
+                return;
+            }
+        };
+        if remote::is_remote(&path) {
+            // A remote folder is listed in the background first, then shown.
+            let again = path.clone();
+            if self.defer_remote_list(
+                panel,
+                Some(path.clone()),
+                window,
+                cx,
+                move |this, window, cx| this.navigate_panel(panel, again, window, cx),
+            ) {
+                return;
+            }
+        }
+        self.cancel_remote(panel);
         self.folders[panel].update(cx, |folder, _| folder.end_archive_load(false));
         self.navigation_generation[panel] = self.navigation_generation[panel].wrapping_add(1);
         let request = self.navigation_generation[panel];
@@ -83,6 +107,9 @@ impl Commander {
             .into_iter()
             .take(30)
             .collect::<Vec<_>>();
+        let remotes = self.remote_places();
+        // Show what is known now; a newer discovery serves the next opening.
+        self.discover_remotes(cx);
         self.status = "Discovering locations…".into();
         self.locations_generation = self.locations_generation.wrapping_add(1);
         let request = self.locations_generation;
@@ -90,7 +117,9 @@ impl Commander {
         cx.notify();
         self._locations_task = cx.spawn_in(window, async move |this, cx| {
             let groups = cx
-                .background_spawn(async move { places::grouped_locations(&bookmarks, &frequent) })
+                .background_spawn(async move {
+                    places::grouped_locations(&bookmarks, &frequent, remotes)
+                })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
                 if this.locations_generation != request {
@@ -114,6 +143,7 @@ impl Commander {
         let mut cancelled = false;
         for panel in 0..self.navigation_pending.len() {
             if self.navigation_pending[panel] {
+                self.cancel_remote(panel);
                 self.folders[panel].update(cx, |folder, cx| {
                     folder.end_archive_load(true);
                     cx.notify();
@@ -124,6 +154,9 @@ impl Commander {
                 self.navigation_tasks[panel] = Task::ready(());
                 cancelled = true;
             }
+        }
+        if self.cancel_remote_check() {
+            cancelled = true;
         }
         if self.locations_pending {
             self.locations_generation = self.locations_generation.wrapping_add(1);

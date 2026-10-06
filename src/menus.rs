@@ -6,6 +6,7 @@
 
 use crate::fs_ops::SortKey;
 use crate::grid::{self, ViewMode};
+use crate::remote::{Capabilities, Removal};
 
 /// A user-visible command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -99,6 +100,14 @@ pub struct State {
     pub sort: crate::model::Sort,
     pub can_go_back: bool,
     pub can_go_forward: bool,
+    /// What the remote shown by the active panel supports; `None` for
+    /// local folders and archives.
+    pub remote: Option<Capabilities>,
+    /// Why Copy to the other panel cannot run because of a remote on
+    /// either side (see [`crate::remote::jobs::plan_transfer`]).
+    pub copy_blocked: Option<&'static str>,
+    /// Likewise for Move.
+    pub move_blocked: Option<&'static str>,
 }
 
 impl Cmd {
@@ -299,8 +308,51 @@ impl Cmd {
         }
     }
 
+    /// Why the command cannot run on the remote folder the panel shows.
+    fn remote_unavailable(self, caps: &Capabilities) -> Option<&'static str> {
+        match self {
+            Cmd::OpenWith
+            | Cmd::EditFile
+            | Cmd::NewFile
+            | Cmd::AddBookmark
+            | Cmd::OpenTerminal
+            | Cmd::ToolsMenu
+            | Cmd::FindFiles
+            | Cmd::CalculateSizes
+            | Cmd::ExtractArchive
+            | Cmd::CutFiles
+            | Cmd::YankFiles
+            | Cmd::PasteFiles
+            | Cmd::ToggleTree
+            | Cmd::Expand
+            | Cmd::Collapse => Some("Not available on remote folders"),
+            Cmd::Rename if !caps.rename => Some("This remote does not support renaming"),
+            Cmd::MakeDir if !caps.create_folder => {
+                Some("This remote does not support creating folders")
+            }
+            Cmd::Delete | Cmd::DeletePermanently if caps.removal.is_none() => {
+                Some("This remote does not support removing items")
+            }
+            Cmd::DeletePermanently if caps.removal == Some(Removal::Trash) => {
+                Some("This remote moves deleted items to its trash")
+            }
+            Cmd::DeletePermanently => Some("Delete already removes items for good on this remote"),
+            _ => None,
+        }
+    }
+
     /// Why the command cannot run now, if it cannot.
     pub fn unavailable(self, state: &State) -> Option<&'static str> {
+        if let Some(caps) = &state.remote
+            && let Some(reason) = self.remote_unavailable(caps)
+        {
+            return Some(reason);
+        }
+        match self {
+            Cmd::Copy if state.copy_blocked.is_some() => return state.copy_blocked,
+            Cmd::Move if state.move_blocked.is_some() => return state.move_blocked,
+            _ => {}
+        }
         const READ_ONLY: &str = "Archives are read-only (F5 extracts)";
         match self {
             Cmd::Rename
@@ -645,6 +697,79 @@ mod tests {
         assert_eq!(Cmd::SortByName.checked(&busy), Some(true));
         assert_eq!(Cmd::SortBySize.checked(&busy), Some(false));
         assert_eq!(Cmd::SortDescending.checked(&busy), Some(false));
+    }
+
+    #[test]
+    fn remote_folders_limit_commands_to_what_the_remote_can_do() {
+        let remote = |caps| State {
+            has_targets: true,
+            cursor_on_file: true,
+            in_directory: true,
+            remote: Some(caps),
+            ..State::default()
+        };
+        let full = remote(Capabilities {
+            upload: true,
+            removal: Some(Removal::Trash),
+            create_folder: true,
+            rename: true,
+            move_within: true,
+        });
+        for cmd in [
+            Cmd::OpenWith,
+            Cmd::EditFile,
+            Cmd::NewFile,
+            Cmd::FindFiles,
+            Cmd::CalculateSizes,
+            Cmd::OpenTerminal,
+            Cmd::ToolsMenu,
+            Cmd::YankFiles,
+            Cmd::PasteFiles,
+            Cmd::AddBookmark,
+        ] {
+            assert_eq!(
+                cmd.unavailable(&full),
+                Some("Not available on remote folders"),
+                "{cmd:?}"
+            );
+        }
+        for cmd in [
+            Cmd::Open,
+            Cmd::Refresh,
+            Cmd::Rename,
+            Cmd::MakeDir,
+            Cmd::Delete,
+            Cmd::Copy,
+            Cmd::Move,
+            Cmd::GoUp,
+        ] {
+            assert_eq!(cmd.unavailable(&full), None, "{cmd:?}");
+        }
+        assert!(Cmd::DeletePermanently.unavailable(&full).is_some());
+        let read_only = remote(Capabilities::default());
+        for cmd in [
+            Cmd::Rename,
+            Cmd::MakeDir,
+            Cmd::Delete,
+            Cmd::DeletePermanently,
+        ] {
+            assert!(cmd.unavailable(&read_only).is_some(), "{cmd:?}");
+        }
+        let permanent = remote(Capabilities {
+            removal: Some(Removal::Permanent),
+            ..Default::default()
+        });
+        assert_eq!(Cmd::Delete.unavailable(&permanent), None);
+        assert!(Cmd::DeletePermanently.unavailable(&permanent).is_some());
+
+        let blocked = State {
+            has_targets: true,
+            copy_blocked: Some("no copy"),
+            move_blocked: Some("no move"),
+            ..State::default()
+        };
+        assert_eq!(Cmd::Copy.unavailable(&blocked), Some("no copy"));
+        assert_eq!(Cmd::Move.unavailable(&blocked), Some("no move"));
     }
 
     #[test]

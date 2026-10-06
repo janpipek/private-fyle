@@ -24,6 +24,7 @@ fn group_icon(kind: GroupKind) -> Lucide {
         GroupKind::Places => Lucide::Folder,
         GroupKind::Bookmarks => Lucide::Star,
         GroupKind::Frequent => Lucide::FolderOpen,
+        GroupKind::Remotes => Lucide::Globe,
     }
 }
 
@@ -230,7 +231,7 @@ mod tests {
     #[test]
     fn group_icons_are_in_the_default_bundle() {
         use GroupKind::*;
-        for kind in [Volumes, Places, Bookmarks, Frequent] {
+        for kind in [Volumes, Places, Bookmarks, Frequent, Remotes] {
             let path = group_icon(kind).path();
             let svg = gpui_kit::assets::Assets.load(&path).unwrap();
             assert!(svg.is_some(), "{kind:?}: {path} is not bundled");

@@ -16,6 +16,7 @@ use crate::menu_bar::MenuBuilder;
 use crate::menus::{self, Cmd};
 use crate::palette::{Command, Palette};
 use crate::palette_view::PaletteDelegate;
+use crate::remote::jobs::{Side, plan_transfer};
 
 pub fn command_item(cmd: Cmd, state: &menus::State) -> PopupMenuItem {
     let unavailable = cmd.unavailable(state);
@@ -59,6 +60,12 @@ impl Commander {
         let folder = self.folders[self.active].read(cx);
         let current = folder.current();
         let view = self.views[self.active].read(cx);
+        let (from, to) = self.panel_sides(cx);
+        let blocked = |copy| {
+            (from != Side::Local || to != Side::Local)
+                .then(|| plan_transfer(copy, &from, &to, |name| self.remote_info(name)).err())
+                .flatten()
+        };
         menus::State {
             has_targets: folder.marked_count() > 0 || current.is_some_and(|e| !e.is_parent),
             cursor_on_file: current.is_some_and(|e| !e.is_dir),
@@ -79,6 +86,15 @@ impl Commander {
             sort: folder.sort(),
             can_go_back: folder.can_go_back(),
             can_go_forward: folder.can_go_forward(),
+            remote: folder.is_remote().then(|| match &from {
+                Side::Remote(name) => self
+                    .remote_info(name)
+                    .map(|info| info.capabilities)
+                    .unwrap_or_default(),
+                Side::Local => Default::default(),
+            }),
+            copy_blocked: blocked(true),
+            move_blocked: blocked(false),
         }
     }
 

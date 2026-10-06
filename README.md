@@ -176,8 +176,36 @@ CI builds and tests on Linux (Windows job disabled for now) (`.github/workflows/
 ## Remote locations
 
 Remote folders have paths like `proton:/Reports`, `gdrive:/Docs` or
-`nas:/photos`; the root is `<remote>:/`. Only the provider layer and the
-model exist so far; it is not wired into the UI yet. Providers:
+`nas:/photos`; the root is `<remote>:/`.
+
+Using them:
+
+- Remotes are found in the background at startup and whenever Locations
+  opens (Ctrl-G or the map button); each shows in the "Remotes" group, labelled
+  with its service ("Proton Drive", ...). Problems (e.g. a bad `remotes.toml`
+  entry) appear once on the status line.
+- Type `gdrive:/Docs` in the address bar (Ctrl-L) to go there. Breadcrumbs start
+  at the remote's root, named after the service. `..` at a remote root returns
+  to the local folder you came from.
+- Folders are listed in the background (Esc cancels; the panel shows "Loading…"
+  and stays where it was if listing fails). The last 32 listings per panel are
+  kept, so Back, Forward and Up are instant; Refresh (Ctrl-R) lists again.
+- F5 copies between a local and a remote panel (upload or download) as a
+  background job with progress and Cancel. Providers never overwrite, so names
+  that already exist at the destination are listed first and can be skipped.
+  F6 moves within one remote when it supports it. Moving or copying between
+  local and remote (F6) or between two remotes is not supported yet.
+- F7 creates a folder, Shift-F6 renames (one item), F8 removes: into the
+  service's trash (Proton Drive) or permanently (`remotes.toml` servers), as the
+  confirmation says.
+- Enter on a remote file downloads it to `$XDG_CACHE_HOME/fyle/remote/<remote>/<path>`
+  and opens that copy; edits are not uploaded back. The quick view (F3) shows
+  such a copy for files up to 8 MiB.
+- Everything else is unavailable on remote folders and says so: search, tools,
+  archives, folder sizes, thumbnails, terminal, editing, bookmarks, tree mode,
+  cut/copy/paste. Remote paths are never read from the local disk.
+
+Providers:
 
 - Proton Drive through the official `proton-drive` CLI (run
   `proton-drive auth login` first). Supports upload, move to trash, new
@@ -293,7 +321,7 @@ Where things live (`src/`):
 | Module | Role |
 |---|---|
 | `main.rs` | Startup, settings, start directories, window |
-| `commander.rs`, `commander/` | Main window: the two panels, actions, dialogs, jobs bar, tools orchestration. Split by area into `commander/` (keys, navigation, search, files, jobs, view, archives, tools, menus, appearance); new logic goes into its own module, only wiring here. |
+| `commander.rs`, `commander/` | Main window: the two panels, actions, dialogs, jobs bar, tools orchestration. Split by area into `commander/` (keys, navigation, search, files, jobs, view, archives, remotes, tools, menus, appearance); new logic goes into its own module, only wiring here. |
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
 | `model.rs` | `Folder`: entries, cursor, marks, filter, sort, tree, search results, archive mount, directory size cache |
 | `panel.rs` | `FolderView` (DataTable delegate `FileTable`), header with breadcrumbs, filter bar; shows the list or the icon grid |
@@ -301,12 +329,12 @@ Where things live (`src/`):
 | `grid.rs`, `icon_view.rs`, `glyphs.rs`, `context_menu.rs` | Icon view: `ViewMode`, icon sizes, `Layout` (columns for a width) and cursor moves (UI-independent, tested); the lazy `IconGrid` view; the `FileIcon` → glyph table and the right-click menu shared with the list |
 | `columns.rs` | `ColumnKind` catalog, grouped, ids like `exif.iso`. A new column is a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |
 | `fs_ops.rs`, `transfer.rs`, `jobs.rs` | `Entry` and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
-| `remote.rs`, `remote/` | Remote providers: `Provider` trait, `Location` paths, Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `model/remote.rs` holds cached remote listings |
+| `remote.rs`, `remote/` | Remote providers: `Provider` trait, `Location` paths, Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `model/remote.rs` holds the cached remote listings |
 | `archive.rs`, `dirsize.rs`, `links.rs` | Archive index and safe extraction; recursive sizes; symlink state |
 | `preview/`, `preview_view.rs` | `Previewer`s and their `Registry` (order: directory, image, pdf, media, archive, markdown, table, text, binary); one render arm per `Content` |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and the editor pane |
 | `tools/`, `tools_view.rs` | Tool, Action and Registry model; `defaults.toml`; built-ins; Lua plugins; `exec.rs` runs them |
-| `search.rs`, `places.rs`, `breadcrumbs.rs`, `rename.rs`, `openers.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs`, `zoom.rs` | Further UI-independent models, each with tests |
+| `search.rs`, `places.rs`, `breadcrumbs.rs`, `remote_labels.rs`, `rename.rs`, `openers.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs`, `zoom.rs` | Further UI-independent models, each with tests |
 | `*_view.rs`, `menu_bar.rs`, `link_badge.rs`, `theme_picker.rs` | Thin views |
 
 Previews follow the same split. `src/preview/` is the model: a `Registry`

@@ -22,7 +22,16 @@ use crate::tools_view::PickDelegate;
 impl Commander {
     pub fn open(&mut self, action: &Open, window: &mut Window, cx: &mut Context<Self>) {
         let target = self.folders[self.active].read(cx).activation_target();
-        let action = action.clone();
+        let (remote_action, action) = (action.clone(), action.clone());
+        if self.defer_remote_list(
+            self.active,
+            target.clone(),
+            window,
+            cx,
+            move |this, window, cx| this.open(&remote_action, window, cx),
+        ) {
+            return;
+        }
         if self.defer_archive_read(self.active, target, window, cx, move |this, window, cx| {
             this.open(&action, window, cx)
         }) {
@@ -34,19 +43,11 @@ impl Commander {
             {
                 self.status = "Inside an archive: F3 previews, F5 extracts".into();
             }
+            Ok(Activation::OpenFile(path)) if crate::remote::is_remote(&path) => {
+                self.open_remote_file(path, window, cx);
+            }
             Ok(Activation::OpenFile(path)) => {
-                let rule = crate::openers::matching(&self.openers, &path)
-                    .first()
-                    .cloned()
-                    .cloned();
-                match rule {
-                    Some(rule) => self.run_opener(&rule, &path),
-                    None => {
-                        if let Err(e) = open::that_detached(&path) {
-                            self.status = format!("Cannot open {}: {e}", path.display()).into();
-                        }
-                    }
-                }
+                self.open_local_file(&path);
             }
             Ok(_) => {}
             Err(e) => self.status = e.into(),
@@ -54,14 +55,56 @@ impl Commander {
         cx.notify();
     }
 
-    pub fn go_up(&mut self, _: &GoUp, _: &mut Window, cx: &mut Context<Self>) {
+    /// Opens a local file with the first matching opener, else the system
+    /// default. Returns whether something was started (else the status
+    /// says why not).
+    pub fn open_local_file(&mut self, path: &Path) -> bool {
+        let rule = crate::openers::matching(&self.openers, path)
+            .first()
+            .cloned()
+            .cloned();
+        match rule {
+            Some(rule) => self.run_opener(&rule, path),
+            None => match open::that_detached(path) {
+                Ok(()) => true,
+                Err(e) => {
+                    self.status = format!("Cannot open {}: {e}", path.display()).into();
+                    false
+                }
+            },
+        }
+    }
+
+    pub fn go_up(&mut self, action: &GoUp, window: &mut Window, cx: &mut Context<Self>) {
+        // Up from a remote folder may need its parent listed first.
+        let target = {
+            let folder = self.folders[self.active].read(cx);
+            (folder.is_remote() && !folder.is_loading() && folder.results().is_none())
+                .then(|| folder.parent_location())
+                .flatten()
+        };
+        let action = action.clone();
+        if self.defer_remote_list(self.active, target, window, cx, move |this, window, cx| {
+            this.go_up(&action, window, cx)
+        }) {
+            return;
+        }
         let result = self.update_folder(cx, Folder::go_up);
         self.set_error(result, cx);
     }
 
     pub fn go_back(&mut self, action: &GoBack, window: &mut Window, cx: &mut Context<Self>) {
         let target = self.folders[self.active].read(cx).history_target(true);
-        let action = action.clone();
+        let (remote_action, action) = (action.clone(), action.clone());
+        if self.defer_remote_list(
+            self.active,
+            target.clone(),
+            window,
+            cx,
+            move |this, window, cx| this.go_back(&remote_action, window, cx),
+        ) {
+            return;
+        }
         if self.defer_archive_read(self.active, target, window, cx, move |this, window, cx| {
             this.go_back(&action, window, cx)
         }) {
@@ -73,7 +116,16 @@ impl Commander {
 
     pub fn go_forward(&mut self, action: &GoForward, window: &mut Window, cx: &mut Context<Self>) {
         let target = self.folders[self.active].read(cx).history_target(false);
-        let action = action.clone();
+        let (remote_action, action) = (action.clone(), action.clone());
+        if self.defer_remote_list(
+            self.active,
+            target.clone(),
+            window,
+            cx,
+            move |this, window, cx| this.go_forward(&remote_action, window, cx),
+        ) {
+            return;
+        }
         if self.defer_archive_read(self.active, target, window, cx, move |this, window, cx| {
             this.go_forward(&action, window, cx)
         }) {
@@ -97,20 +149,29 @@ impl Commander {
         self.update_preview(window, cx);
     }
 
-    pub fn run_opener(&mut self, rule: &crate::openers::Opener, path: &Path) {
+    /// Starts `rule` on `path`; returns whether it started (else the
+    /// status says why not).
+    pub fn run_opener(&mut self, rule: &crate::openers::Opener, path: &Path) -> bool {
         let Some((program, args)) = rule.command_for(path) else {
             self.status = format!("Opener {:?} has no command", rule.label).into();
-            return;
+            return false;
         };
-        self.status = match std::process::Command::new(&program).args(&args).spawn() {
-            Ok(_) => format!("Opened {} with {}", tools::file_name(path), rule.label).into(),
-            Err(e) => format!("{}: {e}", program.display()).into(),
-        };
+        match std::process::Command::new(&program).args(&args).spawn() {
+            Ok(_) => {
+                self.status =
+                    format!("Opened {} with {}", tools::file_name(path), rule.label).into();
+                true
+            }
+            Err(e) => {
+                self.status = format!("{}: {e}", program.display()).into();
+                false
+            }
+        }
     }
 
     /// Shift-Enter: choose how to open the cursor file.
     pub fn open_with(&mut self, _: &OpenWith, window: &mut Window, cx: &mut Context<Self>) {
-        if self.refuse_in_archive(cx) {
+        if self.refuse_in_archive(cx) || self.refuse_on_remote(cx) {
             return;
         }
         let Some(entry) = self.folders[self.active].read(cx).current().cloned() else {
@@ -166,6 +227,7 @@ impl Commander {
         let folder = folder.read(cx);
         if folder.results().is_some()
             || folder.archive().is_some()
+            || folder.is_remote()
             || folder.path().as_os_str().is_empty()
         {
             return;
@@ -183,7 +245,7 @@ impl Commander {
 
     /// F9: starts a terminal in the active panel's directory.
     pub fn open_terminal(&mut self, _: &OpenTerminal, _: &mut Window, cx: &mut Context<Self>) {
-        if self.refuse_in_archive(cx) {
+        if self.refuse_in_archive(cx) || self.refuse_on_remote(cx) {
             return;
         }
         let dir = self.folders[self.active].read(cx).path().to_path_buf();
@@ -213,7 +275,7 @@ impl Commander {
 
     /// Ctrl-D: adds the active directory to the bookmarks.
     pub fn add_bookmark(&mut self, _: &AddBookmark, _: &mut Window, cx: &mut Context<Self>) {
-        if self.refuse_in_archive(cx) {
+        if self.refuse_in_archive(cx) || self.refuse_on_remote(cx) {
             return;
         }
         let dir = self.folders[self.active].read(cx).path().to_path_buf();

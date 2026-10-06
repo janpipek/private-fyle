@@ -29,6 +29,8 @@ pub enum GroupKind {
     Places,
     Bookmarks,
     Frequent,
+    /// Remote services (`<name>:/`), never checked against the disk.
+    Remotes,
 }
 
 /// Groups longer than this show as a submenu in the locations menu.
@@ -42,6 +44,11 @@ impl Group {
 }
 
 impl Place {
+    /// A configured remote's root: the label shown and `<name>:/`.
+    pub fn remote(name: &str, label: &str) -> Self {
+        Self::new(label, format!("{name}:/"))
+    }
+
     fn new(label: impl Into<String>, path: impl Into<PathBuf>) -> Self {
         Self {
             label: label.into(),
@@ -94,10 +101,15 @@ pub fn system_places() -> Vec<Place> {
     dedup_existing(places)
 }
 
-/// Drives and mounted volumes, desktop places, then fyle bookmarks. Discovery
-/// reads desktop configuration and mount tables, so callers run it off the UI
-/// thread.
-pub fn grouped_locations(bookmarks: &[PathBuf], frequent: &[PathBuf]) -> Vec<Group> {
+/// Drives and mounted volumes, desktop places, remotes, then fyle bookmarks.
+/// Discovery reads desktop configuration and mount tables, so callers run it
+/// off the UI thread. `remotes` come from [`Place::remote`] and are listed
+/// as given, without touching the disk.
+pub fn grouped_locations(
+    bookmarks: &[PathBuf],
+    frequent: &[PathBuf],
+    remotes: Vec<Place>,
+) -> Vec<Group> {
     let group = |kind: GroupKind, label: &str, places: Vec<Place>| {
         let mut seen = std::collections::HashSet::new();
         let places = places
@@ -128,7 +140,12 @@ pub fn grouped_locations(bookmarks: &[PathBuf], frequent: &[PathBuf]) -> Vec<Gro
             .map(|path| Place::new(crate::tools::file_name(path), path.clone()))
             .collect(),
     );
-    [drives, places, bookmarks, frequent]
+    let remotes = Group {
+        kind: GroupKind::Remotes,
+        label: "Remotes".into(),
+        places: remotes,
+    };
+    [drives, places, remotes, bookmarks, frequent]
         .into_iter()
         .filter(|group| !group.places.is_empty())
         .collect()
@@ -422,6 +439,24 @@ pub fn now() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remotes_group_lists_remotes_without_disk_checks() {
+        let remotes = vec![
+            Place::remote("proton", "Proton Drive"),
+            Place::remote("gdrive", "Google Drive"),
+        ];
+        let groups = grouped_locations(&[], &[], remotes.clone());
+        let group = groups
+            .iter()
+            .find(|g| g.kind == GroupKind::Remotes)
+            .expect("remotes group");
+        assert_eq!(group.label, "Remotes");
+        assert_eq!(group.places, remotes);
+        assert_eq!(group.places[0].path, Path::new("proton:/"));
+        let none = grouped_locations(&[], &[], Vec::new());
+        assert!(none.iter().all(|g| g.kind != GroupKind::Remotes));
+    }
 
     #[test]
     fn parses_gtk_bookmarks() {

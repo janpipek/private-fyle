@@ -184,7 +184,8 @@ impl IconGrid {
     fn thumb_key(&self, row: &Row, in_archive: bool) -> Option<Key> {
         let root = self.thumb_root.as_deref()?;
         let entry = &row.entry;
-        if in_archive || entry.is_dir || entry.is_parent {
+        // Remote files are not on the disk to be thumbnailed.
+        if in_archive || entry.is_dir || entry.is_parent || crate::remote::is_remote(&entry.path) {
             return None;
         }
         let mtime = entry.modified?.duration_since(UNIX_EPOCH).ok()?.as_secs() as i64;

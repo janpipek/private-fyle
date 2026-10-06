@@ -8,7 +8,6 @@ use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-#[allow(dead_code)] // not wired into the UI yet; remove once it is
 mod remote;
 
 use crate::archive;
@@ -60,9 +59,9 @@ impl Deref for Row {
 #[derive(Clone)]
 pub struct Folder {
     path: PathBuf,
-    /// Last remote listing loaded in the background, with the panel path it
-    /// belongs to; remote rows are built from it, never from I/O.
-    remote_listing: Option<(PathBuf, Vec<Entry>)>,
+    /// Remote listings loaded in the background; remote rows are built from
+    /// them, never from I/O.
+    remote_listings: remote::ListingCache,
     /// Local folder the panel came from, where ".." at a remote root returns.
     remote_origin: Option<PathBuf>,
     /// Rows shown: `all` narrowed by `filter`.
@@ -158,7 +157,7 @@ impl Folder {
     pub fn new(path: PathBuf) -> Self {
         Self {
             path,
-            remote_listing: None,
+            remote_listings: Default::default(),
             remote_origin: None,
             entries: Vec::new(),
             all: Vec::new(),
@@ -418,8 +417,11 @@ impl Folder {
     /// folder or an archive.
     pub fn activation_target(&self) -> Option<PathBuf> {
         let entry = self.current()?;
-        (entry.is_dir || (self.mount.is_none() && archive::format_of(&entry.path).is_some()))
-            .then(|| entry.path.clone())
+        (entry.is_dir
+            || (self.mount.is_none()
+                && !self.is_remote()
+                && archive::format_of(&entry.path).is_some()))
+        .then(|| entry.path.clone())
     }
 
     /// Where Back (or Forward) would go.

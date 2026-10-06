@@ -19,6 +19,11 @@ pub enum JobKind {
     Delete,
     /// Extracting archive entries; see [`run_extract`].
     Extract,
+    /// Uploading to, downloading from or removing on a remote; these run
+    /// through [`crate::remote::jobs`].
+    Upload,
+    Download,
+    Remove,
 }
 
 impl JobKind {
@@ -29,6 +34,9 @@ impl JobKind {
             Self::Trash => ("Moving to trash", "Moved to trash"),
             Self::Delete => ("Deleting", "Deleted"),
             Self::Extract => ("Extracting", "Extracted"),
+            Self::Upload => ("Uploading", "Uploaded"),
+            Self::Download => ("Downloading", "Downloaded"),
+            Self::Remove => ("Removing", "Removed"),
         }
     }
 }
@@ -251,7 +259,9 @@ pub fn run_with_resolver(
     let counts: Vec<usize> = match kind {
         JobKind::Copy | JobKind::Move => sources.iter().map(|s| count_files(s)).collect(),
         JobKind::Trash | JobKind::Delete => vec![1; sources.len()],
-        JobKind::Extract => unreachable!("extraction runs through run_extract"),
+        JobKind::Extract | JobKind::Upload | JobKind::Download | JobKind::Remove => {
+            unreachable!("this kind does not run through run_with_resolver")
+        }
     };
     progress.total.store(counts.iter().sum(), Ordering::Relaxed);
 
@@ -266,7 +276,9 @@ pub fn run_with_resolver(
         let name = name.unwrap_or_else(|| src.display().to_string());
         let before = progress.done.load(Ordering::Relaxed);
         let result = match kind {
-            JobKind::Extract => unreachable!("extraction runs through run_extract"),
+            JobKind::Extract | JobKind::Upload | JobKind::Download | JobKind::Remove => {
+                unreachable!("this kind does not run through run_with_resolver")
+            }
             JobKind::Copy | JobKind::Move => {
                 let Some(file_name) = src.file_name() else {
                     outcome

@@ -4,15 +4,15 @@
       "Clear selection" command (Esc already clears marks). Implement
       missing actions as separate features.
 - [ ] Archive follow-ups: nested archives; maybe write support.
-- [ ] Additional virtual locations: the provider layer is done
-      (`src/remote.rs`: Proton Drive through the official `proton-drive`
-      CLI; Google Drive and others through rclone; SFTP, FTP/FTPS, WebDAV and S3
-      from `remotes.toml` through `remotefs`; passwords come from a
-      `password_command`, never from files). Still open: UI wiring (background listing with
-      cancellation, Locations entries, copy/move/trash jobs, `Cmd`s and
-      connection errors in the status line); SMB (needs libsmbclient);
-      connections are serialised per remote, so a long transfer blocks
-      listing there (a pool would fix it).
+- [ ] Remote locations, follow-ups (the UI works: Locations, address bar,
+      breadcrumbs, background listing, F5/F6/F7/F8, Shift-F6, open and quick
+      view of downloaded copies; see README): SMB (needs libsmbclient);
+      connections are serialised per remote, so a long transfer blocks listing
+      there (a pool would fix it); copy between two remotes; move between local
+      and remote (copy then remove); bulk rename and per-byte progress; uploading
+      edited cache copies back; search, tools, thumbnails and folder sizes on
+      remotes; remote bookmarks and frequent paths; opening a remote path given
+      on the command line; automatic refresh when a remote changes.
 - [ ] Embedded terminal (idea, undecided): alacritty_terminal + PTY rendered
       in gpui as Zed does, vs. libghostty. Recommendation so far: none for
       now (F9 opens an external terminal); if wanted later,
@@ -35,6 +35,10 @@
 
 ## Done
 
+- [x] Remote locations in the UI: Remotes group in Locations, `remote:/path` in
+      the address bar and breadcrumbs, cancellable background listing with a
+      32-folder cache per panel, transfers, remove, new folder, rename and open
+      through the providers (`commander/remotes.rs`, `remote/jobs.rs`).
 - [x] Remove the permanent bottom shortcut strip; keep status messages and
       running jobs, with commands available through menus, F1 and the palette.
 - [x] Fix address-bar button crashes: resolve tooltip shortcuts from the

@@ -62,6 +62,10 @@ pub fn conflict_card(title: &'static str, info: &EntryInfo, cx: &App) -> Div {
         )
 }
 
+/// Runs when a job ends, after its status was set; may replace the status.
+pub type AfterJob =
+    Box<dyn FnOnce(&mut Commander, &jobs::Outcome, &mut Window, &mut Context<Commander>)>;
+
 /// Waits for `task` or `timer`, whichever comes first; returns the task's
 /// result if it finished.
 pub async fn first_of<T: Unpin + 'static>(task: &mut Task<T>, timer: Task<()>) -> Option<T> {
@@ -122,6 +126,19 @@ impl Commander {
         cx: &mut Context<Self>,
         work: impl FnOnce(&Progress) -> jobs::Outcome + Send + 'static,
     ) {
+        self.spawn_job_with(kind, restore_yank, window, cx, work, None);
+    }
+
+    /// Like [`Self::spawn_job`], then runs `after` with the outcome.
+    pub fn spawn_job_with(
+        &mut self,
+        kind: JobKind,
+        restore_yank: Option<(u64, Yank)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        work: impl FnOnce(&Progress) -> jobs::Outcome + Send + 'static,
+        after: Option<AfterJob>,
+    ) {
         let progress = Arc::new(Progress::default());
         let id = self.next_job_id;
         self.next_job_id += 1;
@@ -154,6 +171,9 @@ impl Commander {
                     status += " (Shift-F8 deletes permanently)";
                 }
                 this.status = status.into();
+                if let Some(after) = after {
+                    after(this, &outcome, window, cx);
+                }
                 cx.notify();
             });
         });

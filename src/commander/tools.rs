@@ -94,7 +94,7 @@ impl Commander {
 
     /// F2: tools applicable to the selection / directory, grouped.
     pub fn tools_menu(&mut self, _: &ToolsMenu, window: &mut Window, cx: &mut Context<Self>) {
-        if self.refuse_in_archive(cx) {
+        if self.refuse_in_archive(cx) || self.refuse_on_remote(cx) {
             return;
         }
         let ctx = self.tool_context(cx);
@@ -388,6 +388,16 @@ impl Commander {
     ) {
         self.tools_menu_generation = self.tools_menu_generation.wrapping_add(1);
         let generation = self.tools_menu_generation;
+        if self.folders[self.active].read(cx).is_remote() {
+            if let Some(popup) = popup.upgrade() {
+                popup.update(cx, |popup, cx| {
+                    popup.rebuild(window, cx, |menu, _, _| {
+                        menu.label("Not available on remote folders")
+                    })
+                });
+            }
+            return;
+        }
         if self.folders[self.active].read(cx).archive().is_some() {
             if let Some(popup) = popup.upgrade() {
                 popup.update(cx, |popup, cx| {

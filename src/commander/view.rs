@@ -45,8 +45,21 @@ impl Commander {
             .preview_on
             .then(|| self.folders[self.active].read(cx).current())
             .flatten();
-        let target = row.map(|row| row.path.clone());
+        let mut target = row.map(|row| row.path.clone());
         let line = row.and_then(|row| row.hit_line.as_ref()).map(|(n, _)| *n);
+        let remote = row
+            .filter(|row| crate::remote::is_remote(&row.path))
+            .map(|row| (row.path.clone(), row.size, row.is_dir || row.is_parent));
+        if let Some((path, size, folder)) = remote {
+            // Never read a remote path from the disk: show its downloaded
+            // copy once there is one (small files only).
+            target = if folder {
+                self.remote_preview = Default::default();
+                None
+            } else {
+                self.remote_preview_target(path, size, window, cx)
+            };
+        }
         self.preview.update(cx, |preview, cx| {
             preview.set_target(target, line, window, cx)
         });
@@ -62,6 +75,11 @@ impl Commander {
 
     /// Tree mode belongs to the list: in icon view, says so in the status.
     fn tree_unavailable(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.folders[self.active].read(cx).is_remote() {
+            self.status = "Not available on remote folders".into();
+            cx.notify();
+            return true;
+        }
         if self.views[self.active].read(cx).view_mode() != ViewMode::Icons {
             return false;
         }
@@ -206,6 +224,11 @@ impl Commander {
             self.stop_size_scan(ix);
         }
         for ix in 0..2 {
+            // A remote folder is listed again in the background.
+            if self.folders[ix].read(cx).is_remote() {
+                self.reload_remote(ix, cx);
+                continue;
+            }
             // An archive changed on disk is read again in the background.
             let target = Some(self.folders[ix].read(cx).path().to_path_buf());
             let action = action.clone();
@@ -244,6 +267,9 @@ impl Commander {
     ) {
         let ix = self.active;
         let folder = self.folders[ix].clone();
+        if self.refuse_on_remote(cx) {
+            return;
+        }
         if folder.read(cx).archive().is_some() {
             self.status = "Folder sizes are not available inside an archive".into();
             cx.notify();

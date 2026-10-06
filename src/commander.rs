@@ -10,6 +10,7 @@ mod location;
 mod menus;
 mod navigation;
 mod panel_view;
+mod remotes;
 mod search;
 mod tools;
 mod view;
@@ -43,6 +44,7 @@ use crate::panel::{Activate, FolderView, HeaderEvent};
 use crate::places::History;
 use crate::preview::Registry as PreviewRegistry;
 use crate::preview_view::PreviewPane;
+use crate::remote;
 use crate::settings::Settings;
 use crate::tools::{Programs, Registry};
 use crate::zoom;
@@ -74,6 +76,23 @@ pub struct Commander {
     navigation_generation: [u64; 2],
     navigation_pending: [bool; 2],
     _locations_task: Task<()>,
+    /// Configured remotes, discovered in the background.
+    remotes: Arc<remote::Registry>,
+    remotes_generation: u64,
+    remotes_pending: bool,
+    /// The discovery problems last shown, so each is reported once.
+    remote_errors: String,
+    _remotes_task: Task<()>,
+    /// Per panel: set to stop its remote listing.
+    remote_cancel: [Option<Arc<AtomicBool>>; 2],
+    /// Per panel: refreshing a remote listing in place.
+    reload_generation: [u64; 2],
+    reload_tasks: [Task<()>; 2],
+    /// Checking a transfer's destination for existing names.
+    remote_check: Option<remotes::RemoteCheck>,
+    /// A quick change on a remote (new folder, rename).
+    _remote_op: Task<()>,
+    remote_preview: remotes::RemotePreview,
     locations_generation: u64,
     locations_pending: bool,
     bookmarks: Vec<PathBuf>,
@@ -228,6 +247,17 @@ impl Commander {
             navigation_generation: [0, 0],
             navigation_pending: [false, false],
             _locations_task: Task::ready(()),
+            remotes: Arc::default(),
+            remotes_generation: 0,
+            remotes_pending: false,
+            remote_errors: String::new(),
+            _remotes_task: Task::ready(()),
+            remote_cancel: [None, None],
+            reload_generation: [0, 0],
+            reload_tasks: [Task::ready(()), Task::ready(())],
+            remote_check: None,
+            _remote_op: Task::ready(()),
+            remote_preview: Default::default(),
             locations_generation: 0,
             locations_pending: false,
             openers: settings.openers.clone(),
@@ -287,6 +317,7 @@ impl Commander {
             });
         }
         self.update_preview(window, cx);
+        self.discover_remotes(cx);
     }
 
     fn set_active(&mut self, ix: usize, cx: &mut Context<Self>) {
@@ -321,7 +352,13 @@ impl Commander {
     }
 
     fn reload_all(&mut self, cx: &mut Context<Self>) {
-        for folder in &self.folders {
+        for ix in 0..2 {
+            // Remote folders are listed again in the background.
+            if self.folders[ix].read(cx).is_remote() {
+                self.reload_remote(ix, cx);
+                continue;
+            }
+            let folder = &self.folders[ix];
             if let Some(e) = folder.update(cx, |folder, cx| {
                 cx.notify();
                 folder.load_or_ancestor()

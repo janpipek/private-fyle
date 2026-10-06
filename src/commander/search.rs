@@ -20,7 +20,7 @@ impl Commander {
     /// Alt-F7: find files by name and/or containing text, below the
     /// active panel's directory.
     pub fn find_files(&mut self, _: &FindFiles, window: &mut Window, cx: &mut Context<Self>) {
-        if self.refuse_in_archive(cx) {
+        if self.refuse_in_archive(cx) || self.refuse_on_remote(cx) {
             return;
         }
         let root = self.folders[self.active].read(cx).path().to_path_buf();

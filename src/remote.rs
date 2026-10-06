@@ -3,6 +3,7 @@
 
 pub mod connections;
 pub mod hostkey;
+pub mod jobs;
 pub mod process;
 pub mod proton;
 pub mod rclone;

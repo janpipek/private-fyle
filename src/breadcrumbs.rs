@@ -12,6 +12,8 @@ pub enum Kind {
     Archive,
     /// A directory component inside an archive.
     ArchiveInner,
+    /// The root of a remote, labelled with its service.
+    Remote,
 }
 
 /// One clickable breadcrumb and the location it opens.
@@ -46,8 +48,17 @@ impl NavigationGuard {
 }
 
 /// Builds clickable segments, keeping an archive file separate from its
-/// internal path.
-pub fn segments(path: &Path, archive_file: Option<&Path>, inner: Option<&str>) -> Vec<Segment> {
+/// internal path. A remote path starts at its remote's root, which shows
+/// `remote_label` (the service's name; the remote's own name if unknown).
+pub fn segments(
+    path: &Path,
+    archive_file: Option<&Path>,
+    inner: Option<&str>,
+    remote_label: Option<&str>,
+) -> Vec<Segment> {
+    if crate::remote::is_remote(path) {
+        return remote_segments(path, remote_label);
+    }
     let Some(file) = archive_file else {
         return path_segments(path, Kind::Normal);
     };
@@ -66,6 +77,34 @@ pub fn segments(path: &Path, archive_file: Option<&Path>, inner: Option<&str>) -
             label: part.to_string(),
             path: target.clone(),
             kind: Kind::ArchiveInner,
+        });
+    }
+    result
+}
+
+/// Never touches the disk. A malformed remote path is one unclickable-ish
+/// segment that reopens itself.
+fn remote_segments(path: &Path, label: Option<&str>) -> Vec<Segment> {
+    let Ok(Some(location)) = crate::remote::Location::parse(path) else {
+        return vec![Segment {
+            label: path.display().to_string(),
+            path: path.to_path_buf(),
+            kind: Kind::Remote,
+        }];
+    };
+    let mut target = crate::remote::Location::root(location.remote())
+        .expect("a parsed location has a valid remote name");
+    let mut result = vec![Segment {
+        label: label.unwrap_or(location.remote()).to_string(),
+        path: target.panel_path(),
+        kind: Kind::Remote,
+    }];
+    for part in location.parts() {
+        target = target.child(part).expect("parsed parts are valid names");
+        result.push(Segment {
+            label: part.clone(),
+            path: target.panel_path(),
+            kind: Kind::Normal,
         });
     }
     result
@@ -118,15 +157,32 @@ pub fn parse_location(
             "enter a location",
         ));
     }
+    // `<remote>:/path` is never a local path and must not be resolved
+    // against (or checked on) the disk.
+    if crate::remote::is_remote(Path::new(text)) {
+        return remote_path(Path::new(text));
+    }
     let path = expand_home(text, home)?;
     let path = if path.is_absolute() || path.as_os_str().is_empty() {
         path
     } else {
         current.join(path)
     };
+    if crate::remote::is_remote(&path) {
+        // Relative to a remote folder.
+        return remote_path(&path);
+    }
     match archive_file.filter(|file| path.starts_with(file)) {
         Some(file) => normalize_archive_path(file, &path),
         None => Ok(path),
+    }
+}
+
+/// The normalized panel path of a remote location (no `.` or `..`).
+fn remote_path(path: &Path) -> io::Result<PathBuf> {
+    match crate::remote::Location::parse(path)? {
+        Some(location) => Ok(location.panel_path()),
+        None => Ok(path.to_path_buf()),
     }
 }
 
@@ -181,7 +237,7 @@ mod tests {
 
     #[test]
     fn ordinary_path_has_clickable_ancestors() {
-        let crumbs = segments(Path::new("/home/u/work"), None, None);
+        let crumbs = segments(Path::new("/home/u/work"), None, None, None);
         assert_eq!(
             crumbs.iter().map(|c| c.label.as_str()).collect::<Vec<_>>(),
             ["/", "home", "u", "work"]
@@ -197,6 +253,7 @@ mod tests {
             Path::new("/tmp/photos.zip/2025/raw"),
             Some(file),
             Some("2025/raw"),
+            None,
         );
         assert_eq!(crumbs[2].kind, Kind::Archive);
         assert_eq!(crumbs[3].kind, Kind::ArchiveInner);
@@ -240,6 +297,43 @@ mod tests {
             parse_location("a/../b", Path::new("/tmp"), None, None).unwrap(),
             Path::new("/tmp/a/../b")
         );
+    }
+
+    #[test]
+    fn remote_paths_parse_and_show_without_the_disk() {
+        let current = Path::new("/tmp");
+        assert_eq!(
+            parse_location("gdrive:/Docs/../Pics/", current, None, None).unwrap(),
+            Path::new("gdrive:/Pics")
+        );
+        assert_eq!(
+            parse_location("gdrive:", current, None, None).unwrap(),
+            Path::new("gdrive:/")
+        );
+        assert_eq!(
+            parse_location("sub", Path::new("gdrive:/a"), None, None).unwrap(),
+            Path::new("gdrive:/a/sub")
+        );
+        assert_eq!(
+            parse_location("/etc", Path::new("gdrive:/a"), None, None).unwrap(),
+            Path::new("/etc")
+        );
+        assert!(parse_location("gdrive:/..", current, None, None).is_err());
+        let crumbs = segments(
+            Path::new("gdrive:/Docs/2026"),
+            None,
+            None,
+            Some("Google Drive"),
+        );
+        assert_eq!(
+            crumbs.iter().map(|c| c.label.as_str()).collect::<Vec<_>>(),
+            ["Google Drive", "Docs", "2026"]
+        );
+        assert_eq!(crumbs[0].kind, Kind::Remote);
+        assert_eq!(crumbs[0].path, Path::new("gdrive:/"));
+        assert_eq!(crumbs[2].path, Path::new("gdrive:/Docs/2026"));
+        let unknown = segments(Path::new("other:/"), None, None, None);
+        assert_eq!(unknown[0].label, "other");
     }
 
     #[test]

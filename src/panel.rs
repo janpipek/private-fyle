@@ -221,7 +221,9 @@ impl FolderView {
         }
         let folder = self.folder.read(cx);
         let generation = folder.generation();
-        if self.git_generation == Some(generation) {
+        // `git status` would run in whatever local directory `proton:/`
+        // happens to resolve to.
+        if folder.is_remote() || self.git_generation == Some(generation) {
             return;
         }
         self.git_generation = Some(generation);
@@ -456,10 +458,15 @@ impl Render for FolderView {
             folder.path(),
             folder.archive(),
             folder.inner_path().as_deref(),
+            crate::remote_labels::label_of(folder.path(), cx).as_deref(),
         );
         let mut footer = format!("{} dirs, {} files", folder.dir_count(), folder.file_count());
         if folder.is_loading() {
-            footer = "Reading archive… · Esc cancels".into();
+            footer = if folder.is_remote() {
+                "Loading… · Esc cancels".into()
+            } else {
+                "Reading archive… · Esc cancels".into()
+            };
         }
         if let Some(title) = folder.results() {
             footer = format!(
@@ -490,7 +497,9 @@ impl Render for FolderView {
             let label = match segment.kind {
                 crate::breadcrumbs::Kind::Archive => format!("{} [archive]", segment.label),
                 crate::breadcrumbs::Kind::ArchiveInner => format!("↳ {}", segment.label),
-                crate::breadcrumbs::Kind::Normal => segment.label,
+                crate::breadcrumbs::Kind::Normal | crate::breadcrumbs::Kind::Remote => {
+                    segment.label
+                }
             };
             let view = view.clone();
             breadcrumb_items.push(
@@ -697,6 +706,10 @@ impl FileTable {
         kind: ColumnKind,
         generation: u64,
     ) -> SharedString {
+        // Remote paths are not files: no xattr or EXIF reads for them.
+        if crate::remote::is_remote(path) {
+            return SharedString::default();
+        }
         if self.extra_generation != generation {
             self.extra.clear();
             self.exif.clear();
