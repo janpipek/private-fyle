@@ -129,16 +129,10 @@ impl Document {
 mod tests {
     use super::*;
 
-    fn temp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("fyle-editor-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
     #[test]
     fn opens_text_and_refuses_others() {
-        let dir = temp("open");
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
         fs::write(dir.join("a.rs"), "fn main() {}\n").unwrap();
         fs::write(dir.join("bin"), [b'a', 0, b'b']).unwrap();
         fs::write(dir.join("latin1.txt"), [b'c', 0xe9]).unwrap();
@@ -153,13 +147,13 @@ mod tests {
         assert!(err("bin").ends_with("binary file"));
         assert!(err("latin1.txt").ends_with("not UTF-8 text"));
         assert!(err("missing").contains("missing"));
-        assert!(Document::open(&dir).is_err()); // a directory
-        fs::remove_dir_all(&dir).unwrap();
+        assert!(Document::open(dir).is_err()); // a directory
     }
 
     #[test]
     fn detects_outside_changes_and_creates_files() {
-        let dir = temp("disk");
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
         let path = dir.join("f.txt");
         let mut doc = create(&path).unwrap();
         assert_eq!(doc.text(), "");
@@ -179,12 +173,12 @@ mod tests {
 
         doc.save("mine").unwrap(); // the UI asks first; saving resets
         assert!(!doc.changed_on_disk());
-        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn saves_atomically_keeping_permissions() {
-        let dir = temp("save");
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
         let path = dir.join("run.sh");
         fs::write(&path, "echo 1\r\n").unwrap();
         #[cfg(unix)]
@@ -205,7 +199,6 @@ mod tests {
             );
         }
         // No temporary file left behind.
-        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
-        fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(fs::read_dir(dir).unwrap().count(), 1);
     }
 }

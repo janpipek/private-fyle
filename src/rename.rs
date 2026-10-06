@@ -107,12 +107,10 @@ pub fn apply(renames: &[Rename]) -> (usize, Vec<String>) {
 mod tests {
     use super::*;
 
-    fn dir(name: &str, files: &[&str]) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("fyle-rename-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
+    fn dir(files: &[&str]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
         for f in files {
-            fs::write(dir.join(f), f).unwrap();
+            fs::write(dir.path().join(f), f).unwrap();
         }
         dir
     }
@@ -132,7 +130,8 @@ mod tests {
 
     #[test]
     fn renames_and_swaps() {
-        let d = dir("swap", &["a", "b", "c"]);
+        let tmp = dir(&["a", "b", "c"]);
+        let d = tmp.path();
         let sources = [d.join("a"), d.join("b"), d.join("c")];
         let renames = plan(&sources, "b\na\nc\n").unwrap();
         assert_eq!(renames.len(), 2); // "c" unchanged
@@ -142,13 +141,13 @@ mod tests {
                 .map(|(a, b)| (a.to_string(), b.to_string()))
                 .collect::<Vec<_>>()
         };
-        assert_eq!(listing(&d), pairs(&[("a", "b"), ("b", "a"), ("c", "c")]));
-        fs::remove_dir_all(&d).unwrap();
+        assert_eq!(listing(d), pairs(&[("a", "b"), ("b", "a"), ("c", "c")]));
     }
 
     #[test]
     fn rejects_bad_plans_without_touching_files() {
-        let d = dir("bad", &["a", "b", "other"]);
+        let tmp = dir(&["a", "b", "other"]);
+        let d = tmp.path();
         let sources = [d.join("a"), d.join("b")];
         let err = |text| plan(&sources, text).unwrap_err();
         assert!(err("x").contains("1 names for 2"));
@@ -157,7 +156,6 @@ mod tests {
         assert!(err("x\nx").contains("used twice"));
         assert!(err("other\ny").contains("already exists"));
         assert_eq!(plan(&sources, "a\nb").unwrap(), vec![]);
-        assert_eq!(listing(&d).len(), 3);
-        fs::remove_dir_all(&d).unwrap();
+        assert_eq!(listing(d).len(), 3);
     }
 }

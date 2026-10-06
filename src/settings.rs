@@ -418,8 +418,8 @@ mod tests {
 
     #[test]
     fn save_theme_keeps_comments_and_other_keys() {
-        let dir = std::env::temp_dir().join(format!("fyle-settings-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
         let path = dir.join("fyle").join("config.toml");
 
         save_theme_to(&path, "Ayu Dark").unwrap(); // creates file and dirs
@@ -436,13 +436,12 @@ mod tests {
         let settings = Settings::parse(&text).unwrap();
         assert_eq!(settings.theme, "Tokyo Night");
         assert!(settings.show_hidden);
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn save_font_size_keeps_other_keys() {
-        let dir = std::env::temp_dir().join(format!("fyle-font-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
         let path = dir.join("config.toml");
         save_font_size_to(&path, 17.5).unwrap(); // no file yet
         assert_eq!(Settings::load_from(&path).0.font_size, 17.5);
@@ -452,13 +451,12 @@ mod tests {
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("theme = \"dark\" # mine"), "{text}");
         assert_eq!(Settings::parse(&text).unwrap().font_size, 13.0);
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn ensure_file_creates_the_example_once() {
-        let dir = std::env::temp_dir().join(format!("fyle-ensure-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
         let path = dir.join("fyle").join("config.toml");
         ensure_file_at(&path).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), EXAMPLE);
@@ -468,14 +466,13 @@ mod tests {
             std::fs::read_to_string(&path).unwrap(),
             "theme = \"dark\"\n"
         );
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn save_columns_keeps_other_panel_settings() {
         use crate::columns::{ColumnKind, ExifField};
-        let dir = std::env::temp_dir().join(format!("fyle-columns-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
         let path = dir.join("config.toml");
         let columns = [
             ColumnKind::Name,
@@ -495,15 +492,14 @@ mod tests {
         assert!(text.contains("tree = true # mine"), "{text}");
         assert!(text.contains(r#""exif.iso""#), "{text}");
         assert_eq!(Settings::parse(&text).unwrap().panels.columns, columns);
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn bookmarks_are_added_once_and_parsed() {
-        let dir = std::env::temp_dir().join(format!("fyle-bookmarks-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
         let path = dir.join("config.toml");
-        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(dir).unwrap();
         std::fs::write(&path, "# mine\ntheme = \"dark\"\n").unwrap();
         add_bookmark_to(&path, Path::new("/srv/a")).unwrap();
         add_bookmark_to(&path, Path::new("/srv/b")).unwrap();
@@ -516,7 +512,6 @@ mod tests {
             [PathBuf::from("/srv/a"), "/srv/b".into()]
         );
         assert_eq!(settings.theme, "dark");
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

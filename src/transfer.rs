@@ -544,31 +544,7 @@ fn remove_entry(path: &Path) -> io::Result<()> {
 mod tests {
     use super::*;
     use std::cell::Cell;
-
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn new(name: &str) -> Self {
-            static NEXT: AtomicU64 = AtomicU64::new(0);
-            let path = std::env::temp_dir().join(format!(
-                "fyle-transfer-{name}-{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            ));
-            fs::create_dir(&path).unwrap();
-            Self(path)
-        }
-
-        fn path(&self, name: &str) -> PathBuf {
-            self.0.join(name)
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
+    use tempfile::TempDir;
 
     fn write(path: &Path, contents: &str) {
         if let Some(parent) = path.parent() {
@@ -605,46 +581,52 @@ mod tests {
 
     #[test]
     fn nonconflicting_copy_and_move_preserve_tree_contents() {
-        let dir = TempDir::new("plain");
-        write(&dir.path("source/a.txt"), "a");
-        write(&dir.path("source/sub/b.txt"), "b");
+        let dir = TempDir::new().unwrap();
+        write(&dir.path().join("source/a.txt"), "a");
+        write(&dir.path().join("source/sub/b.txt"), "b");
         let mut session = TransferSession::default();
         let copied = transfer(
             &mut session,
             TransferKind::Copy,
-            &dir.path("source"),
-            &dir.path("copy"),
+            &dir.path().join("source"),
+            &dir.path().join("copy"),
             ConflictChoice::Cancel,
         )
         .unwrap();
         assert!(copied.complete);
-        assert_eq!(fs::read_to_string(dir.path("copy/sub/b.txt")).unwrap(), "b");
-        assert!(dir.path("source/a.txt").is_file());
+        assert_eq!(
+            fs::read_to_string(dir.path().join("copy/sub/b.txt")).unwrap(),
+            "b"
+        );
+        assert!(dir.path().join("source/a.txt").is_file());
 
         let moved = transfer(
             &mut session,
             TransferKind::Move,
-            &dir.path("copy"),
-            &dir.path("moved"),
+            &dir.path().join("copy"),
+            &dir.path().join("moved"),
             ConflictChoice::Cancel,
         )
         .unwrap();
         assert!(moved.complete);
-        assert!(!dir.path("copy").exists());
-        assert_eq!(fs::read_to_string(dir.path("moved/a.txt")).unwrap(), "a");
+        assert!(!dir.path().join("copy").exists());
+        assert_eq!(
+            fs::read_to_string(dir.path().join("moved/a.txt")).unwrap(),
+            "a"
+        );
     }
 
     #[test]
     fn skip_preserves_both_entries_for_copy_and_move() {
         for kind in [TransferKind::Copy, TransferKind::Move] {
-            let dir = TempDir::new("skip");
-            write(&dir.path("source"), "new");
-            write(&dir.path("destination"), "old");
+            let dir = TempDir::new().unwrap();
+            write(&dir.path().join("source"), "new");
+            write(&dir.path().join("destination"), "old");
             let report = transfer(
                 &mut TransferSession::default(),
                 kind,
-                &dir.path("source"),
-                &dir.path("destination"),
+                &dir.path().join("source"),
+                &dir.path().join("destination"),
                 ConflictChoice::Skip,
             )
             .unwrap();
@@ -655,68 +637,86 @@ mod tests {
                     skipped: 1
                 }
             );
-            assert_eq!(fs::read_to_string(dir.path("source")).unwrap(), "new");
-            assert_eq!(fs::read_to_string(dir.path("destination")).unwrap(), "old");
+            assert_eq!(
+                fs::read_to_string(dir.path().join("source")).unwrap(),
+                "new"
+            );
+            assert_eq!(
+                fs::read_to_string(dir.path().join("destination")).unwrap(),
+                "old"
+            );
         }
     }
 
     #[test]
     fn replace_works_for_copy_and_move() {
         for kind in [TransferKind::Copy, TransferKind::Move] {
-            let dir = TempDir::new("replace");
-            write(&dir.path("source"), "new");
-            write(&dir.path("destination"), "old");
+            let dir = TempDir::new().unwrap();
+            write(&dir.path().join("source"), "new");
+            write(&dir.path().join("destination"), "old");
             let report = transfer(
                 &mut TransferSession::default(),
                 kind,
-                &dir.path("source"),
-                &dir.path("destination"),
+                &dir.path().join("source"),
+                &dir.path().join("destination"),
                 ConflictChoice::Replace,
             )
             .unwrap();
             assert!(report.complete);
-            assert_eq!(fs::read_to_string(dir.path("destination")).unwrap(), "new");
-            assert_eq!(dir.path("source").exists(), kind == TransferKind::Copy);
+            assert_eq!(
+                fs::read_to_string(dir.path().join("destination")).unwrap(),
+                "new"
+            );
+            assert_eq!(
+                dir.path().join("source").exists(),
+                kind == TransferKind::Copy
+            );
         }
     }
 
     #[test]
     fn keep_both_retains_extension_and_avoids_existing_names() {
         for kind in [TransferKind::Copy, TransferKind::Move] {
-            let dir = TempDir::new("both");
-            write(&dir.path("report.txt"), "source");
-            write(&dir.path("out/report.txt"), "first");
-            write(&dir.path("out/report (2).txt"), "second");
+            let dir = TempDir::new().unwrap();
+            write(&dir.path().join("report.txt"), "source");
+            write(&dir.path().join("out/report.txt"), "first");
+            write(&dir.path().join("out/report (2).txt"), "second");
             transfer(
                 &mut TransferSession::default(),
                 kind,
-                &dir.path("report.txt"),
-                &dir.path("out/report.txt"),
+                &dir.path().join("report.txt"),
+                &dir.path().join("out/report.txt"),
                 ConflictChoice::KeepBoth,
             )
             .unwrap();
             assert_eq!(
-                fs::read_to_string(dir.path("out/report.txt")).unwrap(),
+                fs::read_to_string(dir.path().join("out/report.txt")).unwrap(),
                 "first"
             );
             assert_eq!(
-                fs::read_to_string(dir.path("out/report (2).txt")).unwrap(),
+                fs::read_to_string(dir.path().join("out/report (2).txt")).unwrap(),
                 "second"
             );
             assert_eq!(
-                fs::read_to_string(dir.path("out/report (3).txt")).unwrap(),
+                fs::read_to_string(dir.path().join("out/report (3).txt")).unwrap(),
                 "source"
             );
-            assert_eq!(dir.path("report.txt").exists(), kind == TransferKind::Copy);
+            assert_eq!(
+                dir.path().join("report.txt").exists(),
+                kind == TransferKind::Copy
+            );
         }
     }
 
     #[test]
     fn directory_merge_copies_new_entries_and_resolves_nested_conflicts() {
-        let dir = TempDir::new("copy-merge");
-        write(&dir.path("source/new.txt"), "new");
-        write(&dir.path("source/sub/shared.txt"), "source");
-        write(&dir.path("destination/sub/shared.txt"), "destination");
+        let dir = TempDir::new().unwrap();
+        write(&dir.path().join("source/new.txt"), "new");
+        write(&dir.path().join("source/sub/shared.txt"), "source");
+        write(
+            &dir.path().join("destination/sub/shared.txt"),
+            "destination",
+        );
         let mut choices = [
             ConflictChoice::Merge,
             ConflictChoice::Merge,
@@ -726,8 +726,8 @@ mod tests {
         let report = TransferSession::default()
             .transfer(
                 TransferKind::Copy,
-                &dir.path("source"),
-                &dir.path("destination"),
+                &dir.path().join("source"),
+                &dir.path().join("destination"),
                 &mut |_| Ok(()),
                 &|| false,
                 &mut |_| {
@@ -740,22 +740,25 @@ mod tests {
             .unwrap();
         assert!(report.complete);
         assert_eq!(
-            fs::read_to_string(dir.path("destination/new.txt")).unwrap(),
+            fs::read_to_string(dir.path().join("destination/new.txt")).unwrap(),
             "new"
         );
         assert_eq!(
-            fs::read_to_string(dir.path("destination/sub/shared.txt")).unwrap(),
+            fs::read_to_string(dir.path().join("destination/sub/shared.txt")).unwrap(),
             "source"
         );
-        assert!(dir.path("source/sub/shared.txt").is_file());
+        assert!(dir.path().join("source/sub/shared.txt").is_file());
     }
 
     #[test]
     fn move_merge_with_skip_leaves_only_skipped_source_entries() {
-        let dir = TempDir::new("move-merge");
-        write(&dir.path("source/moved.txt"), "moved");
-        write(&dir.path("source/sub/skipped.txt"), "source");
-        write(&dir.path("destination/sub/skipped.txt"), "destination");
+        let dir = TempDir::new().unwrap();
+        write(&dir.path().join("source/moved.txt"), "moved");
+        write(&dir.path().join("source/sub/skipped.txt"), "source");
+        write(
+            &dir.path().join("destination/sub/skipped.txt"),
+            "destination",
+        );
         let mut choices = [
             ConflictChoice::Merge,
             ConflictChoice::Merge,
@@ -765,8 +768,8 @@ mod tests {
         let report = TransferSession::default()
             .transfer(
                 TransferKind::Move,
-                &dir.path("source"),
-                &dir.path("destination"),
+                &dir.path().join("source"),
+                &dir.path().join("destination"),
                 &mut |_| Ok(()),
                 &|| false,
                 &mut |_| {
@@ -784,47 +787,50 @@ mod tests {
                 skipped: 1
             }
         );
-        assert!(!dir.path("source/moved.txt").exists());
+        assert!(!dir.path().join("source/moved.txt").exists());
         assert_eq!(
-            fs::read_to_string(dir.path("source/sub/skipped.txt")).unwrap(),
+            fs::read_to_string(dir.path().join("source/sub/skipped.txt")).unwrap(),
             "source"
         );
         assert_eq!(
-            fs::read_to_string(dir.path("destination/sub/skipped.txt")).unwrap(),
+            fs::read_to_string(dir.path().join("destination/sub/skipped.txt")).unwrap(),
             "destination"
         );
     }
 
     #[test]
     fn cancel_choice_and_mid_copy_return_interrupted() {
-        let dir = TempDir::new("cancel");
+        let dir = TempDir::new().unwrap();
         for kind in [TransferKind::Copy, TransferKind::Move] {
-            write(&dir.path("source"), "source");
-            write(&dir.path("destination"), "destination");
+            write(&dir.path().join("source"), "source");
+            write(&dir.path().join("destination"), "destination");
             let error = transfer(
                 &mut TransferSession::default(),
                 kind,
-                &dir.path("source"),
-                &dir.path("destination"),
+                &dir.path().join("source"),
+                &dir.path().join("destination"),
                 ConflictChoice::Cancel,
             )
             .unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::Interrupted);
-            assert_eq!(fs::read_to_string(dir.path("source")).unwrap(), "source");
             assert_eq!(
-                fs::read_to_string(dir.path("destination")).unwrap(),
+                fs::read_to_string(dir.path().join("source")).unwrap(),
+                "source"
+            );
+            assert_eq!(
+                fs::read_to_string(dir.path().join("destination")).unwrap(),
                 "destination"
             );
         }
 
-        write(&dir.path("tree/a"), "a");
-        write(&dir.path("tree/b"), "b");
+        write(&dir.path().join("tree/a"), "a");
+        write(&dir.path().join("tree/b"), "b");
         let files = Cell::new(0);
         let error = TransferSession::default()
             .transfer(
                 TransferKind::Copy,
-                &dir.path("tree"),
-                &dir.path("tree-copy"),
+                &dir.path().join("tree"),
+                &dir.path().join("tree-copy"),
                 &mut |_| {
                     files.set(files.get() + 1);
                     Ok(())
@@ -834,19 +840,19 @@ mod tests {
             )
             .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::Interrupted);
-        assert!(dir.path("tree/a").exists() && dir.path("tree/b").exists());
-        assert!(!dir.path("tree-copy").exists());
+        assert!(dir.path().join("tree/a").exists() && dir.path().join("tree/b").exists());
+        assert!(!dir.path().join("tree-copy").exists());
     }
 
     #[test]
     fn apply_all_is_reused_only_for_the_same_kind_pair() {
-        let dir = TempDir::new("apply-all");
-        write(&dir.path("s1"), "s1");
-        write(&dir.path("d1"), "d1");
-        write(&dir.path("s2"), "s2");
-        write(&dir.path("d2"), "d2");
-        fs::create_dir(dir.path("folder")).unwrap();
-        write(&dir.path("file-at-folder-target"), "file");
+        let dir = TempDir::new().unwrap();
+        write(&dir.path().join("s1"), "s1");
+        write(&dir.path().join("d1"), "d1");
+        write(&dir.path().join("s2"), "s2");
+        write(&dir.path().join("d2"), "d2");
+        fs::create_dir(dir.path().join("folder")).unwrap();
+        write(&dir.path().join("file-at-folder-target"), "file");
         let prompts = Cell::new(0);
         let mut resolve = |_: &Conflict| {
             prompts.set(prompts.get() + 1);
@@ -864,8 +870,8 @@ mod tests {
             session
                 .transfer(
                     TransferKind::Copy,
-                    &dir.path(src),
-                    &dir.path(dst),
+                    &dir.path().join(src),
+                    &dir.path().join(dst),
                     &mut |_| Ok(()),
                     &|| false,
                     &mut resolve,
@@ -877,18 +883,18 @@ mod tests {
 
     #[test]
     fn same_path_keep_both_is_safe_but_destructive_choices_are_rejected() {
-        let dir = TempDir::new("same");
-        write(&dir.path("file.txt"), "contents");
+        let dir = TempDir::new().unwrap();
+        write(&dir.path().join("file.txt"), "contents");
         transfer(
             &mut TransferSession::default(),
             TransferKind::Copy,
-            &dir.path("file.txt"),
-            &dir.path("file.txt"),
+            &dir.path().join("file.txt"),
+            &dir.path().join("file.txt"),
             ConflictChoice::KeepBoth,
         )
         .unwrap();
         assert_eq!(
-            fs::read_to_string(dir.path("file (2).txt")).unwrap(),
+            fs::read_to_string(dir.path().join("file (2).txt")).unwrap(),
             "contents"
         );
 
@@ -896,28 +902,28 @@ mod tests {
             let error = transfer(
                 &mut TransferSession::default(),
                 TransferKind::Copy,
-                &dir.path("file.txt"),
-                &dir.path("file.txt"),
+                &dir.path().join("file.txt"),
+                &dir.path().join("file.txt"),
                 choice,
             )
             .unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         }
         assert_eq!(
-            fs::read_to_string(dir.path("file.txt")).unwrap(),
+            fs::read_to_string(dir.path().join("file.txt")).unwrap(),
             "contents"
         );
     }
 
     #[test]
     fn rejects_descendant_targets_and_replacing_an_ancestor() {
-        let dir = TempDir::new("relations");
-        write(&dir.path("source/child/file"), "data");
+        let dir = TempDir::new().unwrap();
+        write(&dir.path().join("source/child/file"), "data");
         let error = transfer(
             &mut TransferSession::default(),
             TransferKind::Copy,
-            &dir.path("source"),
-            &dir.path("source/child/new"),
+            &dir.path().join("source"),
+            &dir.path().join("source/child/new"),
             ConflictChoice::Cancel,
         )
         .unwrap_err();
@@ -926,14 +932,14 @@ mod tests {
         let error = transfer(
             &mut TransferSession::default(),
             TransferKind::Move,
-            &dir.path("source/child"),
-            &dir.path("source"),
+            &dir.path().join("source/child"),
+            &dir.path().join("source"),
             ConflictChoice::Replace,
         )
         .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         assert_eq!(
-            fs::read_to_string(dir.path("source/child/file")).unwrap(),
+            fs::read_to_string(dir.path().join("source/child/file")).unwrap(),
             "data"
         );
     }
@@ -941,31 +947,33 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn canonical_aliases_and_hard_links_disallow_replacement() {
-        let dir = TempDir::new("aliases");
-        write(&dir.path("tree/file"), "data");
-        std::os::unix::fs::symlink(dir.path("tree"), dir.path("alias")).unwrap();
-        let conflict = Conflict::from_paths(&dir.path("tree"), &dir.path("alias")).unwrap();
+        let dir = TempDir::new().unwrap();
+        write(&dir.path().join("tree/file"), "data");
+        std::os::unix::fs::symlink(dir.path().join("tree"), dir.path().join("alias")).unwrap();
+        let conflict =
+            Conflict::from_paths(&dir.path().join("tree"), &dir.path().join("alias")).unwrap();
         assert!(!conflict.allows(ConflictChoice::Replace));
         assert!(!conflict.allows(ConflictChoice::Merge));
 
-        fs::hard_link(dir.path("tree/file"), dir.path("hard-link")).unwrap();
+        fs::hard_link(dir.path().join("tree/file"), dir.path().join("hard-link")).unwrap();
         let conflict =
-            Conflict::from_paths(&dir.path("tree/file"), &dir.path("hard-link")).unwrap();
+            Conflict::from_paths(&dir.path().join("tree/file"), &dir.path().join("hard-link"))
+                .unwrap();
         assert!(!conflict.allows(ConflictChoice::Replace));
     }
 
     #[cfg(unix)]
     #[test]
     fn dangling_destination_symlink_is_a_conflict_and_target_is_untouched() {
-        let dir = TempDir::new("dangling");
-        write(&dir.path("source"), "new");
-        std::os::unix::fs::symlink("missing-target", dir.path("destination")).unwrap();
+        let dir = TempDir::new().unwrap();
+        write(&dir.path().join("source"), "new");
+        std::os::unix::fs::symlink("missing-target", dir.path().join("destination")).unwrap();
         let prompts = Cell::new(0);
         TransferSession::default()
             .transfer(
                 TransferKind::Copy,
-                &dir.path("source"),
-                &dir.path("destination"),
+                &dir.path().join("source"),
+                &dir.path().join("destination"),
                 &mut |_| Ok(()),
                 &|| false,
                 &mut |_| {
@@ -978,27 +986,36 @@ mod tests {
             )
             .unwrap();
         assert_eq!(prompts.get(), 1);
-        assert_eq!(fs::read_to_string(dir.path("destination")).unwrap(), "new");
-        assert!(!dir.path("missing-target").exists());
+        assert_eq!(
+            fs::read_to_string(dir.path().join("destination")).unwrap(),
+            "new"
+        );
+        assert!(!dir.path().join("missing-target").exists());
     }
 
     #[test]
     fn failed_replace_copy_preserves_source_and_destination() {
-        let dir = TempDir::new("failed-replace");
-        write(&dir.path("source"), "new");
-        write(&dir.path("destination"), "old");
+        let dir = TempDir::new().unwrap();
+        write(&dir.path().join("source"), "new");
+        write(&dir.path().join("destination"), "old");
         let error = TransferSession::default()
             .transfer(
                 TransferKind::Copy,
-                &dir.path("source"),
-                &dir.path("destination"),
+                &dir.path().join("source"),
+                &dir.path().join("destination"),
                 &mut |_| Err(io::Error::other("progress failed")),
                 &|| false,
                 &mut decision(ConflictChoice::Replace),
             )
             .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::Other);
-        assert_eq!(fs::read_to_string(dir.path("source")).unwrap(), "new");
-        assert_eq!(fs::read_to_string(dir.path("destination")).unwrap(), "old");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("source")).unwrap(),
+            "new"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join("destination")).unwrap(),
+            "old"
+        );
     }
 }

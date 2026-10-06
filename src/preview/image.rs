@@ -161,7 +161,8 @@ mod tests {
 
     #[test]
     fn reads_exif_fields() {
-        let path = std::env::temp_dir().join(format!("fyle-exif-{}.jpg", std::process::id()));
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("photo.jpg");
         std::fs::write(&path, jpeg_with_exif()).unwrap();
         assert_eq!(
             exif_info(&path),
@@ -179,6 +180,5 @@ mod tests {
         std::fs::write(&path, b"\x89PNG\r\n\x1a\n").unwrap();
         assert!(exif_info(&path).is_empty());
         assert!(exif_fields(&path).is_empty());
-        std::fs::remove_file(&path).unwrap();
     }
 }

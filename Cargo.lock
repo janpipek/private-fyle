@@ -2070,6 +2070,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tar",
+ "tempfile",
  "toml 0.9.12+spec-1.1.0",
  "toml_edit 0.25.15+spec-1.1.0",
  "trash",

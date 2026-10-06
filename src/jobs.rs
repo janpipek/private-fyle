@@ -412,21 +412,22 @@ mod tests {
     use super::*;
     use std::fs;
 
-    fn tree(name: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!("fyle-jobs-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
+    fn tree() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
         for file in ["src/a/1.txt", "src/a/2.txt", "src/b.txt", "single.txt"] {
             let path = root.join(file);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(path, file).unwrap();
         }
         fs::create_dir_all(root.join("dest")).unwrap();
-        root
+        dir
     }
 
     #[test]
     fn copies_with_file_progress() {
-        let root = tree("copy");
+        let tmp = tree();
+        let root = tmp.path();
         let progress = Progress::default();
         let sources = [root.join("src"), root.join("single.txt")];
         let outcome = run(JobKind::Copy, &sources, Some(&root.join("dest")), &progress);
@@ -451,12 +452,12 @@ mod tests {
         );
         assert_eq!(outcome.done, 0);
         assert_eq!(outcome.errors.len(), 2);
-        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
     fn moves_and_deletes() {
-        let root = tree("move");
+        let tmp = tree();
+        let root = tmp.path();
         let progress = Progress::default();
         let outcome = run(
             JobKind::Move,
@@ -476,7 +477,6 @@ mod tests {
         );
         assert_eq!(outcome.done, 1);
         assert!(!root.join("dest/src").exists());
-        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
@@ -505,7 +505,8 @@ mod tests {
 
     #[test]
     fn extracts_into_a_folder_and_cleans_up() {
-        let root = tree("extract");
+        let tmp = tree();
+        let root = tmp.path();
         let zip = root.join("pack.zip");
         zip_with(&zip, &[("a/1.txt", "one"), ("b.txt", "two")]);
         let job = Extraction {
@@ -526,12 +527,12 @@ mod tests {
         // No staging directory is left behind.
         let left: Vec<_> = fs::read_dir(&dest).unwrap().flatten().collect();
         assert_eq!(left.len(), 1);
-        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
     fn extraction_asks_about_existing_files() {
-        let root = tree("extract-conflict");
+        let tmp = tree();
+        let root = tmp.path();
         let zip = root.join("pack.zip");
         zip_with(&zip, &[("keep.txt", "new"), ("fresh.txt", "fresh")]);
         let dest = root.join("dest");
@@ -560,12 +561,12 @@ mod tests {
         });
         assert_eq!(fs::read_to_string(dest.join("keep.txt")).unwrap(), "old");
         assert!(!outcome.errors.is_empty());
-        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
     fn cancelled_extraction_leaves_nothing() {
-        let root = tree("extract-cancel");
+        let tmp = tree();
+        let root = tmp.path();
         let zip = root.join("pack.zip");
         zip_with(&zip, &[("a.txt", "a")]);
         let job = Extraction {
@@ -579,12 +580,12 @@ mod tests {
         let outcome = run_extract(&job, &dest, &progress, &mut |_| unreachable!());
         assert!(outcome.cancelled);
         assert_eq!(fs::read_dir(&dest).unwrap().count(), 0);
-        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
     fn cancel_stops_between_files() {
-        let root = tree("cancel");
+        let tmp = tree();
+        let root = tmp.path();
         let progress = Progress::default();
         progress.cancel.store(true, Ordering::Relaxed);
         let outcome = run(
@@ -596,6 +597,5 @@ mod tests {
         assert!(outcome.cancelled);
         assert_eq!(outcome.done, 0);
         assert!(outcome.errors.is_empty());
-        fs::remove_dir_all(&root).unwrap();
     }
 }

@@ -85,7 +85,8 @@ mod tests {
 
     #[test]
     fn reads_user_attributes() {
-        let path = std::env::temp_dir().join(format!("fyle-xattr-{}", std::process::id()));
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("file");
         std::fs::write(&path, "").unwrap();
         assert!(!names(&path).contains(&"user.fyle".to_string()));
         let set = std::process::Command::new("setfattr")
@@ -97,6 +98,5 @@ mod tests {
             assert!(names(&path).contains(&"user.fyle".to_string()));
         }
         assert!(names(Path::new("/no/such/file")).is_empty());
-        std::fs::remove_file(&path).unwrap();
     }
 }

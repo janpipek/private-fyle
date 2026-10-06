@@ -161,33 +161,7 @@ fn scan_one(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// A scratch directory removed on drop (the crate has no `tempfile`).
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn new() -> Self {
-            use std::sync::atomic::AtomicUsize;
-            static NEXT: AtomicUsize = AtomicUsize::new(0);
-            let dir = std::env::temp_dir().join(format!(
-                "fyle-dirsize-{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            ));
-            fs::create_dir_all(&dir).unwrap();
-            Self(dir)
-        }
-
-        fn path(&self) -> &Path {
-            &self.0
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
+    use tempfile::TempDir;
 
     fn write(path: &Path, len: usize) {
         if let Some(parent) = path.parent() {
@@ -202,7 +176,7 @@ mod tests {
 
     #[test]
     fn sums_nested_files() {
-        let tmp = TempDir::new();
+        let tmp = TempDir::new().unwrap();
         write(&tmp.path().join("a"), 10);
         write(&tmp.path().join("sub/b"), 20);
         write(&tmp.path().join("sub/deep/c"), 30);
@@ -215,7 +189,7 @@ mod tests {
 
     #[test]
     fn missing_root_is_an_error() {
-        let tmp = TempDir::new();
+        let tmp = TempDir::new().unwrap();
         let size = scan_dir(&tmp.path().join("nope"), &no_cancel());
         assert_eq!(size.errors, 1);
         assert!(!size.is_exact());
@@ -224,8 +198,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn does_not_follow_symlinks() {
-        let tmp = TempDir::new();
-        let outside = TempDir::new();
+        let tmp = TempDir::new().unwrap();
+        let outside = TempDir::new().unwrap();
         write(&outside.path().join("big"), 1000);
         write(&tmp.path().join("file"), 5);
         std::os::unix::fs::symlink(outside.path(), tmp.path().join("dirlink")).unwrap();
@@ -239,7 +213,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn counts_hard_links_once() {
-        let tmp = TempDir::new();
+        let tmp = TempDir::new().unwrap();
         write(&tmp.path().join("a/orig"), 100);
         fs::create_dir(tmp.path().join("b")).unwrap();
         fs::hard_link(tmp.path().join("a/orig"), tmp.path().join("b/link")).unwrap();
@@ -261,7 +235,7 @@ mod tests {
     #[test]
     fn unreadable_directory_makes_result_incomplete() {
         use std::os::unix::fs::PermissionsExt;
-        let tmp = TempDir::new();
+        let tmp = TempDir::new().unwrap();
         write(&tmp.path().join("ok"), 7);
         write(&tmp.path().join("locked/hidden"), 50);
         let locked = tmp.path().join("locked");
@@ -279,7 +253,7 @@ mod tests {
 
     #[test]
     fn cancelled_scan_is_a_lower_bound() {
-        let tmp = TempDir::new();
+        let tmp = TempDir::new().unwrap();
         write(&tmp.path().join("a"), 10);
         let cancel = AtomicBool::new(true);
         let size = scan_dir(tmp.path(), &cancel);
@@ -293,7 +267,7 @@ mod tests {
 
     #[test]
     fn reports_progress_and_final_value() {
-        let tmp = TempDir::new();
+        let tmp = TempDir::new().unwrap();
         for i in 0..(REPORT_EVERY as usize + 3) {
             write(&tmp.path().join(format!("f{i}")), 1);
         }

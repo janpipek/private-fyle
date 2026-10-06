@@ -145,19 +145,18 @@ mod tests {
 
     #[test]
     fn runs_git_in_a_repository() {
-        let dir = std::env::temp_dir().join(format!("fyle-git-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
         if !Command::new("git")
             .args(["init", "-q"])
-            .current_dir(&dir)
+            .current_dir(dir)
             .status()
             .is_ok_and(|s| s.success())
         {
             return; // no git here
         }
         std::fs::write(dir.join("new.txt"), "").unwrap();
-        let status = status(&dir).unwrap();
+        let status = status(dir).unwrap();
         // git may report the canonical root; compare by name.
         let marks: Vec<_> = status
             .marks
@@ -165,7 +164,6 @@ mod tests {
             .map(|(p, m)| (p.file_name().unwrap().to_owned(), *m))
             .collect();
         assert_eq!(marks, [("new.txt".into(), Mark::Untracked)]);
-        assert!(super::status(&std::env::temp_dir().join("fyle-no-such-dir")).is_none());
-        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(super::status(&dir.join("no-such-dir")).is_none());
     }
 }

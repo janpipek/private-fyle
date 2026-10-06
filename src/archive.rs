@@ -757,28 +757,7 @@ fn link_stays_inside(rel: &str, target: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn new(name: &str) -> Self {
-            let dir =
-                std::env::temp_dir().join(format!("fyle-archive-{name}-{}", std::process::id()));
-            let _ = fs::remove_dir_all(&dir);
-            fs::create_dir_all(&dir).unwrap();
-            Self(dir)
-        }
-
-        fn path(&self, name: &str) -> PathBuf {
-            self.0.join(name)
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
+    use tempfile::TempDir;
 
     /// An entry to put in a test archive.
     enum Item<'a> {
@@ -858,9 +837,9 @@ mod tests {
     ];
 
     fn all_formats(dir: &TempDir, items: &[Item]) -> Vec<PathBuf> {
-        let zip = dir.path("t.zip");
-        let tar = dir.path("t.tar");
-        let tgz = dir.path("t.tar.gz");
+        let zip = dir.path().join("t.zip");
+        let tar = dir.path().join("t.tar");
+        let tgz = dir.path().join("t.tar.gz");
         make_zip(&zip, items);
         make_tar(&tar, items, false);
         make_tar(&tgz, items, true);
@@ -898,7 +877,7 @@ mod tests {
 
     #[test]
     fn lists_a_tree_in_every_format() {
-        let dir = TempDir::new("list");
+        let dir = TempDir::new().unwrap();
         for file in all_formats(&dir, SAMPLE) {
             let index = Index::read(&file).unwrap();
             let names =
@@ -919,8 +898,8 @@ mod tests {
 
     #[test]
     fn unsafe_names_are_not_listed() {
-        let dir = TempDir::new("unsafe-list");
-        let tar = dir.path("evil.tar");
+        let dir = TempDir::new().unwrap();
+        let tar = dir.path().join("evil.tar");
         make_tar(
             &tar,
             &[
@@ -938,25 +917,25 @@ mod tests {
 
     #[test]
     fn locates_paths_inside_archives() {
-        let dir = TempDir::new("locate");
-        let zip = dir.path("a.zip");
+        let dir = TempDir::new().unwrap();
+        let zip = dir.path().join("a.zip");
         make_zip(&zip, SAMPLE);
         assert_eq!(locate(&zip), Some((zip.clone(), String::new())));
         assert_eq!(
             locate(&zip.join("docs/img")),
             Some((zip.clone(), "docs/img".into()))
         );
-        assert_eq!(locate(&dir.0), None);
-        assert_eq!(locate(&dir.path("missing/x")), None);
+        assert_eq!(locate(dir.path()), None);
+        assert_eq!(locate(&dir.path().join("missing/x")), None);
         assert_eq!(virtual_path(&zip, ""), zip);
         assert_eq!(virtual_path(&zip, "a/b"), zip.join("a/b"));
         assert_eq!(inner_of(&zip, &zip.join("a/b")), Some("a/b".into()));
-        assert_eq!(inner_of(&zip, &dir.path("other")), None);
+        assert_eq!(inner_of(&zip, &dir.path().join("other")), None);
     }
 
     #[test]
     fn reads_one_file_with_a_limit() {
-        let dir = TempDir::new("read");
+        let dir = TempDir::new().unwrap();
         for file in all_formats(&dir, SAMPLE) {
             let mut out = Vec::new();
             read_file(&file, "docs/readme.md", 100, &mut out).unwrap();
@@ -970,9 +949,9 @@ mod tests {
 
     #[test]
     fn extracts_selected_entries_by_name() {
-        let dir = TempDir::new("extract");
+        let dir = TempDir::new().unwrap();
         for (n, file) in all_formats(&dir, SAMPLE).into_iter().enumerate() {
-            let out = dir.path(&format!("out{n}"));
+            let out = dir.path().join(format!("out{n}"));
             fs::create_dir_all(&out).unwrap();
             let mut seen = Vec::new();
             let report = extract(
@@ -998,10 +977,10 @@ mod tests {
 
     #[test]
     fn extracts_everything_under_a_prefix() {
-        let dir = TempDir::new("extract-all");
-        let zip = dir.path("t.zip");
+        let dir = TempDir::new().unwrap();
+        let zip = dir.path().join("t.zip");
         make_zip(&zip, SAMPLE);
-        let out = dir.path("out");
+        let out = dir.path().join("out");
         fs::create_dir_all(&out).unwrap();
         let report = extract(&zip, &[String::new()], Some("t"), &out, &mut |_| Ok(())).unwrap();
         assert_eq!(report.files, 3);
@@ -1011,10 +990,10 @@ mod tests {
 
     #[test]
     fn extraction_can_be_aborted() {
-        let dir = TempDir::new("abort");
-        let zip = dir.path("t.zip");
+        let dir = TempDir::new().unwrap();
+        let zip = dir.path().join("t.zip");
         make_zip(&zip, SAMPLE);
-        let out = dir.path("out");
+        let out = dir.path().join("out");
         fs::create_dir_all(&out).unwrap();
         let result = extract(&zip, &[String::new()], None, &out, &mut |_| {
             Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"))
@@ -1024,13 +1003,14 @@ mod tests {
 
     #[test]
     fn traversal_names_never_leave_the_destination() {
-        let dir = TempDir::new("traversal");
-        let sandbox = dir.path("sandbox");
+        let dir = TempDir::new().unwrap();
+        let sandbox = dir.path().join("sandbox");
         let out = sandbox.join("out");
         fs::create_dir_all(&out).unwrap();
-        let tar = dir.path("evil.tar");
-        let absolute_name = format!("/tmp/fyle-absolute-{}.txt", std::process::id());
-        let absolute = absolute_name.as_str();
+        let tar = dir.path().join("evil.tar");
+        let elsewhere = TempDir::new().unwrap();
+        let absolute_path = elsewhere.path().join("absolute.txt");
+        let absolute = absolute_path.to_str().unwrap();
         make_tar(
             &tar,
             &[
@@ -1046,9 +1026,9 @@ mod tests {
         assert_eq!(report.skipped.len(), 3, "{:?}", report.skipped);
         assert!(out.join("fine.txt").is_file());
         assert!(!sandbox.join("escaped.txt").exists());
-        assert!(!dir.path("escaped.txt").exists());
-        assert!(!dir.path("escaped2.txt").exists());
-        assert!(!Path::new(absolute).exists());
+        assert!(!dir.path().join("escaped.txt").exists());
+        assert!(!dir.path().join("escaped2.txt").exists());
+        assert!(!absolute_path.exists());
         // Only the destination was touched.
         let entries: Vec<_> = fs::read_dir(&sandbox).unwrap().flatten().collect();
         assert_eq!(entries.len(), 1);
@@ -1057,12 +1037,12 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn links_must_stay_inside() {
-        let dir = TempDir::new("links");
-        let sandbox = dir.path("sandbox");
+        let dir = TempDir::new().unwrap();
+        let sandbox = dir.path().join("sandbox");
         let out = sandbox.join("out");
         fs::create_dir_all(&out).unwrap();
         fs::write(sandbox.join("secret"), "s").unwrap();
-        for (n, file) in [dir.path("l.tar"), dir.path("l.zip")]
+        for (n, file) in [dir.path().join("l.tar"), dir.path().join("l.zip")]
             .into_iter()
             .enumerate()
         {
@@ -1099,10 +1079,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn chained_links_cannot_escape() {
-        let dir = TempDir::new("chain");
-        let out = dir.path("sandbox/out");
+        let dir = TempDir::new().unwrap();
+        let out = dir.path().join("sandbox/out");
         fs::create_dir_all(&out).unwrap();
-        let tar = dir.path("c.tar");
+        let tar = dir.path().join("c.tar");
         make_tar(
             &tar,
             &[
@@ -1121,8 +1101,8 @@ mod tests {
 
     #[test]
     fn unreadable_zip_entry_does_not_break_the_rest() {
-        let dir = TempDir::new("unreadable");
-        let zip = dir.path("u.zip");
+        let dir = TempDir::new().unwrap();
+        let zip = dir.path().join("u.zip");
         let opts = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Stored);
         let mut writer = zip::ZipWriter::new(File::create(&zip).unwrap());
@@ -1144,7 +1124,7 @@ mod tests {
         assert_eq!(out, b"good");
         assert!(read_file(&zip, "bad.txt", 100, &mut Vec::new()).is_err());
 
-        let dest = dir.path("out");
+        let dest = dir.path().join("out");
         fs::create_dir_all(&dest).unwrap();
         let report = extract(&zip, &[String::new()], None, &dest, &mut |_| Ok(())).unwrap();
         assert_eq!(report.files, 1);
@@ -1157,10 +1137,10 @@ mod tests {
     fn nothing_is_written_through_a_link() {
         // A link to a directory inside the destination is allowed, but a
         // later entry must not be written through it.
-        let dir = TempDir::new("through");
-        let out = dir.path("out");
+        let dir = TempDir::new().unwrap();
+        let out = dir.path().join("out");
         fs::create_dir_all(out.join("real")).unwrap();
-        let tar = dir.path("t.tar");
+        let tar = dir.path().join("t.tar");
         make_tar(
             &tar,
             &[Item::Link("l", "real"), Item::File("l/x.txt", "x")],
@@ -1173,8 +1153,8 @@ mod tests {
 
     #[test]
     fn cached_index_is_reused_until_the_file_changes() {
-        let dir = TempDir::new("cached");
-        let zip = dir.path("c.zip");
+        let dir = TempDir::new().unwrap();
+        let zip = dir.path().join("c.zip");
         make_zip(&zip, &[Item::File("a.txt", "a")]);
         let first = Index::cached(&zip).unwrap();
         assert!(Arc::ptr_eq(&first, &Index::cached(&zip).unwrap()));

@@ -913,26 +913,16 @@ impl Folder {
 mod tests {
     use super::*;
     use std::fs;
+    use tempfile::TempDir;
 
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn new(name: &str) -> Self {
-            let dir =
-                std::env::temp_dir().join(format!("fyle-model-{name}-{}", std::process::id()));
-            let _ = fs::remove_dir_all(&dir);
-            fs::create_dir_all(dir.join("sub")).unwrap();
-            fs::write(dir.join("b.txt"), "12345").unwrap();
-            fs::write(dir.join("a.txt"), "1").unwrap();
-            fs::write(dir.join(".hidden"), "").unwrap();
-            Self(dir)
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
+    /// A scratch folder with `sub/`, `a.txt`, `b.txt` and `.hidden`.
+    fn fixture() -> TempDir {
+        let dir = TempDir::new().unwrap();
+        fs::create_dir_all(dir.path().join("sub")).unwrap();
+        fs::write(dir.path().join("b.txt"), "12345").unwrap();
+        fs::write(dir.path().join("a.txt"), "1").unwrap();
+        fs::write(dir.path().join(".hidden"), "").unwrap();
+        dir
     }
 
     fn names(folder: &Folder) -> Vec<&str> {
@@ -940,14 +930,14 @@ mod tests {
     }
 
     fn loaded(dir: &TempDir) -> Folder {
-        let mut folder = Folder::new(dir.0.clone());
+        let mut folder = Folder::new(dir.path().to_path_buf());
         assert_eq!(folder.load_or_ancestor(), None);
         folder
     }
 
     #[test]
     fn lists_sorted_without_hidden() {
-        let dir = TempDir::new("list");
+        let dir = fixture();
         let mut folder = loaded(&dir);
         assert_eq!(names(&folder), ["..", "sub", "a.txt", "b.txt"]);
         assert_eq!((folder.dir_count(), folder.file_count()), (1, 2));
@@ -958,7 +948,7 @@ mod tests {
 
     #[test]
     fn sort_keeps_cursor_on_entry() {
-        let dir = TempDir::new("sort");
+        let dir = fixture();
         let mut folder = loaded(&dir);
         folder.set_cursor(2); // a.txt
         folder.set_sort(Sort {
@@ -971,27 +961,27 @@ mod tests {
 
     #[test]
     fn enter_and_go_up_restore_cursor() {
-        let dir = TempDir::new("nav");
+        let dir = fixture();
         let mut folder = loaded(&dir);
         folder.set_cursor(1);
         assert_eq!(folder.activate(), Ok(Activation::Entered));
-        assert_eq!(folder.path(), dir.0.join("sub"));
+        assert_eq!(folder.path(), dir.path().join("sub"));
         assert_eq!(names(&folder), [".."]);
 
         folder.go_up().unwrap();
-        assert_eq!(folder.path(), dir.0);
+        assert_eq!(folder.path(), dir.path());
         assert_eq!(folder.current().unwrap().name, "sub");
 
         folder.set_cursor(2);
         assert_eq!(
             folder.activate(),
-            Ok(Activation::OpenFile(dir.0.join("a.txt")))
+            Ok(Activation::OpenFile(dir.path().join("a.txt")))
         );
     }
 
     #[test]
     fn marks_and_targets() {
-        let dir = TempDir::new("marks");
+        let dir = fixture();
         let mut folder = loaded(&dir);
         folder.toggle_mark(); // ".." cannot be marked
         assert_eq!(folder.marked_count(), 0);
@@ -1002,25 +992,28 @@ mod tests {
         folder.toggle_mark();
         assert_eq!(folder.marked_count(), 2);
         assert_eq!(folder.current().unwrap().name, "b.txt"); // stays on last row
-        assert_eq!(folder.targets(), [dir.0.join("a.txt"), dir.0.join("b.txt")]);
+        assert_eq!(
+            folder.targets(),
+            [dir.path().join("a.txt"), dir.path().join("b.txt")]
+        );
 
         // Reload keeps marks that still exist.
-        fs::remove_file(dir.0.join("a.txt")).unwrap();
+        fs::remove_file(dir.path().join("a.txt")).unwrap();
         folder.load().unwrap();
-        assert_eq!(folder.targets(), [dir.0.join("b.txt")]);
+        assert_eq!(folder.targets(), [dir.path().join("b.txt")]);
 
         folder.clear_marks();
-        assert_eq!(folder.targets(), [dir.0.join("b.txt")]); // cursor entry
+        assert_eq!(folder.targets(), [dir.path().join("b.txt")]); // cursor entry
     }
 
     #[test]
     fn context_click_targets_clicked_entry_or_its_marked_group() {
-        let dir = TempDir::new("context-selection");
+        let dir = fixture();
         let mut folder = loaded(&dir);
         folder.set_cursor(2);
         folder.toggle_mark();
         folder.toggle_mark();
-        let marked = vec![dir.0.join("a.txt"), dir.0.join("b.txt")];
+        let marked = vec![dir.path().join("a.txt"), dir.path().join("b.txt")];
 
         folder.select_context_row(2);
         assert_eq!(folder.current().unwrap().name, "a.txt");
@@ -1031,21 +1024,21 @@ mod tests {
 
         folder.select_context_row(1);
         assert_eq!(folder.marked_count(), 0);
-        assert_eq!(folder.targets(), [dir.0.join("sub")]);
+        assert_eq!(folder.targets(), [dir.path().join("sub")]);
         folder.mark_all();
         folder.select_context_row(0); // Parent is never a file-operation target.
         assert_eq!(folder.marked_count(), 0);
         assert!(folder.targets().is_empty());
         folder.select_context_row(3);
-        assert_eq!(folder.targets(), [dir.0.join("b.txt")]);
+        assert_eq!(folder.targets(), [dir.path().join("b.txt")]);
     }
 
     #[test]
     fn back_and_forward() {
-        let dir = TempDir::new("history");
-        fs::create_dir(dir.0.join("sub").join("deep")).unwrap();
+        let dir = fixture();
+        fs::create_dir(dir.path().join("sub").join("deep")).unwrap();
         let mut folder = loaded(&dir);
-        let sub = dir.0.join("sub");
+        let sub = dir.path().join("sub");
         assert!(!folder.can_go_back());
         assert_eq!(folder.go_back(), Ok(false));
 
@@ -1056,7 +1049,7 @@ mod tests {
         assert_eq!(folder.go_back(), Ok(true));
         assert_eq!(folder.path(), sub);
         assert_eq!(folder.go_back(), Ok(true));
-        assert_eq!(folder.path(), dir.0);
+        assert_eq!(folder.path(), dir.path());
         assert_eq!(folder.current().unwrap().name, "a.txt"); // cursor restored
         assert!(!folder.can_go_back());
 
@@ -1079,7 +1072,7 @@ mod tests {
 
     #[test]
     fn mark_all_invert_and_by_pattern() {
-        let dir = TempDir::new("markmany");
+        let dir = fixture();
         let mut folder = loaded(&dir); // .., sub, a.txt, b.txt
         let marked = |f: &Folder| {
             let mut names: Vec<_> = f
@@ -1115,8 +1108,8 @@ mod tests {
 
     #[test]
     fn tree_expand_collapse() {
-        let dir = TempDir::new("tree");
-        fs::write(dir.0.join("sub").join("inner.txt"), "").unwrap();
+        let dir = fixture();
+        fs::write(dir.path().join("sub").join("inner.txt"), "").unwrap();
         let mut folder = loaded(&dir);
         folder.set_cursor(1); // sub
         assert_eq!(folder.expand(), None);
@@ -1137,7 +1130,7 @@ mod tests {
         assert_eq!(names(&folder), ["..", "sub", "a.txt", "b.txt"]);
 
         // Expansion survives toggling tree mode off and on.
-        folder.toggle_expanded(&dir.0.join("sub"));
+        folder.toggle_expanded(&dir.path().join("sub"));
         folder.set_tree(false);
         assert_eq!(folder.entries().len(), 4);
         folder.set_tree(true);
@@ -1146,7 +1139,7 @@ mod tests {
 
     #[test]
     fn filter_narrows_rows_until_directory_changes() {
-        let dir = TempDir::new("filter");
+        let dir = fixture();
         let mut folder = loaded(&dir);
         folder.set_cursor(3); // b.txt
         folder.set_filter("B.T");
@@ -1172,11 +1165,11 @@ mod tests {
 
     #[test]
     fn search_results_mode() {
-        let dir = TempDir::new("results");
-        fs::write(dir.0.join("sub").join("deep.txt"), "").unwrap();
+        let dir = fixture();
+        fs::write(dir.path().join("sub").join("deep.txt"), "").unwrap();
         let mut folder = loaded(&dir);
         let entry = |rel: &str| {
-            let path = dir.0.join(rel);
+            let path = dir.path().join(rel);
             Hit {
                 entry: Entry {
                     name: rel.into(),
@@ -1192,7 +1185,7 @@ mod tests {
             }
         };
 
-        folder.show_results(dir.0.clone(), "search".into());
+        folder.show_results(dir.path().to_path_buf(), "search".into());
         assert_eq!(folder.results(), Some("search"));
         assert_eq!(names(&folder), [".."]);
         folder.add_results(vec![entry("sub/deep.txt"), entry("b.txt")]);
@@ -1204,7 +1197,7 @@ mod tests {
         assert_eq!(names(&folder), ["..", "a.txt", "b.txt", "sub/deep.txt"]);
         assert_eq!(folder.entries()[1].hit_line, Some((3, "found".into())));
 
-        fs::remove_file(dir.0.join("b.txt")).unwrap();
+        fs::remove_file(dir.path().join("b.txt")).unwrap();
         folder.load().unwrap(); // drops vanished hits
         assert_eq!(names(&folder), ["..", "a.txt", "sub/deep.txt"]);
 
@@ -1212,22 +1205,22 @@ mod tests {
         folder.set_cursor(2);
         assert_eq!(folder.activate(), Ok(Activation::Entered));
         assert_eq!(folder.results(), None);
-        assert_eq!(folder.path(), dir.0.join("sub"));
+        assert_eq!(folder.path(), dir.path().join("sub"));
         assert_eq!(folder.current().unwrap().name, "deep.txt");
 
         // ".." / go up from results returns to the search root.
-        folder.show_results(dir.0.clone(), "again".into());
+        folder.show_results(dir.path().to_path_buf(), "again".into());
         folder.go_up().unwrap();
-        assert_eq!((folder.results(), folder.path()), (None, dir.0.as_path()));
+        assert_eq!((folder.results(), folder.path()), (None, dir.path()));
         assert_eq!(names(&folder), ["..", "sub", "a.txt"]);
     }
 
     #[test]
     fn missing_directory_falls_back_to_ancestor() {
-        let dir = TempDir::new("missing");
-        let mut folder = Folder::new(dir.0.join("gone").join("deeper"));
+        let dir = fixture();
+        let mut folder = Folder::new(dir.path().join("gone").join("deeper"));
         assert!(folder.load_or_ancestor().is_some());
-        assert_eq!(folder.path(), dir.0);
+        assert_eq!(folder.path(), dir.path());
     }
 
     fn zip_file(path: &Path) {
@@ -1247,8 +1240,8 @@ mod tests {
 
     #[test]
     fn browses_an_archive_like_a_directory() {
-        let dir = TempDir::new("archive");
-        let zip = dir.0.join("pack.zip");
+        let dir = fixture();
+        let zip = dir.path().join("pack.zip");
         zip_file(&zip);
         let mut folder = loaded(&dir);
         assert_eq!(folder.archive(), None);
@@ -1286,14 +1279,14 @@ mod tests {
         // Up again leaves the archive, cursor on it.
         folder.go_up().unwrap();
         assert_eq!(folder.archive(), None);
-        assert_eq!(folder.path(), dir.0);
+        assert_eq!(folder.path(), dir.path());
         assert_eq!(folder.current().unwrap().path, zip);
     }
 
     #[test]
     fn parent_row_leaves_the_archive_and_history_returns() {
-        let dir = TempDir::new("archive-back");
-        let zip = dir.0.join("pack.zip");
+        let dir = fixture();
+        let zip = dir.path().join("pack.zip");
         zip_file(&zip);
         let mut folder = loaded(&dir);
         folder.select_path(Some(&zip));
@@ -1316,8 +1309,8 @@ mod tests {
 
     #[test]
     fn archive_listing_honours_hidden_and_sort() {
-        let dir = TempDir::new("archive-sort");
-        let zip = dir.0.join("pack.zip");
+        let dir = fixture();
+        let zip = dir.path().join("pack.zip");
         {
             use std::io::Write;
             let mut z = zip::ZipWriter::new(fs::File::create(&zip).unwrap());
@@ -1344,17 +1337,17 @@ mod tests {
 
     #[test]
     fn broken_or_missing_archives_report_errors() {
-        let dir = TempDir::new("archive-bad");
-        let bad = dir.0.join("bad.zip");
+        let dir = fixture();
+        let bad = dir.path().join("bad.zip");
         fs::write(&bad, "not a zip").unwrap();
         let mut folder = loaded(&dir);
         folder.select_path(Some(&bad));
         assert!(folder.activate().is_err());
         assert_eq!(folder.archive(), None);
-        assert_eq!(folder.path(), dir.0);
+        assert_eq!(folder.path(), dir.path());
 
         // An archive that disappears falls back to its directory.
-        let zip = dir.0.join("pack.zip");
+        let zip = dir.path().join("pack.zip");
         zip_file(&zip);
         folder.load().unwrap();
         folder.select_path(Some(&zip));
@@ -1362,7 +1355,7 @@ mod tests {
         fs::remove_file(&zip).unwrap();
         folder.load_or_ancestor();
         assert_eq!(folder.archive(), None);
-        assert_eq!(folder.path(), dir.0);
+        assert_eq!(folder.path(), dir.path());
     }
 
     fn done(bytes: u64) -> DirSize {
@@ -1375,33 +1368,33 @@ mod tests {
 
     #[test]
     fn size_targets_follow_marks_cursor_and_parent() {
-        let dir = TempDir::new("size-targets");
-        fs::create_dir(dir.0.join("zdir")).unwrap();
+        let dir = fixture();
+        fs::create_dir(dir.path().join("zdir")).unwrap();
         let mut folder = loaded(&dir);
-        let all = vec![dir.0.join("sub"), dir.0.join("zdir")];
+        let all = vec![dir.path().join("sub"), dir.path().join("zdir")];
         // Cursor on "..": every listed directory.
         folder.set_cursor(0);
         assert_eq!(folder.size_targets(), all);
         // Cursor on a file: also every directory.
-        folder.select_path(Some(&dir.0.join("a.txt")));
+        folder.select_path(Some(&dir.path().join("a.txt")));
         assert_eq!(folder.size_targets(), all);
         // Cursor on a directory.
-        folder.select_path(Some(&dir.0.join("zdir")));
-        assert_eq!(folder.size_targets(), vec![dir.0.join("zdir")]);
+        folder.select_path(Some(&dir.path().join("zdir")));
+        assert_eq!(folder.size_targets(), vec![dir.path().join("zdir")]);
         // Marks win; marked files are ignored.
-        folder.select_path(Some(&dir.0.join("sub")));
+        folder.select_path(Some(&dir.path().join("sub")));
         folder.toggle_mark();
-        folder.select_path(Some(&dir.0.join("a.txt")));
+        folder.select_path(Some(&dir.path().join("a.txt")));
         folder.toggle_mark();
-        folder.select_path(Some(&dir.0.join("zdir")));
-        assert_eq!(folder.size_targets(), vec![dir.0.join("sub")]);
+        folder.select_path(Some(&dir.path().join("zdir")));
+        assert_eq!(folder.size_targets(), vec![dir.path().join("sub")]);
     }
 
     #[test]
     fn dir_sizes_are_cached_sorted_and_cleared() {
-        let dir = TempDir::new("size-cache");
-        fs::create_dir(dir.0.join("big")).unwrap();
-        let (sub, big) = (dir.0.join("sub"), dir.0.join("big"));
+        let dir = fixture();
+        fs::create_dir(dir.path().join("big")).unwrap();
+        let (sub, big) = (dir.path().join("sub"), dir.path().join("big"));
         let mut folder = loaded(&dir);
         folder.set_sort(Sort {
             key: SortKey::Size,
@@ -1411,9 +1404,9 @@ mod tests {
 
         folder.set_dir_size(&sub, done(9000));
         folder.set_dir_size(&big, done(10));
-        folder.set_dir_size(&dir.0.join("gone"), done(1)); // not listed: ignored
+        folder.set_dir_size(&dir.path().join("gone"), done(1)); // not listed: ignored
         assert_eq!(folder.dir_size(&sub), Some(&done(9000)));
-        assert_eq!(folder.dir_size(&dir.0.join("gone")), None);
+        assert_eq!(folder.dir_size(&dir.path().join("gone")), None);
         folder.resort_by_size();
         assert_eq!(names(&folder), ["..", "big", "sub", "a.txt", "b.txt"]);
         folder.set_dir_size(&big, done(99999));
@@ -1442,8 +1435,8 @@ mod tests {
 
     #[test]
     fn marked_total_skips_rows_inside_measured_marked_dirs() {
-        let dir = TempDir::new("size-tree");
-        let sub = dir.0.join("sub");
+        let dir = fixture();
+        let sub = dir.path().join("sub");
         fs::write(sub.join("inner.txt"), "12345").unwrap();
         let mut folder = loaded(&dir);
         folder.set_tree(true);
@@ -1459,14 +1452,14 @@ mod tests {
 
     #[test]
     fn marked_total_adds_files_and_known_dirs() {
-        let dir = TempDir::new("size-total");
+        let dir = fixture();
         let mut folder = loaded(&dir);
         folder.mark_all();
         let total = folder.marked_total();
         assert_eq!((total.bytes, total.unknown_dirs), (6, 1));
         assert_eq!(total.label(), "≥ 6 B (1 folder not measured)");
 
-        folder.set_dir_size(&dir.0.join("sub"), done(2048));
+        folder.set_dir_size(&dir.path().join("sub"), done(2048));
         let total = folder.marked_total();
         assert_eq!(
             (total.bytes, total.unknown_dirs, total.inexact),
@@ -1475,7 +1468,7 @@ mod tests {
         assert_eq!(total.label(), "2.0 K");
 
         folder.set_dir_size(
-            &dir.0.join("sub"),
+            &dir.path().join("sub"),
             DirSize {
                 errors: 1,
                 ..done(2048)
@@ -1484,7 +1477,7 @@ mod tests {
         assert_eq!(folder.marked_total().label(), "≥ 2.0 K");
         folder.cancel_running_sizes();
         folder.set_dir_size(
-            &dir.0.join("sub"),
+            &dir.path().join("sub"),
             DirSize {
                 state: crate::dirsize::ScanState::Scanning,
                 ..done(5)
@@ -1492,7 +1485,7 @@ mod tests {
         );
         folder.cancel_running_sizes();
         assert_eq!(
-            folder.dir_size(&dir.0.join("sub")).map(|s| s.state),
+            folder.dir_size(&dir.path().join("sub")).map(|s| s.state),
             Some(crate::dirsize::ScanState::Cancelled)
         );
     }

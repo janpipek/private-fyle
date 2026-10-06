@@ -197,9 +197,9 @@ mod tests {
     use super::*;
     use std::fs;
 
-    fn tree(name: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!("fyle-search-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
+    fn tree() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
         for (path, text) in [
             ("src/main.rs", "fn main() {\n    println!(\"Hello\");\n}\n"),
             ("src/lib.rs", "pub fn hello() {}\n"),
@@ -213,7 +213,7 @@ mod tests {
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(path, text).unwrap();
         }
-        root
+        dir
     }
 
     fn names(query: &Query) -> Vec<String> {
@@ -239,15 +239,16 @@ mod tests {
 
     #[test]
     fn finds_by_name_respecting_gitignore_and_hidden() {
-        let root = tree("names");
+        let tmp = tree();
+        let root = tmp.path();
         assert_eq!(
-            names(&query(&root, "*.rs", "")),
+            names(&query(root, "*.rs", "")),
             ["src/lib.rs", "src/main.rs"]
         );
-        assert_eq!(names(&query(&root, "MAIN", "")), ["src/main.rs"]);
-        assert_eq!(names(&query(&root, "src", "")), ["src"]); // directories too
+        assert_eq!(names(&query(root, "MAIN", "")), ["src/main.rs"]);
+        assert_eq!(names(&query(root, "src", "")), ["src"]); // directories too
 
-        let mut all = query(&root, "*.rs", "");
+        let mut all = query(root, "*.rs", "");
         all.hidden = true;
         all.ignore_files = false;
         assert_eq!(
@@ -259,14 +260,14 @@ mod tests {
                 "target/debug/out.rs"
             ]
         );
-        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
     fn searches_contents_with_smart_case() {
-        let root = tree("content");
+        let tmp = tree();
+        let root = tmp.path();
         let mut hits = Vec::new();
-        run(&query(&root, "", "hello"), &AtomicBool::new(false), |h| {
+        run(&query(root, "", "hello"), &AtomicBool::new(false), |h| {
             hits.push(h)
         })
         .unwrap();
@@ -283,30 +284,29 @@ mod tests {
         assert_eq!(hits[2].line.as_ref().unwrap().1, "    println!(\"Hello\");");
 
         // Capitals make it case-sensitive; name and content combine.
-        assert_eq!(names(&query(&root, "*.rs", "Hello")), ["src/main.rs"]);
-        fs::remove_dir_all(&root).unwrap();
+        assert_eq!(names(&query(root, "*.rs", "Hello")), ["src/main.rs"]);
     }
 
     #[test]
     fn searches_contents_by_regex() {
-        let root = tree("regex");
+        let tmp = tree();
+        let root = tmp.path();
         let pattern = r"fn \w+\(\)";
-        assert!(names(&query(&root, "", pattern)).is_empty()); // literal
-        let mut regex = query(&root, "", pattern);
+        assert!(names(&query(root, "", pattern)).is_empty()); // literal
+        let mut regex = query(root, "", pattern);
         regex.regex = true;
         assert_eq!(names(&regex), ["src/lib.rs", "src/main.rs"]);
         regex.content = "(".into();
         assert!(run(&regex, &AtomicBool::new(false), |_| {}).is_err());
-        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
     fn cancels_and_reports_bad_patterns() {
-        let root = tree("cancel");
-        let summary = run(&query(&root, "", ""), &AtomicBool::new(true), |_| {}).unwrap();
+        let tmp = tree();
+        let root = tmp.path();
+        let summary = run(&query(root, "", ""), &AtomicBool::new(true), |_| {}).unwrap();
         assert!(summary.cancelled);
         assert_eq!(summary.hits, 0);
-        assert!(run(&query(&root, "[", ""), &AtomicBool::new(false), |_| {}).is_err());
-        fs::remove_dir_all(&root).unwrap();
+        assert!(run(&query(root, "[", ""), &AtomicBool::new(false), |_| {}).is_err());
     }
 }

@@ -123,37 +123,10 @@ mod tests {
     use std::fs;
     use std::os::unix::fs::symlink;
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    /// A scratch directory removed on drop (the crate has no `tempfile`).
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn new() -> Self {
-            static N: AtomicUsize = AtomicUsize::new(0);
-            let path = std::env::temp_dir().join(format!(
-                "fyle-links-{}-{}",
-                std::process::id(),
-                N.fetch_add(1, Ordering::Relaxed)
-            ));
-            let _ = fs::remove_dir_all(&path);
-            fs::create_dir_all(&path).unwrap();
-            Self(path)
-        }
-
-        fn path(&self) -> &Path {
-            &self.0
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
+    use tempfile::TempDir;
 
     fn dir() -> TempDir {
-        let dir = TempDir::new();
+        let dir = TempDir::new().unwrap();
         fs::create_dir(dir.path().join("real")).unwrap();
         fs::write(dir.path().join("real/file.rs"), "x").unwrap();
         dir

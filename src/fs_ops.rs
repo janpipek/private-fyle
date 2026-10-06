@@ -541,8 +541,8 @@ mod tests {
 
     #[test]
     fn copy_move_delete_tree() {
-        let base = std::env::temp_dir().join(format!("fyle-test-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&base);
+        let tmp = tempfile::tempdir().unwrap();
+        let base = tmp.path().to_path_buf();
         fs::create_dir_all(base.join("a").join("sub")).unwrap();
         fs::write(base.join("a").join("sub").join("f.txt"), "hi").unwrap();
 
@@ -563,6 +563,5 @@ mod tests {
 
         delete(&base.join("c")).unwrap();
         assert!(!base.join("c").exists());
-        fs::remove_dir_all(&base).unwrap();
     }
 }

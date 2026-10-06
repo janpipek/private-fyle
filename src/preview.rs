@@ -359,37 +359,27 @@ fn prune_cache(keep: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
-    struct TempDir(PathBuf);
-
-    impl TempDir {
-        fn new(name: &str) -> Self {
-            let dir =
-                std::env::temp_dir().join(format!("fyle-preview-{name}-{}", std::process::id()));
-            let _ = fs::remove_dir_all(&dir);
-            fs::create_dir_all(dir.join("sub")).unwrap();
-            Self(dir)
-        }
-
-        fn file(&self, name: &str, data: &[u8]) -> PathBuf {
-            let path = self.0.join(name);
-            fs::write(&path, data).unwrap();
-            path
-        }
+    /// A scratch folder with an empty `sub/`.
+    fn fixture() -> TempDir {
+        let dir = TempDir::new().unwrap();
+        fs::create_dir_all(dir.path().join("sub")).unwrap();
+        dir
     }
 
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
+    fn file(dir: &TempDir, name: &str, data: &[u8]) -> PathBuf {
+        let path = dir.path().join(name);
+        fs::write(&path, data).unwrap();
+        path
     }
 
     #[test]
     fn picks_previewer_by_type() {
-        let dir = TempDir::new("types");
+        let dir = fixture();
         let registry = Registry::with_defaults();
 
-        let rs = dir.file("main.rs", b"fn main() {}\n");
+        let rs = file(&dir, "main.rs", b"fn main() {}\n");
         let preview = registry.preview(&rs).unwrap();
         assert_eq!(preview.kind, "Text");
         assert_eq!(
@@ -401,10 +391,10 @@ mod tests {
             }
         );
 
-        let png = dir.file("pic.PNG", b"\x89PNG\r\n\x1a\n");
+        let png = file(&dir, "pic.PNG", b"\x89PNG\r\n\x1a\n");
         assert_eq!(registry.preview(&png).unwrap().kind, "Image");
 
-        let bin = dir.file("blob", &[0, 1, 2, b'A']);
+        let bin = file(&dir, "blob", &[0, 1, 2, b'A']);
         let preview = registry.preview(&bin).unwrap();
         assert_eq!(preview.kind, "Binary");
         let Content::Binary { dump, truncated } = preview.content else {
@@ -414,7 +404,7 @@ mod tests {
         assert!(dump.starts_with("00000000  00 01 02 41"), "{dump}");
         assert!(dump.ends_with("|...A|"), "{dump}");
 
-        let preview = registry.preview(&dir.0).unwrap();
+        let preview = registry.preview(dir.path()).unwrap();
         assert_eq!(
             preview.content,
             Content::Directory {
@@ -424,7 +414,7 @@ mod tests {
             }
         );
 
-        assert!(registry.preview(&dir.0.join("missing")).is_err());
+        assert!(registry.preview(&dir.path().join("missing")).is_err());
     }
 
     #[test]
@@ -446,8 +436,8 @@ mod tests {
             }
         }
 
-        let dir = TempDir::new("custom");
-        let csv = dir.file("data.csv", b"a,b\n");
+        let dir = fixture();
+        let csv = file(&dir, "data.csv", b"a,b\n");
         let mut registry = Registry::default();
         registry.register(Csv);
         registry.register(TextPreviewer);
@@ -456,10 +446,10 @@ mod tests {
 
     #[test]
     fn markdown_tables_and_archives() {
-        let dir = TempDir::new("rich");
+        let dir = fixture();
         let registry = Registry::with_defaults();
 
-        let md = dir.file("README.md", b"# Title\n");
+        let md = file(&dir, "README.md", b"# Title\n");
         assert_eq!(
             registry.preview(&md).unwrap().content,
             Content::Markdown {
@@ -467,7 +457,7 @@ mod tests {
             }
         );
 
-        let csv = dir.file("data.csv", b"name,qty\n\"Bolt, M3\",10\nNut,5\n");
+        let csv = file(&dir, "data.csv", b"name,qty\n\"Bolt, M3\",10\nNut,5\n");
         let Content::Table {
             header,
             rows,
@@ -481,7 +471,7 @@ mod tests {
         assert!(!truncated);
 
         // A tar.gz with one file, built with the same crates.
-        let path = dir.0.join("a.tar.gz");
+        let path = dir.path().join("a.tar.gz");
         {
             let gz = flate2::write::GzEncoder::new(
                 fs::File::create(&path).unwrap(),
@@ -532,8 +522,8 @@ mod tests {
     #[test]
     fn previews_entries_inside_an_archive() {
         use std::io::Write;
-        let dir = TempDir::new("archive-entry");
-        let zip_path = dir.0.join("pack.zip");
+        let dir = fixture();
+        let zip_path = dir.path().join("pack.zip");
         let mut zip = zip::ZipWriter::new(File::create(&zip_path).unwrap());
         let opts = zip::write::SimpleFileOptions::default();
         zip.start_file("src/main.rs", opts).unwrap();

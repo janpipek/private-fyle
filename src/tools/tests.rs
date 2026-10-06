@@ -3,39 +3,24 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use tempfile::TempDir;
+
 use super::builtin::{GalleryJob, parse_summary};
 use super::detect::{detect, remote_url, web_url};
 use super::*;
 
-struct TempDir(PathBuf);
-
-impl TempDir {
-    fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!("fyle-tools-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        Self(dir)
-    }
-
-    fn file(&self, rel: &str, text: &str) -> PathBuf {
-        let path = self.0.join(rel);
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, text).unwrap();
-        path
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
+fn file(dir: &TempDir, rel: &str, text: &str) -> PathBuf {
+    let path = dir.path().join(rel);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, text).unwrap();
+    path
 }
 
 /// A search path with fake executables of the given names.
 #[cfg(unix)]
 fn fake_programs(dir: &TempDir, names: &[&str]) -> Programs {
     use std::os::unix::fs::PermissionsExt;
-    let bin = dir.0.join("bin");
+    let bin = dir.path().join("bin");
     fs::create_dir_all(&bin).unwrap();
     for name in names {
         let path = bin.join(name);
@@ -103,18 +88,19 @@ fn origin_wins_over_other_remotes() {
 
 #[test]
 fn detects_enclosing_projects_and_target_dirs() {
-    let tmp = TempDir::new("detect");
-    tmp.file(
+    let tmp = TempDir::new().unwrap();
+    file(
+        &tmp,
         ".git/config",
         "[remote \"origin\"]\n\turl = git@github.com:o/r.git\n",
     );
-    tmp.file("pyproject.toml", "[project]\nname = \"x\"\n");
-    tmp.file("uv.lock", "");
-    tmp.file("justfile", "build:\n");
-    tmp.file("src/pkg/mod.py", "");
-    tmp.file("vendor/lib/Cargo.toml", "");
+    file(&tmp, "pyproject.toml", "[project]\nname = \"x\"\n");
+    file(&tmp, "uv.lock", "");
+    file(&tmp, "justfile", "build:\n");
+    file(&tmp, "src/pkg/mod.py", "");
+    file(&tmp, "vendor/lib/Cargo.toml", "");
 
-    let context = ctx(&tmp.0.join("src/pkg"), &[("mod.py", false)]);
+    let context = ctx(&tmp.path().join("src/pkg"), &[("mod.py", false)]);
     let facts = detect(&context);
     let kinds: Vec<_> = facts.dir.iter().map(Facet::kind).collect();
     assert_eq!(
@@ -129,28 +115,28 @@ fn detects_enclosing_projects_and_target_dirs() {
     assert_eq!(
         facts.dir_facet(FacetKind::GitRepo),
         Some(&Facet::GitRepo {
-            root: tmp.0.clone(),
+            root: tmp.path().to_path_buf(),
             web_url: Some("https://github.com/o/r".into())
         })
     );
     assert_eq!(facts.targets, [vec![]]);
 
     // A directory target gets its own facets, without walking up.
-    let context = ctx(&tmp.0.join("vendor"), &[("lib", true)]);
+    let context = ctx(&tmp.path().join("vendor"), &[("lib", true)]);
     let facts = detect(&context);
     assert_eq!(
         facts.targets,
         [vec![Facet::CargoProject {
-            root: tmp.0.join("vendor/lib")
+            root: tmp.path().join("vendor/lib")
         }]]
     );
 }
 
 #[test]
 fn uv_detected_from_pyproject_section() {
-    let tmp = TempDir::new("uv");
-    tmp.file("pyproject.toml", "[tool.uv]\ndev-dependencies = []\n");
-    let facts = detect(&ctx(&tmp.0, &[]));
+    let tmp = TempDir::new().unwrap();
+    file(&tmp, "pyproject.toml", "[tool.uv]\ndev-dependencies = []\n");
+    let facts = detect(&ctx(tmp.path(), &[]));
     assert!(facts.dir_facet(FacetKind::UvProject).is_some());
 }
 
@@ -169,11 +155,11 @@ fn parses_requirements() {
 #[cfg(unix)]
 #[test]
 fn resolves_alternatives_and_reports_missing() {
-    let tmp = TempDir::new("programs");
+    let tmp = TempDir::new().unwrap();
     let programs = fake_programs(&tmp, &["convert"]);
     let magick = Requirement::parse("magick|convert (ImageMagick)").unwrap();
     let resolved = programs.resolve(std::slice::from_ref(&magick)).unwrap();
-    assert_eq!(resolved["magick"], tmp.0.join("bin/convert"));
+    assert_eq!(resolved["magick"], tmp.path().join("bin/convert"));
 
     let missing = programs.resolve(&[magick, Requirement::parse("ruff").unwrap()]);
     assert_eq!(missing, Err(vec!["ruff".to_string()]));
@@ -184,7 +170,7 @@ fn resolves_alternatives_and_reports_missing() {
 #[cfg(unix)]
 #[test]
 fn offers_depend_on_targets_and_programs() {
-    let tmp = TempDir::new("offers");
+    let tmp = TempDir::new().unwrap();
     let registry = Registry::with_defaults();
     let programs = fake_programs(&tmp, &["magick", "zip"]);
     let ids = |context: &ToolContext| {
@@ -195,7 +181,7 @@ fn offers_depend_on_targets_and_programs() {
             .collect::<Vec<_>>()
     };
 
-    let one_image = ctx(&tmp.0, &[("a.png", false)]);
+    let one_image = ctx(tmp.path(), &[("a.png", false)]);
     assert_eq!(
         ids(&one_image),
         [
@@ -205,7 +191,7 @@ fn offers_depend_on_targets_and_programs() {
         ]
     );
 
-    let two_images = ctx(&tmp.0, &[("a.png", false), ("b.JPG", false)]);
+    let two_images = ctx(tmp.path(), &[("a.png", false), ("b.JPG", false)]);
     let offered: Vec<_> = ids(&two_images).into_iter().map(|(id, _)| id).collect();
     assert_eq!(
         offered,
@@ -218,31 +204,31 @@ fn offers_depend_on_targets_and_programs() {
     );
 
     // Mixed selection: only generic tools.
-    let mixed = ctx(&tmp.0, &[("a.png", false), ("x.py", false)]);
+    let mixed = ctx(tmp.path(), &[("a.png", false), ("x.py", false)]);
     assert_eq!(ids(&mixed), [("selection.zip".into(), vec![])]);
 
     // Python file with ruff missing: offered but disabled.
-    let py = ctx(&tmp.0, &[("x.py", false)]);
+    let py = ctx(tmp.path(), &[("x.py", false)]);
     assert_eq!(
         ids(&py)[0],
         ("python.ruff_check".into(), vec!["ruff".to_string()])
     );
 
     // A directory target: zip (entries = any) but no file tools.
-    let dir = ctx(&tmp.0, &[("folder", true)]);
+    let dir = ctx(tmp.path(), &[("folder", true)]);
     assert_eq!(ids(&dir), [("selection.zip".into(), vec![])]);
 }
 
 #[cfg(unix)]
 #[test]
 fn directory_scope_tools_follow_the_panel_directory() {
-    let tmp = TempDir::new("dirscope");
-    tmp.file("pyproject.toml", "");
-    tmp.file("uv.lock", "");
-    tmp.file("justfile", "");
+    let tmp = TempDir::new().unwrap();
+    file(&tmp, "pyproject.toml", "");
+    file(&tmp, "uv.lock", "");
+    file(&tmp, "justfile", "");
     let registry = Registry::with_defaults();
     let programs = fake_programs(&tmp, &["uv"]);
-    let context = ctx(&tmp.0, &[]); // nothing under the cursor
+    let context = ctx(tmp.path(), &[]); // nothing under the cursor
     let offers = registry.offers(&context, &detect(&context), &programs);
     let summary: Vec<_> = offers
         .iter()
@@ -265,10 +251,10 @@ fn directory_scope_tools_follow_the_panel_directory() {
 #[cfg(unix)]
 #[test]
 fn plans_one_command_per_target_with_params() {
-    let tmp = TempDir::new("plan");
+    let tmp = TempDir::new().unwrap();
     let registry = Registry::with_defaults();
     let programs = fake_programs(&tmp, &["convert"]);
-    let context = ctx(&tmp.0, &[("a.png", false), ("photos/b.jpg", false)]);
+    let context = ctx(tmp.path(), &[("a.png", false), ("photos/b.jpg", false)]);
     let facts = detect(&context);
 
     let action = registry
@@ -280,12 +266,12 @@ fn plans_one_command_per_target_with_params() {
     let Action::Run(first) = &commands[0] else {
         panic!()
     };
-    assert_eq!(first.program, tmp.0.join("bin/convert")); // the alternative
+    assert_eq!(first.program, tmp.path().join("bin/convert")); // the alternative
     assert_eq!(
         first.args,
         [
-            tmp.0.join("a.png").display().to_string(),
-            format!("{}/a.webp", tmp.0.display()) // default parameter
+            tmp.path().join("a.png").display().to_string(),
+            format!("{}/a.webp", tmp.path().display()) // default parameter
         ]
     );
     assert!(first.refresh);
@@ -299,17 +285,17 @@ fn plans_one_command_per_target_with_params() {
     };
     assert_eq!(
         args(&commands[1])[1],
-        format!("{}/photos/b.png", tmp.0.display())
+        format!("{}/photos/b.png", tmp.path().display())
     );
 }
 
 #[cfg(unix)]
 #[test]
 fn list_placeholders_expand_to_separate_arguments() {
-    let tmp = TempDir::new("zip");
+    let tmp = TempDir::new().unwrap();
     let registry = Registry::with_defaults();
     let programs = fake_programs(&tmp, &["zip"]);
-    let context = ctx(&tmp.0, &[("a b.txt", false), ("dir", true)]);
+    let context = ctx(tmp.path(), &[("a b.txt", false), ("dir", true)]);
     let action = registry
         .plan(
             "selection.zip",
@@ -328,10 +314,10 @@ fn list_placeholders_expand_to_separate_arguments() {
 #[cfg(unix)]
 #[test]
 fn planning_refuses_missing_programs_and_wrong_context() {
-    let tmp = TempDir::new("refuse");
+    let tmp = TempDir::new().unwrap();
     let registry = Registry::with_defaults();
     let programs = fake_programs(&tmp, &[]);
-    let context = ctx(&tmp.0, &[("x.py", false)]);
+    let context = ctx(tmp.path(), &[("x.py", false)]);
     let facts = detect(&context);
     let plan = |id| registry.plan(id, &context, &facts, &programs, &Values::new());
     assert_eq!(plan("python.ruff_check").unwrap_err(), "Requires ruff");
@@ -454,15 +440,15 @@ fn runs_commands_and_reports_failures() {
     let error = exec::run(spec("echo boom >&2; exit 3", Output::Status)).unwrap_err();
     assert!(error.contains("boom"), "{error}");
 
-    let tmp = TempDir::new("exec");
+    let tmp = TempDir::new().unwrap();
     let job = GalleryJob {
         title: "t".into(),
         images: vec!["a.png".into()],
-        output: tmp.0.join("gallery.html"),
+        output: tmp.path().join("gallery.html"),
     };
     let report = exec::run(Action::Native(Box::new(job))).unwrap();
     assert!(report.summary.starts_with("Created"));
-    assert!(tmp.0.join("gallery.html").is_file());
+    assert!(tmp.path().join("gallery.html").is_file());
 }
 
 #[test]
@@ -519,7 +505,7 @@ return {
 #[cfg(unix)]
 #[test]
 fn lua_plugins_define_tools() {
-    let tmp = TempDir::new("lua");
+    let tmp = TempDir::new().unwrap();
     let mut registry = Registry::default();
     for tool in lua::load("test.lua", PLUGIN).unwrap() {
         registry.register(Box::new(tool));
@@ -532,9 +518,9 @@ fn lua_plugins_define_tools() {
             .map(|o| o.id)
             .collect::<Vec<_>>()
     };
-    let md = ctx(&tmp.0, &[("notes.md", false)]);
+    let md = ctx(tmp.path(), &[("notes.md", false)]);
     assert_eq!(ids(&md), ["md.pdf", "where"]);
-    assert_eq!(ids(&ctx(&tmp.0, &[("a.txt", false)])), ["where"]); // applies
+    assert_eq!(ids(&ctx(tmp.path(), &[("a.txt", false)])), ["where"]); // applies
 
     let tool = registry.tool("md.pdf").unwrap();
     assert_eq!(tool.group(), "Markdown");
@@ -547,8 +533,8 @@ fn lua_plugins_define_tools() {
     else {
         panic!("expected Run");
     };
-    assert_eq!(spec.program, tmp.0.join("bin/pandoc"));
-    let parent = tmp.0.display();
+    assert_eq!(spec.program, tmp.path().join("bin/pandoc"));
+    let parent = tmp.path().display();
     assert_eq!(
         spec.args,
         [
@@ -560,7 +546,7 @@ fn lua_plugins_define_tools() {
     );
     assert_eq!(
         (spec.output, spec.refresh, spec.cwd.clone()),
-        (Output::Log, true, tmp.0.clone())
+        (Output::Log, true, tmp.path().to_path_buf())
     );
 
     let action = registry
@@ -616,23 +602,25 @@ fn lua_plugin_errors_are_reported() {
 
 #[test]
 fn lua_plugins_load_from_a_directory() {
-    let tmp = TempDir::new("luadir");
-    tmp.file(
+    let tmp = TempDir::new().unwrap();
+    file(
+        &tmp,
         "b.lua",
         "return { { id = 'b', group = 'g', label = 'B', plan = function() end } }",
     );
-    tmp.file(
+    file(
+        &tmp,
         "a.lua",
         "return { { id = 'a', group = 'g', label = 'A', plan = function() end } }",
     );
-    tmp.file("broken.lua", "this is not lua");
-    tmp.file("notes.txt", "ignored");
-    let (tools, errors) = lua::load_dir(&tmp.0);
+    file(&tmp, "broken.lua", "this is not lua");
+    file(&tmp, "notes.txt", "ignored");
+    let (tools, errors) = lua::load_dir(tmp.path());
     let ids: Vec<_> = tools.iter().map(|t| t.id().to_string()).collect();
     assert_eq!(ids, ["a", "b"]);
     assert_eq!(errors.len(), 1);
     assert!(errors[0].starts_with("broken.lua:"));
-    assert!(lua::load_dir(&tmp.0.join("missing")).0.is_empty());
+    assert!(lua::load_dir(&tmp.path().join("missing")).0.is_empty());
 }
 
 #[test]
