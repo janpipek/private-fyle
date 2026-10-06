@@ -243,6 +243,8 @@ pub struct Commander {
     programs: Arc<Programs>,
     /// Planning or running a tool in the background.
     _tool_task: Task<()>,
+    /// Saves the zoomed font size once zooming pauses.
+    _zoom_save: Task<()>,
     openers: Vec<crate::openers::Opener>,
     /// Entries waiting to be pasted.
     yank: Option<Yank>,
@@ -299,6 +301,7 @@ impl Commander {
     ) -> Self {
         let mut status: SharedString =
             "Tab: switch panel · Enter: open · Backspace: up · Space/Insert: mark".into();
+        set_font_size(cx, |_| zoom::clamp(settings.font_size));
         let panels = &settings.panels;
         let folders = [left, right].map(|path| {
             let mut folder =
@@ -350,6 +353,7 @@ impl Commander {
             tools: Arc::new(tools_registry),
             programs: Arc::new(Programs::from_env()),
             _tool_task: Task::ready(()),
+            _zoom_save: Task::ready(()),
             yank: None,
             yank_generation: 0,
             menu_bar: MenuBar::new(cx),
@@ -1626,15 +1630,32 @@ impl Commander {
     }
 
     fn zoom_in(&mut self, _: &ZoomIn, _: &mut Window, cx: &mut Context<Self>) {
-        set_font_size(cx, |size| zoom::step(size, 1));
+        self.zoom(cx, |size| zoom::step(size, 1));
     }
 
     fn zoom_out(&mut self, _: &ZoomOut, _: &mut Window, cx: &mut Context<Self>) {
-        set_font_size(cx, |size| zoom::step(size, -1));
+        self.zoom(cx, |size| zoom::step(size, -1));
     }
 
     fn zoom_reset(&mut self, _: &ZoomReset, _: &mut Window, cx: &mut Context<Self>) {
-        set_font_size(cx, |_| zoom::DEFAULT);
+        self.zoom(cx, |_| zoom::DEFAULT);
+    }
+
+    /// Changes the font size and saves it to `config.toml` once zooming
+    /// pauses, so a burst of Ctrl-wheel steps writes the file once.
+    fn zoom(&mut self, cx: &mut Context<Self>, f: impl FnOnce(f32) -> f32) {
+        let size = set_font_size(cx, f);
+        self._zoom_save = cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(500))
+                .await;
+            if let Err(e) = settings::save_font_size(size) {
+                let _ = this.update(cx, |this, cx| {
+                    this.status = e.into();
+                    cx.notify();
+                });
+            }
+        });
     }
 
     /// F4: edits the cursor file in place of the inactive panel.
@@ -2543,7 +2564,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::zoom_out))
             .on_action(cx.listener(Self::zoom_reset))
             .on_action(cx.listener(Self::quit))
-            .on_scroll_wheel(cx.listener(|_, event: &ScrollWheelEvent, _, cx| {
+            .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, cx| {
                 // Ctrl-wheel zooms like Ctrl-+ / Ctrl--.
                 if event.modifiers.control || event.modifiers.platform {
                     let dy = match event.delta {
@@ -2552,7 +2573,7 @@ impl Render for Commander {
                     };
                     if dy != 0.0 {
                         let steps = if dy > 0.0 { 1 } else { -1 };
-                        set_font_size(cx, |size| zoom::step(size, steps));
+                        this.zoom(cx, |size| zoom::step(size, steps));
                     }
                 }
             }))
@@ -2768,13 +2789,14 @@ fn tool_menu_footer(mut menu: PopupMenu, state: &menus::State) -> PopupMenu {
 
 /// Built-in tools plus the user's `<config dir>/fyle/tools.toml`.
 /// The gpui action behind a [`Cmd`].
-/// Zooms the UI by changing the theme's font sizes.
-fn set_font_size(cx: &mut App, f: impl FnOnce(f32) -> f32) {
+/// Zooms the UI by changing the theme's font sizes; returns the new size.
+fn set_font_size(cx: &mut App, f: impl FnOnce(f32) -> f32) -> f32 {
+    let size = f(f32::from(cx.theme().font_size));
     Theme::update(cx, |theme| {
-        let size = f(f32::from(theme.font_size));
         theme.font_size = px(size);
         theme.mono_font_size = px(zoom::mono(size));
     });
+    size
 }
 
 fn action_for(cmd: Cmd) -> Box<dyn Action> {

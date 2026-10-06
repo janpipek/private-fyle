@@ -64,8 +64,9 @@ Done (details in `TODO.md` under "Done"):
   Replace, Keep both, Merge; apply to remaining; cancel). Model in
   `transfer.rs`, dialog in `commander.rs` with `conflict_view.rs`. A cut
   is restored to the yank if its paste left sources behind.
-- **Layout:** zoom changes the theme font sizes (`zoom.rs`; not saved
-  across restarts). The panel divider drags (15–85 %), double-click resets.
+- **Layout:** zoom changes the theme font sizes (`zoom.rs`) and is saved as
+  `font_size` half a second after the last step. The panel divider drags
+  (15–85 %), double-click resets.
 - **Commands and appearance:** Ctrl-P command palette, F1 help, a
   configurable keymap. F2 tools (TOML, built-in and Lua plugins) and openers
   (Shift-Enter). A theme picker with live preview.

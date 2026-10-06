@@ -20,6 +20,8 @@ pub struct Settings {
     pub show_hidden: bool,
     /// "system", "light", "dark", or the name of a bundled or user theme.
     pub theme: String,
+    /// UI font size in pixels; zooming (Ctrl-+ / Ctrl--) saves it.
+    pub font_size: f32,
     /// Directories offered first in Go to (Ctrl-G); Ctrl-D adds one.
     pub bookmarks: Vec<PathBuf>,
     /// Programs opening files (Enter uses the first match; Shift-Enter lists all).
@@ -119,6 +121,7 @@ impl Default for Settings {
         Self {
             show_hidden: false,
             theme: "system".into(),
+            font_size: crate::zoom::DEFAULT,
             bookmarks: Vec::new(),
             keymap: Vec::new(),
             openers: Vec::new(),
@@ -220,6 +223,29 @@ pub fn save_theme_to(path: &Path, name: &str) -> Result<(), String> {
     };
     let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| error(&e))?;
     doc["theme"] = toml_edit::value(name);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| error(&e))?;
+    }
+    std::fs::write(path, doc.to_string()).map_err(|e| error(&e))
+}
+
+/// Writes `font_size = <size>` into the settings file, keeping the rest of
+/// the file intact. Creates the file if needed.
+pub fn save_font_size(size: f32) -> Result<PathBuf, String> {
+    let path = Settings::path().ok_or("No config directory on this platform")?;
+    save_font_size_to(&path, size)?;
+    Ok(path)
+}
+
+pub fn save_font_size_to(path: &Path, size: f32) -> Result<(), String> {
+    let error = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(error(&e)),
+    };
+    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| error(&e))?;
+    doc["font_size"] = toml_edit::value(f64::from(size));
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| error(&e))?;
     }
@@ -410,6 +436,22 @@ mod tests {
         let settings = Settings::parse(&text).unwrap();
         assert_eq!(settings.theme, "Tokyo Night");
         assert!(settings.show_hidden);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn save_font_size_keeps_other_keys() {
+        let dir = std::env::temp_dir().join(format!("fyle-font-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("config.toml");
+        save_font_size_to(&path, 17.5).unwrap(); // no file yet
+        assert_eq!(Settings::load_from(&path).0.font_size, 17.5);
+
+        std::fs::write(&path, "theme = \"dark\" # mine\nfont_size = 16\n").unwrap();
+        save_font_size_to(&path, 13.0).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("theme = \"dark\" # mine"), "{text}");
+        assert_eq!(Settings::parse(&text).unwrap().font_size, 13.0);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

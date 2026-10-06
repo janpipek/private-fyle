@@ -66,7 +66,7 @@
 
 - [x] Copy/move/paste conflict resolution: Skip, Replace, Keep both, Merge
       (directories), apply to remaining, cancel; details of both entries.
-- [x] Zoom (Ctrl-+/-/0, Ctrl-wheel; View menu) and a draggable panel divider.
+- [x] Zoom (Ctrl-+/-/0, Ctrl-wheel; View menu), saved as `font_size`, and a draggable panel divider.
 - [x] Right-click file actions in either panel, sharing command labels,
       availability and shortcuts with the menu bar; preserve marks when
       clicking a marked entry.

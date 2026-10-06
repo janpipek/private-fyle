@@ -11,6 +11,9 @@ show_hidden = false
 # Bundled themes: see themes/README.md. Extra themes: put gpui-component
 # theme files (*.json) into the "themes" folder next to this file.
 theme = "system"
+# UI font size in pixels (8-36). Zoom (Ctrl-+ / Ctrl-- / Ctrl-0, Ctrl-wheel)
+# changes and saves it.
+font_size = 16.0
 
 # Directories listed first in Go to (Ctrl-G); Ctrl-D adds the current one.
 bookmarks = []
