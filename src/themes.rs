@@ -198,7 +198,8 @@ mod tests {
             }
         }
         assert!(names.contains("tokyo night"));
-        assert_eq!(BUNDLED.len(), 21);
+        assert_eq!(BUNDLED.len(), 7);
+        assert_eq!(names.len(), 17);
     }
 
     #[test]
