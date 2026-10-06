@@ -118,7 +118,8 @@ entries open as submenus, and "Search Locations…" (Ctrl-G) opens the same
 places as a searchable list. Volumes are limited to the root, `/home`,
 removable media (`/media`, `/run/media`), `/mnt` and network shares, so
 snaps and system mounts stay out. The adjacent buttons edit or copy the full
-path. Long breadcrumbs scroll with
+path. Button tooltips show the panel's configured keyboard shortcuts in both
+list and icon view. Long breadcrumbs scroll with
 the current segment kept at the visible end. Archive files are labelled
 `[archive]`, and their internal path uses indented segments.
 

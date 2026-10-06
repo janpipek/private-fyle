@@ -33,6 +33,9 @@
 
 ## Done
 
+- [x] Fix address-bar button crashes: resolve tooltip shortcuts from the
+      panel's focus handle, avoiding recursive key-context parsing; select
+      the edited path outside the panel update so redraws cannot reborrow it.
 - [x] Icon view, stage 2 (`thumbnails.rs`, `thumb_queue.rs`): image cells
       show thumbnails from the shared freedesktop cache (generated in the
       background, 3 at a time, visible rows plus one, 300 kept in memory;

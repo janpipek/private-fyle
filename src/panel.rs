@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::kbd::Kbd;
 use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::table::{
     Column, ColumnSort, DataTable, TableDelegate, TableEvent, TableState,
@@ -354,10 +355,15 @@ impl FolderView {
                 }),
             );
         input.update(cx, |input, cx| input.focus(window, cx));
+        let focus = input.focus_handle(cx);
         self.location_input = Some(input);
         cx.notify();
-        cx.on_next_frame(window, |_, window, cx| {
-            if let Ok(key) = Keystroke::parse("secondary-a") {
+        // Dispatch may redraw the window, so do not hold FolderView's entity
+        // lease via Context::on_next_frame while selecting the input text.
+        window.on_next_frame(move |window, cx| {
+            if focus.is_focused(window)
+                && let Ok(key) = Keystroke::parse("secondary-a")
+            {
                 window.dispatch_keystroke(key, cx);
             }
         });
@@ -418,7 +424,25 @@ impl FolderView {
 }
 
 impl Render for FolderView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let focus = self.focus_handle(cx);
+        // Tooltip action contexts accept a single KeyContext, not predicates
+        // such as "Commander > DataTable" (GPUI 0.7 recurses forever on '>').
+        // Resolve against this panel so inactive panels and icon view work too.
+        let header_tooltip = |text: String, action: &dyn Action| match window
+            .highest_precedence_binding_for_action_in(action, &focus)
+        {
+            Some(binding) => {
+                let keys = binding
+                    .keystrokes()
+                    .iter()
+                    .map(|key| Kbd::format(key.as_keystroke()))
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                format!("{text} ({keys})")
+            }
+            None => text,
+        };
         let theme = cx.theme();
         let header_foreground = if self.active {
             theme.primary_foreground
@@ -526,11 +550,10 @@ impl Render for FolderView {
                                     .small()
                                     .flex_none()
                                     .text_color(header_foreground)
-                                    .tooltip_with_action(
-                                        "Locations for this panel",
+                                    .tooltip(header_tooltip(
+                                        "Locations for this panel".into(),
                                         &crate::commander::GoTo,
-                                        Some("Commander > DataTable"),
-                                    )
+                                    ))
                                     .accessibility_label("Open locations for this panel")
                                     .on_click(move |_, _, cx| {
                                         if let Some(view) = locations_view.upgrade() {
@@ -577,11 +600,10 @@ impl Render for FolderView {
                             .small()
                             .flex_none()
                             .text_color(header_foreground)
-                            .tooltip_with_action(
-                                "Type or paste a location",
+                            .tooltip(header_tooltip(
+                                "Type or paste a location".into(),
                                 &crate::commander::EditLocation,
-                                Some("Commander > DataTable"),
-                            )
+                            ))
                             .accessibility_label("Edit full path")
                             .on_click(move |_, _, cx| {
                                 if let Some(view) = edit_view.upgrade() {
@@ -597,11 +619,10 @@ impl Render for FolderView {
                             .small()
                             .flex_none()
                             .text_color(header_foreground)
-                            .tooltip_with_action(
+                            .tooltip(header_tooltip(
                                 format!("Copy full path: {header_text}"),
                                 &crate::commander::CopyLocation,
-                                Some("Commander > DataTable"),
-                            )
+                            ))
                             .accessibility_label("Copy full path")
                             .on_click(move |_, _, cx| {
                                 if let Some(view) = copy_view.upgrade() {
