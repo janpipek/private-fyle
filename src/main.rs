@@ -6,6 +6,7 @@ mod breadcrumbs;
 mod columns;
 mod commander;
 mod conflict_view;
+mod dirsize;
 mod editor;
 mod editor_view;
 mod fs_ops;

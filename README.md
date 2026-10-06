@@ -57,7 +57,8 @@ targets that entry. Escape closes the menu and returns focus to that panel.
 | Ctrl-P              | Command palette: all commands with their keys, filtered by typing |
 | Ctrl-K Ctrl-T       | Theme picker: arrows preview live, Enter keeps and saves to `config.toml`, Esc restores |
 | Right / Left        | Tree: expand / collapse (or go to parent) |
-| Ctrl-R              | Refresh                                   |
+| Ctrl-R              | Refresh (also forgets computed folder sizes) |
+| Ctrl-Shift-S        | Calculate Sizes (View menu, palette, right-click): recursive size of the marked folders, else the folder under the cursor, else (cursor on `..` or a file) of every folder listed. Runs in the background, shows in the Size column (`… 1.2 G` while running, `≥ 1.2 G` when incomplete: unreadable entries or stopped); Esc stops. Symlinks are not followed, hard-linked files count once, other filesystems are skipped; not available inside archives. Sorting by size uses the results; the footer sums marked entries (`≥` and "n folders not measured" when unknown). Never runs automatically |
 | Ctrl-+ / Ctrl-- / Ctrl-0 | Zoom in / out / reset (also Ctrl-wheel); saved as `font_size` in `config.toml` |
 | Ctrl-Shift-C        | Cancel running copy/move/delete jobs (also a Cancel button per job) |
 | F10 / Ctrl-Q        | Quit                                      |
@@ -181,6 +182,7 @@ files, uv commands in uv projects, convert images, …); see
 `<config dir>/fyle/tools.toml`, or in Lua plugins in `<config dir>/fyle/plugins/*.lua`.
 `src/editor.rs` loads/saves edited files (UTF-8 only, atomic save keeping
 permissions); `src/editor_view.rs` is the editor pane.
+`src/dirsize.rs` measures directories recursively (on demand, cancellable, UI-independent); `Folder` caches the results per path until navigation or refresh. A hard-linked file counts once per measured folder, so each size stands alone. Other reloads (after file operations, saves) keep the sizes.
 `src/search.rs` finds files and searches contents with ripgrep's libraries
 (`ignore`, `grep-searcher`); results are a mode of the `Folder` model.
 `src/transfer.rs` copies and moves with conflict resolution (merging

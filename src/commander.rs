@@ -4,6 +4,7 @@
 mod location;
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -26,6 +27,7 @@ use gpui_kit::*;
 use crate::archive;
 use crate::columns::ColumnKind;
 use crate::conflict_view;
+use crate::dirsize::{self, DirSize};
 use crate::editor::Document;
 use crate::editor_view::{EditorEvent, EditorPane};
 use crate::fs_ops;
@@ -68,6 +70,7 @@ actions!(
         Delete,
         DeletePermanently,
         Refresh,
+        CalculateSizes,
         ToggleHidden,
         ToggleTree,
         TogglePreview,
@@ -215,6 +218,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("shift-f8", DeletePermanently, table),
         KeyBinding::new("shift-delete", DeletePermanently, table),
         KeyBinding::new("secondary-r", Refresh, table),
+        KeyBinding::new("ctrl-shift-s", CalculateSizes, table),
         KeyBinding::new("ctrl-h", ToggleHidden, table),
         KeyBinding::new("ctrl-t", ToggleTree, table),
         KeyBinding::new("secondary-=", ZoomIn, ctx),
@@ -285,6 +289,9 @@ pub struct Commander {
     /// Set to stop the running search.
     search_cancel: Option<Arc<AtomicBool>>,
     _search_task: Task<()>,
+    /// Per panel: set to stop its running "Calculate Sizes" scan.
+    size_cancel: [Option<Arc<AtomicBool>>; 2],
+    _size_tasks: [Task<()>; 2],
     _search_inputs: Vec<Subscription>,
     /// External editor command; empty for the built-in editor.
     editor_command: Vec<String>,
@@ -421,6 +428,8 @@ impl Commander {
             search_regex: Rc::default(),
             search_cancel: None,
             _search_task: Task::ready(()),
+            size_cancel: [None, None],
+            _size_tasks: [Task::ready(()), Task::ready(())],
             _search_inputs: Vec::new(),
             editor: None,
             editor_command: settings.editor.command.clone(),
@@ -1382,6 +1391,7 @@ impl Commander {
             can_paste: self.yank.is_some(),
             in_directory: folder.results().is_none() && !folder.path().as_os_str().is_empty(),
             in_archive: folder.archive().is_some(),
+            has_folders: !folder.size_targets().is_empty(),
             cursor_on_archive: folder.archive().is_none()
                 && current.is_some_and(|e| {
                     !e.is_dir && !e.is_parent && archive::format_of(&e.path).is_some()
@@ -2016,10 +2026,13 @@ impl Commander {
         cx.notify();
     }
 
-    /// Esc in a panel: stops a running search, else clears the filter if
-    /// one is set, else the marks.
+    /// Esc in a panel: stops a running size scan or search, else clears the
+    /// filter if one is set, else the marks.
     fn unmark(&mut self, _: &Unmark, _: &mut Window, cx: &mut Context<Self>) {
         if self.cancel_location_work(cx) {
+            return;
+        }
+        if self.stop_size_scan(self.active) {
             return;
         }
         if let Some(cancel) = self.search_cancel.take() {
@@ -2035,9 +2048,147 @@ impl Commander {
         });
     }
 
+    /// Ctrl-R: reloads both panels and forgets computed folder sizes
+    /// (stopping the scans that would recompute them).
     fn refresh(&mut self, _: &Refresh, _: &mut Window, cx: &mut Context<Self>) {
-        self.reload_all(cx);
+        for ix in 0..2 {
+            self.stop_size_scan(ix);
+        }
+        for folder in &self.folders {
+            if let Some(e) = folder.update(cx, |folder, cx| {
+                cx.notify();
+                folder.refresh()
+            }) {
+                self.status = e.into();
+            }
+        }
         cx.notify();
+    }
+
+    /// Asks the size scan of panel `ix` to stop; returns whether one was
+    /// running. Its task finishes the rows (as incomplete) and reports.
+    fn stop_size_scan(&mut self, ix: usize) -> bool {
+        self.size_cancel[ix]
+            .take()
+            .is_some_and(|cancel| !cancel.swap(true, Ordering::Relaxed))
+    }
+
+    /// Calculate Sizes: measures the folders chosen by
+    /// [`Folder::size_targets`] in the background, updating their rows as
+    /// the scan progresses. Stops when the panel leaves the folder.
+    fn calculate_sizes(&mut self, _: &CalculateSizes, window: &mut Window, cx: &mut Context<Self>) {
+        let ix = self.active;
+        let folder = self.folders[ix].clone();
+        if folder.read(cx).archive().is_some() {
+            self.status = "Folder sizes are not available inside an archive".into();
+            cx.notify();
+            return;
+        }
+        let roots = folder.read(cx).size_targets();
+        if roots.is_empty() {
+            self.status = "No folders to measure".into();
+            cx.notify();
+            return;
+        }
+        self.stop_size_scan(ix);
+        let location = |folder: &Folder| {
+            (
+                folder.path().to_path_buf(),
+                folder.results().map(str::to_string),
+            )
+        };
+        let started = location(folder.read(cx));
+        let epoch = folder.read(cx).size_epoch();
+        folder.update(cx, |folder, cx| {
+            folder.cancel_running_sizes();
+            for root in &roots {
+                folder.set_dir_size(root, DirSize::default());
+            }
+            cx.notify();
+        });
+        self.status = format!("Calculating sizes of {} folders… (Esc stops)", roots.len()).into();
+        cx.notify();
+
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.size_cancel[ix] = Some(cancel.clone());
+        let latest: Arc<Mutex<HashMap<PathBuf, DirSize>>> = Arc::default();
+        let (bg_roots, bg_latest, bg_cancel) = (roots.clone(), latest.clone(), cancel.clone());
+        self._size_tasks[ix] = cx.spawn_in(window, async move |this, cx| {
+            let mut scan = cx.background_spawn(async move {
+                dirsize::scan_dirs(&bg_roots, &bg_cancel, |path, size| {
+                    bg_latest.lock().unwrap().insert(path.to_path_buf(), *size);
+                })
+            });
+            loop {
+                let timer = cx.background_executor().timer(Duration::from_millis(150));
+                let finished = first_of(&mut scan, timer).await.is_some();
+                let updates: Vec<_> = latest.lock().unwrap().drain().collect();
+                let keep_going = this
+                    .update(cx, |this, cx| {
+                        let panel = this.folders[ix].clone();
+                        if location(panel.read(cx)) != started
+                            || panel.read(cx).size_epoch() != epoch
+                        {
+                            // Left the folder or refreshed: results are stale.
+                            cancel.store(true, Ordering::Relaxed);
+                            if this.size_cancel[ix]
+                                .as_ref()
+                                .is_some_and(|c| Arc::ptr_eq(c, &cancel))
+                            {
+                                this.size_cancel[ix] = None;
+                                this.status = "Size calculation stopped".into();
+                            }
+                            cx.notify();
+                            return false;
+                        }
+                        panel.update(cx, |folder, cx| {
+                            for (path, size) in updates {
+                                folder.set_dir_size_at(epoch, &path, size);
+                            }
+                            if finished {
+                                folder.cancel_running_sizes();
+                                folder.resort_by_size();
+                            }
+                            cx.notify();
+                        });
+                        let sizes: Vec<_> = roots
+                            .iter()
+                            .filter_map(|r| panel.read(cx).dir_size(r).copied())
+                            .collect();
+                        let bytes: u64 = sizes.iter().map(|s| s.bytes).sum();
+                        let errors: u64 = sizes.iter().map(|s| s.errors).sum();
+                        let done = sizes.iter().filter(|s| !s.is_running()).count();
+                        this.status = if !finished {
+                            format!(
+                                "Calculating sizes: {done} of {} folders, ≥ {} (Esc stops)",
+                                roots.len(),
+                                fs_ops::format_size(bytes)
+                            )
+                        } else {
+                            this.size_cancel[ix] = None;
+                            let mut text = format!(
+                                "Sizes of {} folders: {}",
+                                roots.len(),
+                                fs_ops::format_size(bytes)
+                            );
+                            if cancel.load(Ordering::Relaxed) {
+                                text += " (stopped, lower bound)";
+                            }
+                            if errors > 0 {
+                                text += &format!(" · {errors} unreadable entries skipped (≥)");
+                            }
+                            text
+                        }
+                        .into();
+                        cx.notify();
+                        !finished
+                    })
+                    .unwrap_or(false);
+                if !keep_going {
+                    break;
+                }
+            }
+        });
     }
 
     fn toggle_hidden(&mut self, _: &ToggleHidden, _: &mut Window, cx: &mut Context<Self>) {
@@ -2453,6 +2604,9 @@ impl Commander {
     }
 
     fn cancel_jobs(&mut self, _: &CancelJobs, window: &mut Window, cx: &mut Context<Self>) {
+        for ix in 0..2 {
+            self.stop_size_scan(ix);
+        }
         for job in &self.jobs {
             job.progress.cancel();
         }
@@ -2731,6 +2885,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::delete))
             .on_action(cx.listener(Self::delete_permanently))
             .on_action(cx.listener(Self::refresh))
+            .on_action(cx.listener(Self::calculate_sizes))
             .on_action(cx.listener(Self::toggle_hidden))
             .on_action(cx.listener(Self::toggle_tree))
             .on_action(cx.listener(Self::toggle_preview))
@@ -3039,6 +3194,7 @@ fn action_for(cmd: Cmd) -> Box<dyn Action> {
         Cmd::SelectColumns => Box::new(SelectColumns),
         Cmd::SelectTheme => Box::new(SelectTheme),
         Cmd::Refresh => Box::new(Refresh),
+        Cmd::CalculateSizes => Box::new(CalculateSizes),
         Cmd::GoUp => Box::new(GoUp),
         Cmd::GoFirst => Box::new(GoFirst),
         Cmd::GoLast => Box::new(GoLast),

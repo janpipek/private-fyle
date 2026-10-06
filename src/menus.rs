@@ -43,6 +43,7 @@ pub enum Cmd {
     SelectColumns,
     SelectTheme,
     Refresh,
+    CalculateSizes,
     GoBack,
     GoForward,
     GoUp,
@@ -79,6 +80,8 @@ pub struct State {
     pub in_directory: bool,
     /// The panel browses inside an archive, which is read-only.
     pub in_archive: bool,
+    /// There are folders to measure: marked ones, the cursor's, or listed.
+    pub has_folders: bool,
     /// The cursor is on an archive file that can be extracted.
     pub cursor_on_archive: bool,
     pub tree: bool,
@@ -92,7 +95,7 @@ pub struct State {
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 55] = [
+    pub const ALL: [Cmd; 56] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::GoBack,
@@ -128,6 +131,7 @@ impl Cmd {
         Cmd::SortByModified,
         Cmd::SortDescending,
         Cmd::Refresh,
+        Cmd::CalculateSizes,
         Cmd::ZoomIn,
         Cmd::ZoomOut,
         Cmd::ZoomReset,
@@ -187,6 +191,7 @@ impl Cmd {
             Cmd::SelectColumns => "Columns…",
             Cmd::SelectTheme => "Theme…",
             Cmd::Refresh => "Refresh",
+            Cmd::CalculateSizes => "Calculate Sizes",
             Cmd::GoBack => "Back",
             Cmd::GoForward => "Forward",
             Cmd::GoUp => "Parent Folder",
@@ -232,6 +237,7 @@ impl Cmd {
             Cmd::SortDescending => "Toggle descending sort",
             Cmd::Expand => "Expand directory (tree)",
             Cmd::Collapse => "Collapse directory (tree)",
+            Cmd::CalculateSizes => "Calculate folder sizes (marked, cursor or all folders)",
             Cmd::GoBack => "Go back (previous directory)",
             Cmd::GoForward => "Go forward",
             Cmd::GoUp => "Go to parent directory",
@@ -294,10 +300,12 @@ impl Cmd {
             | Cmd::OpenTerminal
             | Cmd::ToolsMenu
             | Cmd::FindFiles
+            | Cmd::CalculateSizes
                 if state.in_archive =>
             {
                 Some("Not available inside an archive")
             }
+            Cmd::CalculateSizes if !state.has_folders => Some("No folders to measure"),
             Cmd::ExtractArchive if !state.cursor_on_archive => Some("Select an archive file"),
             Cmd::OpenWith | Cmd::EditFile if !state.cursor_on_file => Some("Select a file"),
             Cmd::Rename
@@ -358,6 +366,7 @@ pub fn context_menu() -> Vec<Item> {
         Command(NewFile),
         Command(MakeDir),
         Separator,
+        Command(CalculateSizes),
         Command(ToolsMenu),
     ]
 }
@@ -414,7 +423,7 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
                 &[],
                 &[ZoomIn, ZoomOut, ZoomReset],
                 &[SelectColumns, SelectTheme],
-                &[Refresh],
+                &[CalculateSizes, Refresh],
             ]));
             view
         }),
@@ -530,6 +539,20 @@ mod tests {
         );
         assert_eq!(Cmd::MakeDir.unavailable(&idle), None);
         assert_eq!(Cmd::Expand.unavailable(&idle), Some("Only in tree mode"));
+        assert_eq!(
+            Cmd::CalculateSizes.unavailable(&idle),
+            Some("No folders to measure")
+        );
+        let folders = State {
+            has_folders: true,
+            ..idle.clone()
+        };
+        assert_eq!(Cmd::CalculateSizes.unavailable(&folders), None);
+        let in_archive = State {
+            in_archive: true,
+            ..folders
+        };
+        assert!(Cmd::CalculateSizes.unavailable(&in_archive).is_some());
 
         // Inside an archive only reading commands remain.
         let archive = State {

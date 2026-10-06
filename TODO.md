@@ -26,10 +26,6 @@
       Select by filename pattern or extension. Expose them in Edit and the
       command palette, with configurable shortcuts; work in both list and
       icon views. Operate on visible entries, excluding the parent entry.
-- [ ] Optional directory sizes: calculate recursive folder sizes and the
-      total size of selected entries on demand, in the background with
-      cancellation. Do not scan directories automatically during browsing;
-      keep normal listing fast. Indicate incomplete results or read errors.
 - [ ] Optional icon view per panel, alongside the existing list view:
       a grid of icons with file names, using preview thumbnails for images
       and file-type icons for other entries. Switch through View → List/Icon
@@ -60,6 +56,10 @@
 
 ## Done
 
+- [x] Optional directory sizes: Calculate Sizes (Ctrl-Shift-S) measures marked / cursor /
+      all folders in the background (Esc cancels), cached until refresh or
+      navigation, used by size sort and the marked-total footer; `≥` marks
+      incomplete results. Unavailable inside archives.
 - [x] Breadcrumb paths per panel: clickable, keyboard-focusable ancestors,
       Ctrl-L full-path editing, full-path copy, long-path scrolling, and a
       distinct archive/internal path. Each panel also has a Locations picker

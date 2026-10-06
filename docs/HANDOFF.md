@@ -93,6 +93,7 @@ Done (details in `TODO.md` under "Done"):
 | `main.rs` | Startup, settings, key bindings, window |
 | `commander.rs` | Main window. Owns the two panels and all actions, dialogs, jobs bar, tools orchestration. It is large (~1600 lines); split it if you add much more. |
 | `model.rs` | `Folder`: entries, cursor, marks, filter, sort, tree, search results, archive mount |
+| `dirsize.rs` | `scan_dirs` / `DirSize`: recursive sizes (no symlinks, hard links once per measured folder, one filesystem). `Folder` caches them (`set_dir_size`, `marked_total`); `commander::calculate_sizes` runs the scan with `background_spawn`, polls every 150 ms, stops on Esc, CancelJobs, refresh or leaving the folder |
 | `archive.rs` | Archive `Index` (zip/tar/tar.gz), `locate`, safe `extract`, `read_file` for previews |
 | `panel.rs` | `FolderView` (DataTable delegate `FileTable`) and the filter bar |
 | `fs_ops.rs` | `Entry`, `Attrs`, read_dir, copy/move/delete/trash, formatting |

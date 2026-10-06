@@ -404,7 +404,11 @@ impl Render for FolderView {
             );
         }
         if folder.marked_count() > 0 {
-            footer += &format!(" · {} marked", folder.marked_count());
+            footer += &format!(
+                " · {} marked, {}",
+                folder.marked_count(),
+                folder.marked_total().label()
+            );
         }
         let view = cx.weak_entity();
         let mut breadcrumb_items = Vec::new();
@@ -854,7 +858,9 @@ impl TableDelegate for FileTable {
                 .text_right()
                 .text_color(color)
                 .child(if entry.is_dir {
-                    "<DIR>".to_string()
+                    folder
+                        .dir_size(&entry.path)
+                        .map_or_else(|| "<DIR>".to_string(), |size| size.label())
                 } else {
                     fs_ops::format_size(entry.size)
                 })
