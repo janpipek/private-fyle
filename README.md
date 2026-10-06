@@ -20,6 +20,8 @@ shown on disabled rows. F2 opens the searchable version of the same tools.
 Right-click an entry in either panel for file actions. Clicking a marked
 entry keeps the marked group; clicking another entry clears the marks and
 targets that entry. Escape closes the menu and returns focus to that panel.
+Keyboard shortcuts are available in the menus, F1 help and the Ctrl-P command
+palette. The bottom area shows status messages and running jobs.
 
 | Key                 | Action                                    |
 | ------------------- | ----------------------------------------- |
@@ -150,7 +152,7 @@ see `config.example.toml`.
 
 ### Themes
 
-Ctrl-K Ctrl-T (or the "Theme" button) opens a picker; the highlighted
+Ctrl-K Ctrl-T (or View › Theme…) opens a picker; the highlighted
 theme is applied immediately as a preview, Enter keeps it and writes it to
 `config.toml` (other keys and comments are preserved), Esc restores the
 previous theme.

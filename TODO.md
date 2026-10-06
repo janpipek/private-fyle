@@ -33,6 +33,8 @@
 
 ## Done
 
+- [x] Remove the permanent bottom shortcut strip; keep status messages and
+      running jobs, with commands available through menus, F1 and the palette.
 - [x] Fix address-bar button crashes: resolve tooltip shortcuts from the
       panel's focus handle, avoiding recursive key-context parsing; select
       the edited path outside the panel update so redraws cannot reborrow it.

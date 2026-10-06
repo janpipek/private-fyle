@@ -15,9 +15,8 @@ mod tools;
 mod view;
 
 pub use self::keys::{
-    Copy, CopyLocation, Delete, EditFile, EditLocation, GoTo, MakeDir, Move, Open, Quit,
-    SelectTheme, SortByExt, SortByModified, SortByName, SortBySize, SortDescending, ToggleHidden,
-    TogglePreview, ToggleTree, bind_keys, bind_user_keys,
+    CopyLocation, EditLocation, GoTo, Open, Quit, SortByExt, SortByModified, SortByName,
+    SortBySize, SortDescending, bind_keys, bind_user_keys,
 };
 
 use std::cell::Cell;
@@ -26,8 +25,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{ActiveTheme as _, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -347,59 +345,6 @@ impl Commander {
     fn quit(&mut self, _: &Quit, _: &mut Window, cx: &mut Context<Self>) {
         cx.quit();
     }
-
-    fn render_key_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let key = |id: &'static str, label: &'static str| {
-            Button::new(id).label(label).ghost().small().flex_1()
-        };
-        h_flex()
-            .gap_1()
-            .p_1()
-            .border_t_1()
-            .border_color(cx.theme().border)
-            .child(
-                key("f3", "F3 Preview").on_click(
-                    cx.listener(|this, _, w, cx| this.toggle_preview(&TogglePreview, w, cx)),
-                ),
-            )
-            .child(
-                key("f4", "F4 Edit")
-                    .on_click(cx.listener(|this, _, w, cx| this.edit_file(&EditFile, w, cx))),
-            )
-            .child(
-                key("f5", "F5 Copy")
-                    .on_click(cx.listener(|this, _, w, cx| this.copy(&Copy, w, cx))),
-            )
-            .child(
-                key("f6", "F6 Move")
-                    .on_click(cx.listener(|this, _, w, cx| this.move_(&Move, w, cx))),
-            )
-            .child(
-                key("f7", "F7 Mkdir")
-                    .on_click(cx.listener(|this, _, w, cx| this.make_dir(&MakeDir, w, cx))),
-            )
-            .child(
-                key("f8", "F8 Trash")
-                    .on_click(cx.listener(|this, _, w, cx| this.delete(&Delete, w, cx))),
-            )
-            .child(
-                key("hidden", "^H Hidden").on_click(
-                    cx.listener(|this, _, w, cx| this.toggle_hidden(&ToggleHidden, w, cx)),
-                ),
-            )
-            .child(
-                key("tree", "^T Tree")
-                    .on_click(cx.listener(|this, _, w, cx| this.toggle_tree(&ToggleTree, w, cx))),
-            )
-            .child(
-                key("theme", "^K^T Theme")
-                    .on_click(cx.listener(|this, _, w, cx| this.select_theme(&SelectTheme, w, cx))),
-            )
-            .child(
-                key("f10", "F10 Quit")
-                    .on_click(cx.listener(|this, _, w, cx| this.quit(&Quit, w, cx))),
-            )
-    }
 }
 
 impl Render for Commander {
@@ -595,7 +540,6 @@ impl Render for Commander {
                     .child(self.status.clone()),
             )
             .children(self.render_jobs(cx))
-            .child(self.render_key_bar(cx))
     }
 }
 
