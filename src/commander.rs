@@ -361,7 +361,8 @@ impl Commander {
                     let event = event.clone();
                     cx.defer_in(window, move |this, window, cx| match event {
                         HeaderEvent::Navigate(path) => this.navigate_panel(ix, path, window, cx),
-                        HeaderEvent::Locations => this.open_locations(ix, window, cx),
+                        HeaderEvent::Locations => this.open_locations(ix, true, window, cx),
+                        HeaderEvent::SearchLocations => this.open_locations(ix, false, window, cx),
                         HeaderEvent::Edit => {
                             this.set_active(ix, cx);
                             this.views[ix].update(cx, |view, cx| view.open_location(window, cx));
@@ -857,7 +858,7 @@ impl Commander {
 
     /// Ctrl-G: grouped drives, desktop places, bookmarks and frequent paths.
     fn go_to(&mut self, _: &GoTo, window: &mut Window, cx: &mut Context<Self>) {
-        self.open_locations(self.active, window, cx);
+        self.open_locations(self.active, false, window, cx);
     }
 
     /// Ctrl-L: edits the active panel's full path.

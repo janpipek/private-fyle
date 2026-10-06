@@ -21,6 +21,16 @@ pub struct Group {
     pub places: Vec<Place>,
 }
 
+/// Groups longer than this show as a submenu in the locations menu.
+pub const INLINE_LIMIT: usize = 6;
+
+impl Group {
+    /// Whether the locations menu nests this group in a submenu.
+    pub fn as_submenu(&self) -> bool {
+        self.places.len() > INLINE_LIMIT
+    }
+}
+
 impl Place {
     fn new(label: impl Into<String>, path: impl Into<PathBuf>) -> Self {
         Self {
@@ -146,7 +156,7 @@ pub fn parse_mountinfo(text: &str) -> Vec<Place> {
             continue;
         }
         let path = PathBuf::from(unescape_mount_field(raw_path));
-        if seen.insert(path.clone()) {
+        if is_user_mount(&path, fs_type) && seen.insert(path.clone()) {
             let label = if path == Path::new("/") {
                 "Root".into()
             } else {
@@ -165,6 +175,23 @@ fn unescape_mount_field(field: &str) -> String {
         .replace("\\011", "\t")
         .replace("\\012", "\n")
         .replace("\\134", "\\")
+}
+
+/// Whether a mount is one people browse: the root, home, removable media and
+/// manual mounts, and network shares anywhere. Hides snaps, boot partitions,
+/// container layers and other system mounts.
+#[cfg(not(windows))]
+fn is_user_mount(path: &Path, fs_type: &str) -> bool {
+    let network = fs_type.starts_with("nfs")
+        || fs_type.starts_with("smb")
+        || matches!(
+            fs_type,
+            "cifs" | "9p" | "davfs" | "fuse.sshfs" | "fuse.rclone"
+        );
+    let user_dir = ["/home", "/media", "/run/media", "/mnt"]
+        .iter()
+        .any(|dir| path.starts_with(dir));
+    fs_type != "squashfs" && (path == Path::new("/") || user_dir || network)
 }
 
 #[cfg(not(windows))]
@@ -432,6 +459,44 @@ mod tests {
                 Place::new("My Disk", "/media/My Disk"),
             ]
         );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn hides_snaps_and_system_mounts() {
+        let places = parse_mountinfo(
+            "24 20 8:1 / / rw - ext4 /dev/sda1 rw\n\
+             26 24 8:3 / /home rw - btrfs /dev/sda3 rw\n\
+             27 24 8:4 / /boot rw - ext4 /dev/sda4 rw\n\
+             28 24 8:5 / /boot/efi rw - vfat /dev/sda5 rw\n\
+             29 24 7:0 / /snap/core22/1380 ro - squashfs /dev/loop0 ro\n\
+             30 24 7:1 / /media/u/snapdisk ro - squashfs /dev/loop1 ro\n\
+             32 24 0:40 / /var/lib/docker/overlay2/x/merged rw - overlay overlay rw\n\
+             33 24 0:41 / /srv/share rw - nfs4 nas:/share rw\n\
+             34 24 8:17 / /run/media/u/USB rw - exfat /dev/sdb1 rw\n\
+             35 24 8:18 / /mnt/backup rw - ext4 /dev/sdc1 rw\n",
+        );
+        let paths: Vec<_> = places.iter().map(|p| p.path.to_str().unwrap()).collect();
+        assert_eq!(
+            paths,
+            [
+                "/",
+                "/home",
+                "/srv/share",
+                "/run/media/u/USB",
+                "/mnt/backup"
+            ]
+        );
+    }
+
+    #[test]
+    fn long_groups_become_submenus() {
+        let group = |n| Group {
+            label: "G".into(),
+            places: (0..n).map(|i| Place::new("p", format!("/p{i}"))).collect(),
+        };
+        assert!(!group(INLINE_LIMIT).as_submenu());
+        assert!(group(INLINE_LIMIT + 1).as_submenu());
     }
 
     #[test]

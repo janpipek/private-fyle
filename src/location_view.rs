@@ -1,10 +1,12 @@
-//! Grouped, searchable locations list; it only renders [`crate::places`] data
-//! and forwards the chosen path.
+//! Locations as a popup menu (long groups in submenus) and as a grouped,
+//! searchable list; both only render [`crate::places`] data and forward the
+//! chosen path.
 
 use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui_kit::component::list::{ListDelegate, ListItem, ListState};
+use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::{ActiveTheme as _, IndexPath, h_flex};
 use gpui_kit::*;
 
@@ -12,6 +14,48 @@ use crate::palette::words_match;
 use crate::places::{Group, Place};
 
 type OnConfirm = Rc<dyn Fn(PathBuf, &mut Window, &mut App)>;
+
+/// Builds the locations menu: short groups inline under a heading, long ones
+/// (see [`Group::as_submenu`]) as scrollable submenus listing full paths, and
+/// a last item that opens the searchable list.
+pub fn locations_menu(
+    groups: Vec<Group>,
+    on_pick: impl Fn(PathBuf, &mut Window, &mut App) + 'static,
+    on_search: impl Fn(&mut Window, &mut App) + 'static,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<PopupMenu> {
+    let on_pick: OnConfirm = Rc::new(on_pick);
+    let item = |label: String, path: PathBuf, on_pick: &OnConfirm| {
+        let on_pick = on_pick.clone();
+        PopupMenuItem::new(label).on_click(move |_, window, cx| on_pick(path.clone(), window, cx))
+    };
+    PopupMenu::build(window, cx, move |mut menu, window, cx| {
+        for group in &groups {
+            if group.as_submenu() {
+                let places = group.places.clone();
+                let on_pick = on_pick.clone();
+                menu = menu.submenu(group.label.clone(), window, cx, move |menu, _, _| {
+                    places
+                        .iter()
+                        .fold(menu.max_h(px(480.)).scrollable(true), |menu, place| {
+                            let label = crate::places::tilde(&place.path);
+                            menu.item(item(label, place.path.clone(), &on_pick))
+                        })
+                });
+            } else {
+                menu = menu.label(group.label.clone());
+                for place in &group.places {
+                    menu = menu.item(item(place.label.clone(), place.path.clone(), &on_pick));
+                }
+            }
+        }
+        menu.separator().item(
+            PopupMenuItem::new("Search Locations… (Ctrl-G)")
+                .on_click(move |_, window, cx| on_search(window, cx)),
+        )
+    })
+}
 
 /// List delegate for grouped location data.
 pub struct LocationDelegate {

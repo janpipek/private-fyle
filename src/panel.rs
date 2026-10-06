@@ -33,6 +33,7 @@ pub struct Activate;
 pub enum HeaderEvent {
     Navigate(PathBuf),
     Locations,
+    SearchLocations,
     Edit,
     CopyPath(String),
     Error(String),
@@ -63,6 +64,9 @@ pub struct FolderView {
     location_input: Option<Entity<InputState>>,
     _location_subscription: Option<Subscription>,
     breadcrumb_scroll: ScrollHandle,
+    /// Locations popup under the map button, while open.
+    locations_menu: Option<Entity<PopupMenu>>,
+    _locations_menu_dismiss: Option<Subscription>,
     /// Listing generation the Git column was last computed for.
     git_generation: Option<u64>,
     _git_task: Task<()>,
@@ -120,6 +124,8 @@ impl FolderView {
             location_input: None,
             _location_subscription: None,
             breadcrumb_scroll: ScrollHandle::new(),
+            locations_menu: None,
+            _locations_menu_dismiss: None,
             git_generation: None,
             _git_task: Task::ready(()),
             _subscriptions: subscriptions,
@@ -127,6 +133,40 @@ impl FolderView {
         this.sync_cursor(cx);
         this.refresh_git(cx);
         this
+    }
+
+    /// Opens the locations menu under the map button; choosing a place asks
+    /// Commander to navigate this panel.
+    pub fn show_locations_menu(
+        &mut self,
+        groups: Vec<crate::places::Group>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let pick = cx.weak_entity();
+        let search = pick.clone();
+        let menu = crate::location_view::locations_menu(
+            groups,
+            move |path, _, cx| {
+                let _ = pick.update(cx, |_, cx| cx.emit(HeaderEvent::Navigate(path)));
+            },
+            move |_, cx| {
+                let _ = search.update(cx, |_, cx| cx.emit(HeaderEvent::SearchLocations));
+            },
+            window,
+            cx,
+        );
+        self._locations_menu_dismiss =
+            Some(
+                cx.subscribe_in(&menu, window, |this, _, _: &DismissEvent, _, cx| {
+                    this.locations_menu = None;
+                    this._locations_menu_dismiss = None;
+                    cx.notify();
+                }),
+            );
+        menu.focus_handle(cx).focus(window, cx);
+        self.locations_menu = Some(menu);
+        cx.notify();
     }
 
     pub fn columns(&self, cx: &App) -> Vec<ColumnKind> {
@@ -423,23 +463,38 @@ impl Render for FolderView {
                     })
                     .when(!self.active, |d| d.bg(theme.muted))
                     .child(
-                        Button::new("panel-locations")
-                            .icon(Lucide::Map)
-                            .ghost()
-                            .compact()
-                            .small()
+                        div()
+                            .relative()
                             .flex_none()
-                            .text_color(header_foreground)
-                            .tooltip_with_action(
-                                "Locations for this panel",
-                                &crate::commander::GoTo,
-                                Some("Commander > DataTable"),
+                            .child(
+                                Button::new("panel-locations")
+                                    .icon(Lucide::Map)
+                                    .ghost()
+                                    .compact()
+                                    .small()
+                                    .flex_none()
+                                    .text_color(header_foreground)
+                                    .tooltip_with_action(
+                                        "Locations for this panel",
+                                        &crate::commander::GoTo,
+                                        Some("Commander > DataTable"),
+                                    )
+                                    .accessibility_label("Open locations for this panel")
+                                    .on_click(move |_, _, cx| {
+                                        if let Some(view) = locations_view.upgrade() {
+                                            view.update(cx, |_, cx| {
+                                                cx.emit(HeaderEvent::Locations)
+                                            });
+                                        }
+                                    }),
                             )
-                            .accessibility_label("Open locations for this panel")
-                            .on_click(move |_, _, cx| {
-                                if let Some(view) = locations_view.upgrade() {
-                                    view.update(cx, |_, cx| cx.emit(HeaderEvent::Locations));
-                                }
+                            .when_some(self.locations_menu.clone(), |d, menu| {
+                                d.child(deferred(
+                                    anchored()
+                                        .anchor(Anchor::TopLeft)
+                                        .snap_to_window_with_margin(px(8.))
+                                        .child(div().occlude().top_1().child(menu)),
+                                ))
                             }),
                     )
                     .child(

@@ -80,9 +80,13 @@ Drag the divider between the panels to resize them; double-click it to
 split evenly again.
 
 Each panel header shows the current location as keyboard-focusable, clickable
-breadcrumbs. The location-pin button opens a searchable list grouped into
-drives and mounted volumes, desktop places, fyle bookmarks and frequent paths;
-the adjacent buttons edit or copy the full path. Long breadcrumbs scroll with
+breadcrumbs. The map button opens a menu of drives and mounted volumes,
+desktop places, fyle bookmarks and frequent paths; groups with more than six
+entries open as submenus, and "Search Locations…" (Ctrl-G) opens the same
+places as a searchable list. Volumes are limited to the root, `/home`,
+removable media (`/media`, `/run/media`), `/mnt` and network shares, so
+snaps and system mounts stay out. The adjacent buttons edit or copy the full
+path. Long breadcrumbs scroll with
 the current segment kept at the visible end. Archive files are labelled
 `[archive]`, and their internal path uses indented segments.
 

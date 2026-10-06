@@ -64,9 +64,16 @@ impl Commander {
         });
     }
 
-    /// Discovers locations in the background, then opens the picker for the
-    /// panel that requested it.
-    pub fn open_locations(&mut self, panel: usize, window: &mut Window, cx: &mut Context<Self>) {
+    /// Discovers locations in the background, then opens them for the panel
+    /// that requested it: as a menu under its map button, or as the
+    /// searchable list (Ctrl-G).
+    pub fn open_locations(
+        &mut self,
+        panel: usize,
+        as_menu: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.set_active(panel, cx);
         let bookmarks = self.bookmarks.clone();
         let frequent = self
@@ -89,7 +96,13 @@ impl Commander {
                     return;
                 }
                 this.locations_pending = false;
-                this.show_locations(panel, groups, window, cx);
+                if as_menu {
+                    this.status = String::new().into();
+                    this.views[panel]
+                        .update(cx, |view, cx| view.show_locations_menu(groups, window, cx));
+                } else {
+                    this.show_locations(panel, groups, window, cx);
+                }
             });
         });
     }
