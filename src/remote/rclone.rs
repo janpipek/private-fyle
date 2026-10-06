@@ -10,7 +10,7 @@ use std::time::Duration;
 use serde::Deserialize;
 
 use super::process::Program;
-use super::{Capabilities, Entry, Item, Location, Provider, Removal, entries, timestamp};
+use super::{Capabilities, Control, Entry, Item, Location, Provider, Removal, entries, timestamp};
 
 const LIST_TIMEOUT: Duration = Duration::from_secs(120);
 const REMOTES_TIMEOUT: Duration = Duration::from_secs(30);
@@ -61,6 +61,28 @@ impl Rclone {
         format!("{}:{}", self.remote, location.relative())
     }
 
+    /// `rclone moveto` (it overwrites, so the target must not exist).
+    fn move_to_path(&self, from: &Location, to: &Location, control: &Control) -> io::Result<()> {
+        let parent = to.parent().ok_or_else(root_error)?;
+        let name = to.name().ok_or_else(root_error)?;
+        if self
+            .list(&parent, control)?
+            .iter()
+            .any(|entry| entry.name == name)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!("{name} already exists"),
+            ));
+        }
+        let args = vec![
+            "moveto".into(),
+            self.path(from).into(),
+            self.path(to).into(),
+        ];
+        self.run(&args, control.cancel, None).map(drop)
+    }
+
     fn run(
         &self,
         args: &[OsString],
@@ -82,6 +104,10 @@ fn parse_remotes(text: &str) -> Vec<(String, String)> {
             (!name.is_empty()).then(|| (name.to_owned(), backend.trim().to_owned()))
         })
         .collect()
+}
+
+fn root_error() -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidInput, "cannot change a remote root")
 }
 
 fn backend_label(backend: &str) -> &str {
@@ -171,12 +197,15 @@ impl Provider for Rclone {
             } else {
                 Removal::Permanent
             }),
+            create_folder: true,
+            rename: true,
+            move_within: true,
         }
     }
 
-    fn list(&self, dir: &Location, cancel: &AtomicBool) -> io::Result<Vec<Entry>> {
+    fn list(&self, dir: &Location, control: &Control) -> io::Result<Vec<Entry>> {
         let args = vec!["lsjson".into(), self.path(dir).into()];
-        let bytes = self.run(&args, cancel, Some(LIST_TIMEOUT))?;
+        let bytes = self.run(&args, control.cancel, Some(LIST_TIMEOUT))?;
         parse_listing(dir, &self.label, &bytes)
     }
 
@@ -185,35 +214,61 @@ impl Provider for Rclone {
         source: &Location,
         is_dir: bool,
         destination: &Path,
-        cancel: &AtomicBool,
+        control: &Control,
     ) -> io::Result<()> {
         let name = source.name().ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "cannot download a remote root")
         })?;
         let target = absolute(destination)?.join(name);
         let args = transfer_args(self.path(source).into(), target.into(), is_dir);
-        self.run(&args, cancel, None).map(drop)
+        (control.progress)(name, 0);
+        self.run(&args, control.cancel, None).map(drop)
     }
 
-    fn upload(&self, source: &Path, destination: &Location, cancel: &AtomicBool) -> io::Result<()> {
+    fn upload(&self, source: &Path, destination: &Location, control: &Control) -> io::Result<()> {
         let source = absolute(source)?;
         let name = source.file_name().and_then(OsStr::to_str).ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "invalid local file name")
         })?;
         let target = self.path(&destination.child(name)?);
         let args = transfer_args(source.into(), target.into(), source.is_dir());
-        self.run(&args, cancel, None).map(drop)
+        (control.progress)(name, 0);
+        self.run(&args, control.cancel, None).map(drop)
     }
 
-    fn remove(&self, target: &Location, is_dir: bool, cancel: &AtomicBool) -> io::Result<()> {
+    fn remove(&self, target: &Location, is_dir: bool, control: &Control) -> io::Result<()> {
         if target.name().is_none() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "cannot remove a remote root",
             ));
         }
-        self.run(&remove_args(self.path(target), is_dir), cancel, None)
-            .map(drop)
+        self.run(
+            &remove_args(self.path(target), is_dir),
+            control.cancel,
+            None,
+        )
+        .map(drop)
+    }
+
+    fn create_folder(&self, parent: &Location, name: &str, control: &Control) -> io::Result<()> {
+        let args = vec!["mkdir".into(), self.path(&parent.child(name)?).into()];
+        self.run(&args, control.cancel, None).map(drop)
+    }
+
+    fn rename(&self, target: &Location, new_name: &str, control: &Control) -> io::Result<()> {
+        let parent = target.parent().ok_or_else(root_error)?;
+        self.move_to_path(target, &parent.child(new_name)?, control)
+    }
+
+    fn move_to(
+        &self,
+        target: &Location,
+        destination: &Location,
+        control: &Control,
+    ) -> io::Result<()> {
+        let name = target.name().ok_or_else(root_error)?;
+        self.move_to_path(target, &destination.child(name)?, control)
     }
 }
 
@@ -222,7 +277,7 @@ mod tests {
     use super::{
         Rclone, backend_label, parse_listing, parse_remotes, program, remove_args, transfer_args,
     };
-    use crate::remote::{Location, Provider, Removal};
+    use crate::remote::{Control, Location, Provider, Removal};
     use std::ffi::OsString;
     use std::path::Path;
     use std::sync::atomic::AtomicBool;
@@ -313,16 +368,17 @@ mod tests {
     #[test]
     fn rejects_relative_local_paths_and_roots() {
         let cancel = AtomicBool::new(false);
+        let control = Control::new(&cancel);
         let drive = remote("gdrive", "drive");
         let root = Location::root("gdrive").unwrap();
         let file = root.child("a").unwrap();
         assert!(
             drive
-                .download(&file, false, Path::new("rel"), &cancel)
+                .download(&file, false, Path::new("rel"), &control)
                 .is_err()
         );
-        assert!(drive.upload(Path::new("rel"), &root, &cancel).is_err());
-        assert!(drive.remove(&root, true, &cancel).is_err());
+        assert!(drive.upload(Path::new("rel"), &root, &control).is_err());
+        assert!(drive.remove(&root, true, &control).is_err());
         assert_eq!(drive.path(&root), "gdrive:");
         assert_eq!(drive.path(&file), "gdrive:a");
     }

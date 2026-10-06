@@ -167,7 +167,7 @@ one replaces it.
 
 ## Build dependencies
 
-- Linux (Debian/Ubuntu): `libxkbcommon-dev libxkbcommon-x11-dev libfontconfig1-dev libxcb1-dev libwayland-dev`,
+- Linux (Debian/Ubuntu): `libxkbcommon-dev libxkbcommon-x11-dev libfontconfig1-dev libxcb1-dev libwayland-dev libssl-dev pkg-config`,
   plus a Vulkan driver at runtime.
 - Windows: MSVC toolchain.
 
@@ -175,12 +175,41 @@ CI builds and tests on Linux (Windows job disabled for now) (`.github/workflows/
 
 ## Remote locations
 
-Remote folders have paths like `proton:/Reports` or `gdrive:/Docs`; the
-root is `<remote>:/`. Providers: Proton Drive through the official
-`proton-drive` CLI (run `proton-drive auth login` first) and every remote
-set up with `rclone config` (Google Drive, SFTP, S3, ...). Credentials stay
-with those tools. Only the provider layer and the model exist so far; it is
-not wired into the UI yet.
+Remote folders have paths like `proton:/Reports`, `gdrive:/Docs` or
+`nas:/photos`; the root is `<remote>:/`. Only the provider layer and the
+model exist so far; it is not wired into the UI yet. Providers:
+
+- Proton Drive through the official `proton-drive` CLI (run
+  `proton-drive auth login` first). Supports upload, move to trash, new
+  folder, rename and move. Docs and Sheets are listed but the CLI skips them
+  on download.
+- Every remote set up with `rclone config` (Google Drive, OneDrive, ...);
+  credentials stay with rclone.
+- Servers in `remotes.toml` (next to `config.toml`; see `remotes.example.toml`)
+  over SFTP, FTP, FTPS, WebDAV and S3, through the `remotefs` crates. SMB is
+  not supported. Removing there is permanent. The file is never created
+  automatically.
+
+```toml
+[[remote]]
+name = "nas"                         # panel prefix nas:/
+protocol = "sftp"                    # sftp | ftp | ftps | webdav | s3
+host = "nas.local"                   # webdav: url = "https://..."
+port = 22                            # optional
+user = "jan"                         # optional
+root = "/srv/data"                   # optional folder that nas:/ shows
+password_command = "pass show nas"   # optional
+```
+
+S3 uses `bucket`, `region`, `profile` and `endpoint` instead of `host`; its
+credentials come from the AWS environment or profile. SFTP uses ssh-agent and
+the `IdentityFile` entries of `~/.ssh/config`. Passwords are never stored:
+`password_command` is split into words (quotes group a word; no shell, pipes
+or expansion), run when connecting, and its output is the password. Bad
+entries are reported without hiding the good ones.
+
+Building needs the OpenSSL development files (SFTP and WebDAV); see Build
+dependencies (`openssl-devel` on Fedora).
 
 ## Development sandbox
 
@@ -270,7 +299,7 @@ Where things live (`src/`):
 | `grid.rs`, `icon_view.rs`, `glyphs.rs`, `context_menu.rs` | Icon view: `ViewMode`, icon sizes, `Layout` (columns for a width) and cursor moves (UI-independent, tested); the lazy `IconGrid` view; the `FileIcon` → glyph table and the right-click menu shared with the list |
 | `columns.rs` | `ColumnKind` catalog, grouped, ids like `exif.iso`. A new column is a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |
 | `fs_ops.rs`, `transfer.rs`, `jobs.rs` | `Entry` and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
-| `remote.rs`, `remote/` | Remote providers: `Provider` trait, `Location` paths, Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`); `model/remote.rs` holds cached remote listings |
+| `remote.rs`, `remote/` | Remote providers: `Provider` trait, `Location` paths, Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `model/remote.rs` holds cached remote listings |
 | `archive.rs`, `dirsize.rs`, `links.rs` | Archive index and safe extraction; recursive sizes; symlink state |
 | `preview/`, `preview_view.rs` | `Previewer`s and their `Registry` (order: directory, image, pdf, media, archive, markdown, table, text, binary); one render arm per `Content` |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and the editor pane |

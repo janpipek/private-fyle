@@ -1,0 +1,49 @@
+# fyle remote servers. Copy to:
+#   Linux:   ~/.config/fyle/remotes.toml   ($XDG_CONFIG_HOME/fyle/remotes.toml)
+#   macOS:   ~/Library/Application Support/fyle/remotes.toml
+# Every [[remote]] below is commented out; remove the "#| " prefix to use one.
+# A remote appears in panels as "<name>:/". A broken entry is reported and the
+# others still load.
+#
+# Keys:  name (2+ letters, digits, - _ . + @), protocol (sftp | ftp | ftps |
+#        webdav | s3), host, port, user, root (server folder that <name>:/
+#        shows, default "/"), password_command (see below).
+#        webdav: url instead of host.  s3: bucket, region, profile, endpoint.
+#
+# Passwords are never stored here. password_command is split into words
+# (single or double quotes group a word; no shell, no pipes) and run when
+# connecting; its output, without the final newline, is the password.
+# SFTP tries ssh-agent and the IdentityFile entries of ~/.ssh/config first,
+# so it usually needs no password. S3 takes credentials from the AWS
+# environment or the named profile.
+
+#| [[remote]]
+#| name = "nas"
+#| protocol = "sftp"
+#| host = "nas.local"
+#| port = 22
+#| user = "jan"
+#| root = "/srv/data"
+#| password_command = "pass show nas"
+#|
+#| [[remote]]
+#| name = "files"
+#| protocol = "ftps"
+#| host = "ftp.example.com"
+#| user = "jan"
+#| password_command = "secret-tool lookup service ftp.example.com"
+#|
+#| [[remote]]
+#| name = "cloud"
+#| protocol = "webdav"
+#| url = "https://cloud.example.com/remote.php/dav/files/jan"
+#| user = "jan"
+#| password_command = "pass show cloud"
+#|
+#| [[remote]]
+#| name = "photos"
+#| protocol = "s3"
+#| bucket = "my-photos"
+#| region = "eu-west-1"
+#| profile = "default"
+#| # endpoint = "https://minio.local:9000"

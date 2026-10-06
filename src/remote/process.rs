@@ -21,7 +21,8 @@ pub struct Program {
     pub service: &'static str,
     /// Shown when the program is not installed.
     pub install_hint: &'static str,
-    /// Appended to errors from a failed run (e.g. how to sign in again).
+    /// Appended to errors from a failed run (e.g. how to sign in again);
+    /// may be empty.
     pub failure_hint: &'static str,
 }
 
@@ -96,9 +97,14 @@ impl Program {
             let errors = errors.unwrap_or_default();
             let text = String::from_utf8_lossy(&errors);
             let message: String = text.trim().chars().take(MAX_MESSAGE).collect();
+            let hint = if self.failure_hint.is_empty() {
+                String::new()
+            } else {
+                format!(". {}", self.failure_hint)
+            };
             return Err(io::Error::other(format!(
-                "{}: {message}. {}",
-                self.service, self.failure_hint
+                "{}: {message}{hint}",
+                self.service
             )));
         }
         output

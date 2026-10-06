@@ -1,9 +1,11 @@
 //! Remote locations: the provider interface, `<remote>:/path` addresses and
 //! the registry of configured remotes, independent of panel rendering.
 
+pub mod connections;
 pub mod process;
 pub mod proton;
 pub mod rclone;
+pub mod remotefs;
 
 use std::collections::HashSet;
 use std::io;
@@ -25,19 +27,53 @@ pub enum Removal {
 
 /// What a provider supports beyond listing and downloading, so the UI can
 /// offer only working commands and explain the others.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Capabilities {
     pub upload: bool,
     /// `None` when items cannot be removed.
     pub removal: Option<Removal>,
+    pub create_folder: bool,
+    /// Renaming in place.
+    pub rename: bool,
+    /// Moving to another folder on the same remote.
+    pub move_within: bool,
+}
+
+/// Cancellation and progress for one provider call. Providers report what
+/// they can: per byte, per item, or nothing at all.
+pub struct Control<'a> {
+    pub cancel: &'a AtomicBool,
+    /// Called with the item being transferred and the bytes done so far
+    /// in this call (not per item).
+    pub progress: &'a (dyn Fn(&str, u64) + Sync),
+}
+
+impl<'a> Control<'a> {
+    /// Cancellable, without progress reports.
+    pub fn new(cancel: &'a AtomicBool) -> Self {
+        Self {
+            cancel,
+            progress: &|_, _| {},
+        }
+    }
+
+    pub fn cancelled(&self) -> bool {
+        self.cancel.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// The error a provider returns when it stops because of [`Self::cancel`].
+    pub fn cancelled_error() -> io::Error {
+        io::Error::new(io::ErrorKind::Interrupted, "cancelled")
+    }
 }
 
 /// A remote file service. Every method may block for a long time: call
-/// them only from a background worker, passing a flag that cancels them.
+/// them only from a background worker, through [`Control`] to cancel.
 ///
 /// Transfers never overwrite: an item whose name already exists at the
 /// destination is skipped, so callers check conflicts first (from a
-/// listing) and ask the user.
+/// listing) and ask the user. Optional operations default to an
+/// `Unsupported` error and are announced in [`Capabilities`].
 pub trait Provider: Send + Sync {
     /// Remote name used in panel paths (`<name>:/...`).
     fn name(&self) -> &str;
@@ -45,7 +81,7 @@ pub trait Provider: Send + Sync {
     fn label(&self) -> &str;
     fn capabilities(&self) -> Capabilities;
     /// Lists one folder, without a ".." entry.
-    fn list(&self, dir: &Location, cancel: &AtomicBool) -> io::Result<Vec<Entry>>;
+    fn list(&self, dir: &Location, control: &Control) -> io::Result<Vec<Entry>>;
     /// Downloads `source` (a file or a whole folder) into the local folder
     /// `destination`, keeping its name.
     fn download(
@@ -53,20 +89,37 @@ pub trait Provider: Send + Sync {
         source: &Location,
         is_dir: bool,
         destination: &Path,
-        cancel: &AtomicBool,
+        control: &Control,
     ) -> io::Result<()>;
     /// Uploads a local file or folder into the remote folder `destination`.
     fn upload(
         &self,
         _source: &Path,
         _destination: &Location,
-        _cancel: &AtomicBool,
+        _control: &Control,
     ) -> io::Result<()> {
         Err(unsupported(self.label(), "uploading"))
     }
     /// Removes a file or folder as [`Capabilities::removal`] says.
-    fn remove(&self, _target: &Location, _is_dir: bool, _cancel: &AtomicBool) -> io::Result<()> {
+    fn remove(&self, _target: &Location, _is_dir: bool, _control: &Control) -> io::Result<()> {
         Err(unsupported(self.label(), "removing items"))
+    }
+    /// Creates the folder `name` in `parent`.
+    fn create_folder(&self, _parent: &Location, _name: &str, _control: &Control) -> io::Result<()> {
+        Err(unsupported(self.label(), "creating folders"))
+    }
+    /// Renames `target` in place.
+    fn rename(&self, _target: &Location, _new_name: &str, _control: &Control) -> io::Result<()> {
+        Err(unsupported(self.label(), "renaming"))
+    }
+    /// Moves `target` into the folder `destination` on the same remote.
+    fn move_to(
+        &self,
+        _target: &Location,
+        _destination: &Location,
+        _control: &Control,
+    ) -> io::Result<()> {
+        Err(unsupported(self.label(), "moving"))
     }
 }
 
@@ -257,9 +310,11 @@ impl Registry {
         Self { providers }
     }
 
-    /// Finds the installed services: Proton Drive through its official CLI,
-    /// then every rclone remote. Runs programs, so call it in the
-    /// background. Remotes that cannot be listed are reported, not fatal.
+    /// Finds the configured services: Proton Drive through its official
+    /// CLI, the remotes in `remotes.toml` (see [`connections`]), then every
+    /// rclone remote; on a name clash the first wins. Runs programs and
+    /// reads files, so call it in the background. Problems are returned,
+    /// never fatal.
     pub fn discover(cancel: &AtomicBool) -> (Self, Vec<io::Error>) {
         let mut providers: Vec<Arc<dyn Provider>> = Vec::new();
         let mut errors = Vec::new();
@@ -267,6 +322,13 @@ impl Registry {
         if proton.is_installed() {
             providers.push(Arc::new(proton));
         }
+        let (configs, config_errors) = connections::load_default();
+        errors.extend(config_errors);
+        providers.extend(
+            configs.into_iter().map(|config| {
+                Arc::new(remotefs::RemoteFsProvider::new(config)) as Arc<dyn Provider>
+            }),
+        );
         if rclone::Rclone::is_installed() {
             match rclone::Rclone::remotes(cancel) {
                 Ok(remotes) => providers.extend(
@@ -305,7 +367,9 @@ impl Registry {
 
 #[cfg(test)]
 mod tests {
-    use super::{Capabilities, Entry, Item, Location, Provider, Registry, entries, is_remote};
+    use super::{
+        Capabilities, Control, Entry, Item, Location, Provider, Registry, entries, is_remote,
+    };
     use std::io;
     use std::path::Path;
     use std::sync::Arc;
@@ -321,15 +385,12 @@ mod tests {
             "Fake"
         }
         fn capabilities(&self) -> Capabilities {
-            Capabilities {
-                upload: false,
-                removal: None,
-            }
+            Capabilities::default()
         }
-        fn list(&self, _: &Location, _: &AtomicBool) -> io::Result<Vec<Entry>> {
+        fn list(&self, _: &Location, _: &Control) -> io::Result<Vec<Entry>> {
             Ok(Vec::new())
         }
-        fn download(&self, _: &Location, _: bool, _: &Path, _: &AtomicBool) -> io::Result<()> {
+        fn download(&self, _: &Location, _: bool, _: &Path, _: &Control) -> io::Result<()> {
             Ok(())
         }
     }
@@ -409,7 +470,10 @@ mod tests {
         assert!(registry.resolve(Path::new("/tmp")).unwrap().is_none());
         assert!(registry.resolve(Path::new("other:/")).is_err());
         let cancel = AtomicBool::new(false);
-        let upload = provider.upload(Path::new("/tmp/a"), &location, &cancel);
+        let control = Control::new(&cancel);
+        let upload = provider.upload(Path::new("/tmp/a"), &location, &control);
         assert_eq!(upload.unwrap_err().kind(), io::ErrorKind::Unsupported);
+        let folder = provider.create_folder(&location, "x", &control);
+        assert_eq!(folder.unwrap_err().kind(), io::ErrorKind::Unsupported);
     }
 }

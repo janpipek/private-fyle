@@ -6,10 +6,13 @@
 - [ ] Archive follow-ups: nested archives; maybe write support.
 - [ ] Additional virtual locations: the provider layer is done
       (`src/remote.rs`: Proton Drive through the official `proton-drive`
-      CLI; Google Drive, SFTP, S3 and others through rclone; credentials stay
-      with those tools). Still open: UI wiring (background listing with
+      CLI; Google Drive and others through rclone; SFTP, FTP/FTPS, WebDAV and S3
+      from `remotes.toml` through `remotefs`; passwords come from a
+      `password_command`, never from files). Still open: UI wiring (background listing with
       cancellation, Locations entries, copy/move/trash jobs, `Cmd`s and
-      connection errors in the status line).
+      connection errors in the status line); SMB (needs libsmbclient);
+      connections are serialised per remote, so a long transfer blocks
+      listing there (a pool would fix it).
 - [ ] Embedded terminal (idea, undecided): alacritty_terminal + PTY rendered
       in gpui as Zed does, vs. libghostty. Recommendation so far: none for
       now (F9 opens an external terminal); if wanted later,

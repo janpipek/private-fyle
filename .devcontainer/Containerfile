@@ -13,7 +13,7 @@ FROM fedora:44
 RUN dnf install -y --setopt=install_weak_deps=False \
         gcc gcc-c++ make cmake git pkgconf-pkg-config procps-ng \
         libxkbcommon-devel libxkbcommon-x11-devel fontconfig-devel freetype-devel \
-        libxcb-devel wayland-devel \
+        libxcb-devel wayland-devel openssl-devel \
         clang clang-devel \
         just uv nodejs npm \
         dejavu-sans-fonts dejavu-sans-mono-fonts \
