@@ -1,26 +1,13 @@
 # TODO
 
-- [ ] Discoverable menus (priority): a visible menu bar so users can see what
-      fyle can do, ahead of tabs and thumbnails.
-  - File: Open, Open with…, New file/folder, Rename, Copy/Move to other panel,
-    Trash, Quit.
-  - Edit: Cut, Copy, Paste, Select all, Invert selection, Select by pattern.
-  - View: Preview, Tree, Hidden files, Columns, Sort, Theme; add List/Icon view
-    when icon view is available.
-  - Go: Parent, Go to…, Bookmarks, Terminal here; add Back/Forward when available.
-  - Tools now lists context-aware actions grouped by purpose for the active
-    directory and selection (repository tasks for code, conversion/resizing
-    for images); add output/history when available.
-  - Help: Keyboard shortcuts, Configuration, About; F1 opens Help.
-  - Configured shortcuts, checked toggle states, and explanations on disabled
-    actions are implemented.
-  - Right-click file actions are implemented, sharing command definitions,
-    names and availability with the menu bar and command palette.
-    Implement missing actions as separate features.
-- [ ] Selection helpers: Select all, Clear selection, Invert selection, and
-      Select by filename pattern or extension. Expose them in Edit and the
-      command palette, with configurable shortcuts; work in both list and
-      icon views. Operate on visible entries, excluding the parent entry.
+- [ ] Menus and selection, remaining parts: View → List/Icon view once icon
+      view exists; output/history in Tools; a "Clear selection" command (Esc
+      already clears marks); selection commands in icon view. Implement
+      missing actions as separate features.
+- [ ] Archive follow-ups: read the first listing of large tar.gz files in
+      the background (it blocks the UI briefly); show the archive entry, not
+      the staging path, as the source in the extraction conflict dialog;
+      nested archives; maybe write support.
 - [ ] Optional icon view per panel, alongside the existing list view:
       a grid of icons with file names, using preview thumbnails for images
       and file-type icons for other entries. Switch through View → List/Icon
@@ -34,7 +21,9 @@
       implementation; remote operations need background progress, cancellation,
       and useful connection errors.
 - [ ] Embedded terminal (idea, undecided): alacritty_terminal + PTY rendered
-      in gpui as Zed does, vs. libghostty; see discussion.
+      in gpui as Zed does, vs. libghostty. Recommendation so far: none for
+      now (F9 opens an external terminal); if wanted later,
+      alacritty_terminal (GPL-compatible).
 - [ ] Localization: extract user-facing text into translation resources,
       including command labels, menus, dialogs, help, and status/error messages.
       Support system-language detection, a saved language override, and an
@@ -47,6 +36,8 @@
   - [ ] Richer previews: PDF pages beyond the first, video thumbnails, scrolling
         and paging inside the preview.
   - [ ] Shell command on selection with output capture (ties into tools).
+        Unclear to the owner; only "open terminal here" (F9, done) was
+        wanted. Ask before starting.
 - [ ] macOS support (later): CI job, app menu, Cmd shortcuts, app bundle.
 
 ## Done
@@ -106,4 +97,12 @@
 
 ## Later
 
+- Release binary around 100 MB or less, a soft goal: currently 75 MB
+  (19 MB gzipped) with the release profile (strip, LTO, one codegen unit)
+  and every syntax grammar kept.
+
 - Windows (paused): Quick Access pins in Go to (needs the shell API), CI, cross-checks.
+
+## Dropped
+
+- Zed theme import and icon themes (owner's decision).

@@ -205,8 +205,8 @@ reason), probed in `fs_ops::read_dir` from the metadata already fetched (one
 `src/link_badge.rs` draws the badge over an icon.
 `src/breadcrumbs.rs` derives panel path segments, parses edited paths and guards
 background navigation results. `src/places.rs` discovers grouped desktop places,
-Linux mounts, bookmarks and frequent paths; `src/location_view.rs` renders the
-searchable picker. Path loading and place discovery run in the background.
+Linux mounts, bookmarks and frequent paths; `src/location_view.rs` renders
+them as the locations menu and the searchable picker. Path loading and place discovery run in the background.
 
 `src/archive.rs` reads zip, tar and tar.gz archives into an `Index` (a tree of
 nodes) and extracts entries. Inside an archive a panel's path is the archive
@@ -217,6 +217,24 @@ cache. Archives are read-only. Extraction (`jobs::run_extract`) writes to a
 staging folder in the destination, then moves the result with the usual
 conflict resolution; names with `..` or absolute paths are skipped, links
 must stay inside the destination and nothing is written through a link.
+
+Where things live (`src/`):
+
+| Module | Role |
+|---|---|
+| `main.rs` | Startup, settings, start directories, window |
+| `commander.rs`, `commander/` | Main window: the two panels, actions, dialogs, jobs bar, tools orchestration. Very large; new logic goes into its own module, only wiring here. |
+| `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::action_for` maps each `Cmd` to its action. |
+| `model.rs` | `Folder`: entries, cursor, marks, filter, sort, tree, search results, archive mount, directory size cache |
+| `panel.rs` | `FolderView` (DataTable delegate `FileTable`), header with breadcrumbs, filter bar |
+| `columns.rs` | `ColumnKind` catalog, grouped, ids like `exif.iso`. A new column is a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |
+| `fs_ops.rs`, `transfer.rs`, `jobs.rs` | `Entry` and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
+| `archive.rs`, `dirsize.rs`, `links.rs` | Archive index and safe extraction; recursive sizes; symlink state |
+| `preview/`, `preview_view.rs` | `Previewer`s and their `Registry` (order: directory, image, pdf, media, archive, markdown, table, text, binary); one render arm per `Content` |
+| `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and the editor pane |
+| `tools/`, `tools_view.rs` | Tool, Action and Registry model; `defaults.toml`; built-ins; Lua plugins; `exec.rs` runs them |
+| `search.rs`, `places.rs`, `breadcrumbs.rs`, `rename.rs`, `openers.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs`, `zoom.rs` | Further UI-independent models, each with tests |
+| `*_view.rs`, `menu_bar.rs`, `link_badge.rs`, `theme_picker.rs` | Thin views |
 
 Previews follow the same split. `src/preview/` is the model: a `Registry`
 of `Previewer`s (directory, image with EXIF, PDF via poppler, audio/video via ffmpeg, archive, Markdown,
