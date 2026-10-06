@@ -297,7 +297,7 @@ impl Render for FolderView {
                 div()
                     .flex_1()
                     .min_h_0()
-                    .child(DataTable::new(&self.table).small()),
+                    .child(DataTable::new(&self.table).with_size(theme.font_size * 1.85)),
             )
             .when_some(self.filter_input.clone(), |d, input| {
                 d.child(
@@ -543,6 +543,7 @@ impl TableDelegate for FileTable {
                     div().w(px(14.)).flex_none().children(toggle)
                 });
                 h_flex()
+                    .items_center()
                     .gap_1p5()
                     .min_w_0()
                     .pl(px(16. * row.depth as f32))

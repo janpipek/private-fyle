@@ -279,6 +279,8 @@ pub struct Commander {
     theme: String,
     active: usize,
     show_hidden: bool,
+    panel_split: f32,
+    dragging_split: bool,
     status: SharedString,
     _subscriptions: Vec<Subscription>,
     _mkdir_subscription: Option<Subscription>,
@@ -375,6 +377,8 @@ impl Commander {
             theme: settings.theme.clone(),
             active: 0,
             show_hidden: settings.show_hidden,
+            panel_split: 0.5,
+            dragging_split: false,
             status: settings_error.map_or(status, Into::into),
             _subscriptions: subscriptions,
             _mkdir_subscription: None,
@@ -2574,6 +2578,33 @@ impl Render for Commander {
                     }
                 }
             }))
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, cx| {
+                if this.dragging_split {
+                    if !event.dragging() {
+                        this.dragging_split = false;
+                        cx.notify();
+                        return;
+                    }
+                    let win_width = f32::from(window.viewport_size().width);
+                    if win_width > 0.0 {
+                        let mouse_x = f32::from(event.position.x);
+                        let ratio = (mouse_x / win_width).clamp(0.15, 0.85);
+                        if (this.panel_split - ratio).abs() > 0.001 {
+                            this.panel_split = ratio;
+                            cx.notify();
+                        }
+                    }
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    if this.dragging_split {
+                        this.dragging_split = false;
+                        cx.notify();
+                    }
+                }),
+            )
             .size_full()
             .bg(bg)
             .text_color(fg)
@@ -2587,23 +2618,60 @@ impl Render for Commander {
                     .flex_none()
                     .child(self.menu_bar.clone()),
             )
-            .child(
+            .child({
+                let left_w = DefiniteLength::Fraction(self.panel_split);
+                let right_w = DefiniteLength::Fraction(1.0 - self.panel_split);
+
+                let left_child = if let Some(editor) = self.editor.as_ref().filter(|_| 0 != self.active) {
+                    editor.clone().into_any_element()
+                } else if self.preview_on && 0 != self.active {
+                    self.preview.clone().into_any_element()
+                } else {
+                    self.views[0].clone().into_any_element()
+                };
+
+                let right_child = if let Some(editor) = self.editor.as_ref().filter(|_| 1 != self.active) {
+                    editor.clone().into_any_element()
+                } else if self.preview_on && 1 != self.active {
+                    self.preview.clone().into_any_element()
+                } else {
+                    self.views[1].clone().into_any_element()
+                };
+
+                let left_pane = div().w(left_w).min_w_0().h_full().child(left_child);
+                let right_pane = div().w(right_w).min_w_0().h_full().child(right_child);
+
+                let divider = div()
+                    .id("panel-divider")
+                    .w(px(6.))
+                    .h_full()
+                    .flex_none()
+                    .cursor(CursorStyle::ResizeLeftRight)
+                    .hover(|style| style.bg(theme.primary))
+                    .when(self.dragging_split, |style| style.bg(theme.primary))
+                    .when(!self.dragging_split, |style| style.bg(theme.border))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, event: &MouseDownEvent, _window, cx| {
+                            if event.click_count == 2 {
+                                this.panel_split = 0.5;
+                                this.dragging_split = false;
+                            } else {
+                                this.dragging_split = true;
+                            }
+                            cx.notify();
+                        }),
+                    );
+
                 h_flex()
                     .flex_1()
                     .min_h_0()
-                    .gap_2()
+                    .gap_1()
                     .p_2()
-                    .children((0..2).map(|ix| {
-                        let pane = div().flex_1().min_w_0().h_full();
-                        if let Some(editor) = self.editor.as_ref().filter(|_| ix != self.active) {
-                            pane.child(editor.clone())
-                        } else if self.preview_on && ix != self.active {
-                            pane.child(self.preview.clone())
-                        } else {
-                            pane.child(self.views[ix].clone())
-                        }
-                    })),
-            )
+                    .child(left_pane)
+                    .child(divider)
+                    .child(right_pane)
+            })
             .child(
                 div()
                     .px_2()
