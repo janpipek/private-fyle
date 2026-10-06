@@ -15,10 +15,20 @@ pub struct Place {
 /// A discoverable section in the panel locations picker.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Group {
+    /// What the group holds; views pick its icon from this.
+    pub kind: GroupKind,
     /// Section heading in the locations picker.
     pub label: String,
     /// Locations in this section.
     pub places: Vec<Place>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroupKind {
+    Volumes,
+    Places,
+    Bookmarks,
+    Frequent,
 }
 
 /// Groups longer than this show as a submenu in the locations menu.
@@ -88,20 +98,22 @@ pub fn system_places() -> Vec<Place> {
 /// reads desktop configuration and mount tables, so callers run it off the UI
 /// thread.
 pub fn grouped_locations(bookmarks: &[PathBuf], frequent: &[PathBuf]) -> Vec<Group> {
-    let group = |label: &str, places: Vec<Place>| {
+    let group = |kind: GroupKind, label: &str, places: Vec<Place>| {
         let mut seen = std::collections::HashSet::new();
         let places = places
             .into_iter()
             .filter(|place| place.path.is_dir() && seen.insert(place.path.clone()))
             .collect();
         Group {
+            kind,
             label: label.into(),
             places,
         }
     };
-    let drives = group("Drives & Volumes", mounted_volumes());
-    let places = group("Places", system_places());
+    let drives = group(GroupKind::Volumes, "Drives & Volumes", mounted_volumes());
+    let places = group(GroupKind::Places, "Places", system_places());
     let bookmarks = group(
+        GroupKind::Bookmarks,
         "Bookmarks",
         bookmarks
             .iter()
@@ -109,6 +121,7 @@ pub fn grouped_locations(bookmarks: &[PathBuf], frequent: &[PathBuf]) -> Vec<Gro
             .collect(),
     );
     let frequent = group(
+        GroupKind::Frequent,
         "Frequent",
         frequent
             .iter()
@@ -492,6 +505,7 @@ mod tests {
     #[test]
     fn long_groups_become_submenus() {
         let group = |n| Group {
+            kind: GroupKind::Frequent,
             label: "G".into(),
             places: (0..n).map(|i| Place::new("p", format!("/p{i}"))).collect(),
         };

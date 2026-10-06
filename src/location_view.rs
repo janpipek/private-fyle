@@ -7,17 +7,30 @@ use std::rc::Rc;
 
 use gpui_kit::component::list::{ListDelegate, ListItem, ListState};
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
-use gpui_kit::component::{ActiveTheme as _, IndexPath, h_flex};
+use gpui_kit::component::{ActiveTheme as _, Icon, IndexPath, h_flex};
 use gpui_kit::*;
 
 use crate::palette::words_match;
-use crate::places::{Group, Place};
+use crate::places::{Group, GroupKind, Place};
+use gpui_kit::assets::IconName as Lucide;
 
 type OnConfirm = Rc<dyn Fn(PathBuf, &mut Window, &mut App)>;
 
+/// The glyph marking a group's entries, which also indents them below the
+/// group's heading.
+fn group_icon(kind: GroupKind) -> Lucide {
+    match kind {
+        GroupKind::Volumes => Lucide::HardDrive,
+        GroupKind::Places => Lucide::Folder,
+        GroupKind::Bookmarks => Lucide::Star,
+        GroupKind::Frequent => Lucide::FolderOpen,
+    }
+}
+
 /// Builds the locations menu: short groups inline under a heading, long ones
 /// (see [`Group::as_submenu`]) as scrollable submenus listing full paths, and
-/// a last item that opens the searchable list.
+/// a last item that opens the searchable list. Entries carry their group's
+/// icon so they read as belonging to it.
 pub fn locations_menu(
     groups: Vec<Group>,
     on_pick: impl Fn(PathBuf, &mut Window, &mut App) + 'static,
@@ -26,27 +39,42 @@ pub fn locations_menu(
     cx: &mut App,
 ) -> Entity<PopupMenu> {
     let on_pick: OnConfirm = Rc::new(on_pick);
-    let item = |label: String, path: PathBuf, on_pick: &OnConfirm| {
+    let item = |label: String, path: PathBuf, kind: GroupKind, on_pick: &OnConfirm| {
         let on_pick = on_pick.clone();
-        PopupMenuItem::new(label).on_click(move |_, window, cx| on_pick(path.clone(), window, cx))
+        PopupMenuItem::new(label)
+            .icon(group_icon(kind))
+            .on_click(move |_, window, cx| on_pick(path.clone(), window, cx))
     };
     PopupMenu::build(window, cx, move |mut menu, window, cx| {
         for group in &groups {
             if group.as_submenu() {
                 let places = group.places.clone();
                 let on_pick = on_pick.clone();
-                menu = menu.submenu(group.label.clone(), window, cx, move |menu, _, _| {
-                    places
-                        .iter()
-                        .fold(menu.max_h(px(480.)).scrollable(true), |menu, place| {
-                            let label = crate::places::tilde(&place.path);
-                            menu.item(item(label, place.path.clone(), &on_pick))
-                        })
-                });
+                let kind = group.kind;
+                let icon = Icon::new(group_icon(kind));
+                menu = menu.submenu_with_icon(
+                    Some(icon),
+                    group.label.clone(),
+                    window,
+                    cx,
+                    move |menu, _, _| {
+                        places
+                            .iter()
+                            .fold(menu.max_h(px(480.)).scrollable(true), |menu, place| {
+                                let label = crate::places::tilde(&place.path);
+                                menu.item(item(label, place.path.clone(), kind, &on_pick))
+                            })
+                    },
+                );
             } else {
                 menu = menu.label(group.label.clone());
                 for place in &group.places {
-                    menu = menu.item(item(place.label.clone(), place.path.clone(), &on_pick));
+                    menu = menu.item(item(
+                        place.label.clone(),
+                        place.path.clone(),
+                        group.kind,
+                        &on_pick,
+                    ));
                 }
             }
         }
@@ -109,6 +137,7 @@ impl ListDelegate for LocationDelegate {
                     .cloned()
                     .collect::<Vec<_>>();
                 (!places.is_empty()).then(|| Group {
+                    kind: group.kind,
                     label: group.label.clone(),
                     places,
                 })
@@ -188,6 +217,23 @@ impl ListDelegate for LocationDelegate {
             .map(|place| place.path.clone())
         {
             (self.on_confirm)(path, window, cx);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // Not `super::*`: gpui's glob export would shadow `#[test]`.
+    use super::{GroupKind, group_icon};
+    use gpui_kit::AssetSource as _;
+
+    #[test]
+    fn group_icons_are_in_the_default_bundle() {
+        use GroupKind::*;
+        for kind in [Volumes, Places, Bookmarks, Frequent] {
+            let path = group_icon(kind).path();
+            let svg = gpui_kit::assets::Assets.load(&path).unwrap();
+            assert!(svg.is_some(), "{kind:?}: {path} is not bundled");
         }
     }
 }
