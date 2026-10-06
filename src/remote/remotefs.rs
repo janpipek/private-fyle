@@ -22,6 +22,7 @@ use remotefs::fs::{ReadOptions, WriteOptions};
 use remotefs::{File, RemoteError, RemoteErrorType, RemoteFs};
 
 use super::connections::{Protocol, RemoteConfig};
+use super::hostkey;
 use super::process::Program;
 use super::{Capabilities, Control, Entry, Item, Location, Provider, Removal, entries};
 
@@ -92,9 +93,19 @@ impl RemoteFsProvider {
     fn connect(&self, control: &Control) -> io::Result<Client> {
         let password = password(&self.config, control)?;
         let mut client = build_client(&self.config, password)?;
-        client
-            .connect()
-            .map_err(|error| remote_error(&self.label, error))?;
+        // The SFTP host key check reports why it refused through the guard.
+        let guard = (self.config.protocol == Protocol::Sftp).then(|| {
+            hostkey::connecting(
+                self.config.host.as_deref().unwrap_or_default(),
+                self.config.port.unwrap_or(22),
+            )
+        });
+        if let Err(error) = client.connect() {
+            if let Some(reason) = guard.as_ref().and_then(hostkey::Connecting::rejection) {
+                return Err(io::Error::new(io::ErrorKind::PermissionDenied, reason));
+            }
+            return Err(remote_error(&self.label, error));
+        }
         Ok(client)
     }
 
@@ -211,7 +222,8 @@ fn build_client(config: &RemoteConfig, password: Option<String>) -> io::Result<C
                     | remotefs_ssh::SshConfigParseRule::ALLOW_UNSUPPORTED_FIELDS;
                 opts = opts.config_file(ssh_config, rules);
             }
-            Box::new(remotefs_ssh::SftpFs::libssh2(opts))
+            let client = remotefs_ssh::RusshSftpFs::<hostkey::KnownHostsCheck>::new(opts);
+            Box::new(client.into_blocking(runtime()?.handle().clone()))
         }
         Protocol::Ftp | Protocol::Ftps => {
             let mut client = remotefs_ftp::FtpFs::new(&host, config.port.unwrap_or(21))

@@ -2,6 +2,7 @@
 //! the registry of configured remotes, independent of panel rendering.
 
 pub mod connections;
+pub mod hostkey;
 pub mod process;
 pub mod proton;
 pub mod rclone;

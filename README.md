@@ -206,9 +206,11 @@ credentials come from the AWS environment or profile. SFTP uses ssh-agent and
 the `IdentityFile` entries of `~/.ssh/config`. Passwords are never stored:
 `password_command` is split into words (quotes group a word; no shell, pipes
 or expansion), run when connecting, and its output is the password. Bad
-entries are reported without hiding the good ones.
+entries are reported without hiding the good ones. SFTP verifies host keys against
+`~/.ssh/known_hosts` and refuses unknown or changed ones; connect once with `ssh`
+to accept a new host.
 
-Building needs the OpenSSL development files (SFTP and WebDAV); see Build
+Building needs the OpenSSL development files (WebDAV); see Build
 dependencies (`openssl-devel` on Fedora).
 
 ## Development sandbox
@@ -299,7 +301,7 @@ Where things live (`src/`):
 | `grid.rs`, `icon_view.rs`, `glyphs.rs`, `context_menu.rs` | Icon view: `ViewMode`, icon sizes, `Layout` (columns for a width) and cursor moves (UI-independent, tested); the lazy `IconGrid` view; the `FileIcon` → glyph table and the right-click menu shared with the list |
 | `columns.rs` | `ColumnKind` catalog, grouped, ids like `exif.iso`. A new column is a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |
 | `fs_ops.rs`, `transfer.rs`, `jobs.rs` | `Entry` and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
-| `remote.rs`, `remote/` | Remote providers: `Provider` trait, `Location` paths, Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `model/remote.rs` holds cached remote listings |
+| `remote.rs`, `remote/` | Remote providers: `Provider` trait, `Location` paths, Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `model/remote.rs` holds cached remote listings |
 | `archive.rs`, `dirsize.rs`, `links.rs` | Archive index and safe extraction; recursive sizes; symlink state |
 | `preview/`, `preview_view.rs` | `Previewer`s and their `Registry` (order: directory, image, pdf, media, archive, markdown, table, text, binary); one render arm per `Content` |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and the editor pane |
