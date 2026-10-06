@@ -8,6 +8,9 @@ use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+#[allow(dead_code)] // not wired into the UI yet; remove once it is
+mod remote;
+
 use crate::archive;
 use crate::dirsize::DirSize;
 use crate::fs_ops::{self, Entry, SortKey};
@@ -57,6 +60,11 @@ impl Deref for Row {
 #[derive(Clone)]
 pub struct Folder {
     path: PathBuf,
+    /// Last remote listing loaded in the background, with the panel path it
+    /// belongs to; remote rows are built from it, never from I/O.
+    remote_listing: Option<(PathBuf, Vec<Entry>)>,
+    /// Local folder the panel came from, where ".." at a remote root returns.
+    remote_origin: Option<PathBuf>,
     /// Rows shown: `all` narrowed by `filter`.
     entries: Vec<Row>,
     /// Everything listed, before filtering.
@@ -150,6 +158,8 @@ impl Folder {
     pub fn new(path: PathBuf) -> Self {
         Self {
             path,
+            remote_listing: None,
+            remote_origin: None,
             entries: Vec::new(),
             all: Vec::new(),
             filter: String::new(),
@@ -397,7 +407,7 @@ impl Folder {
     /// `path` is inside one that is not cached yet (see
     /// [`archive::Index::cached`]). Showing it would block on that read.
     pub fn archive_needed(&self, path: &Path) -> Option<PathBuf> {
-        if path.as_os_str().is_empty() || path.is_dir() {
+        if crate::remote::is_remote(path) || path.as_os_str().is_empty() || path.is_dir() {
             return None;
         }
         let (file, _) = archive::locate(path)?;
@@ -556,6 +566,9 @@ impl Folder {
         let mut first_error = None;
         while let Err(e) = self.load() {
             first_error.get_or_insert(e);
+            if self.is_remote() {
+                break;
+            }
             match fs_ops::parent_of(&self.path) {
                 Some(parent) => self.path = parent,
                 None => break,
@@ -579,7 +592,7 @@ impl Folder {
         if self.results.is_some() {
             return self.replace(self.path.clone(), None);
         }
-        match fs_ops::parent_of(&self.path) {
+        match self.parent_location() {
             Some(parent) => self.navigate(parent),
             None => Ok(()),
         }
@@ -596,7 +609,10 @@ impl Folder {
                 self.navigate(entry.path)?;
             }
             Ok(Activation::Entered)
-        } else if self.mount.is_none() && archive::format_of(&entry.path).is_some() {
+        } else if !self.is_remote()
+            && self.mount.is_none()
+            && archive::format_of(&entry.path).is_some()
+        {
             // An archive opens like a directory.
             self.navigate(entry.path)?;
             Ok(Activation::Entered)
@@ -860,12 +876,21 @@ impl Folder {
     fn replace_untracked(&mut self, path: PathBuf, select: Option<PathBuf>) -> Result<(), String> {
         let mut entries = Vec::new();
         let error = |e: &dyn std::fmt::Display| format!("{}: {e}", fs_ops::display_path(&path));
-        let mount = self.mount_for(&path).map_err(|e| error(&e))?;
-        match &mount {
-            Some((mount, inner)) => self
-                .list_archive(mount, inner, &mut entries)
-                .map_err(|e| error(&e))?,
-            None => self.list(&path, 0, &mut entries).map_err(|e| error(&e))?,
+        let mount = if crate::remote::is_remote(&path) {
+            None
+        } else {
+            self.mount_for(&path).map_err(|e| error(&e))?
+        };
+        if crate::remote::is_remote(&path) {
+            self.list_remote(&path, &mut entries)
+                .map_err(|e| error(&e))?;
+        } else {
+            match &mount {
+                Some((mount, inner)) => self
+                    .list_archive(mount, inner, &mut entries)
+                    .map_err(|e| error(&e))?,
+                None => self.list(&path, 0, &mut entries).map_err(|e| error(&e))?,
+            }
         }
         if path != self.path || self.results.is_some() {
             self.marked.clear();
@@ -890,7 +915,7 @@ impl Folder {
     /// not an ordinary directory. The archive is read again only when it
     /// changed on disk ([`archive::Index::cached`]).
     fn mount_for(&self, path: &Path) -> io::Result<Option<(Mount, String)>> {
-        if path.as_os_str().is_empty() || path.is_dir() {
+        if crate::remote::is_remote(path) || path.as_os_str().is_empty() || path.is_dir() {
             return Ok(None);
         }
         let Some((file, inner)) = archive::locate(path) else {

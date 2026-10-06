@@ -173,6 +173,15 @@ one replaces it.
 
 CI builds and tests on Linux (Windows job disabled for now) (`.github/workflows/ci.yml`).
 
+## Remote locations
+
+Remote folders have paths like `proton:/Reports` or `gdrive:/Docs`; the
+root is `<remote>:/`. Providers: Proton Drive through the official
+`proton-drive` CLI (run `proton-drive auth login` first) and every remote
+set up with `rclone config` (Google Drive, SFTP, S3, ...). Credentials stay
+with those tools. Only the provider layer and the model exist so far; it is
+not wired into the UI yet.
+
 ## Development sandbox
 
 A Fedora 44 container (rootless Podman, or Docker) with the Rust toolchain,
@@ -261,6 +270,7 @@ Where things live (`src/`):
 | `grid.rs`, `icon_view.rs`, `glyphs.rs`, `context_menu.rs` | Icon view: `ViewMode`, icon sizes, `Layout` (columns for a width) and cursor moves (UI-independent, tested); the lazy `IconGrid` view; the `FileIcon` → glyph table and the right-click menu shared with the list |
 | `columns.rs` | `ColumnKind` catalog, grouped, ids like `exif.iso`. A new column is a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |
 | `fs_ops.rs`, `transfer.rs`, `jobs.rs` | `Entry` and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
+| `remote.rs`, `remote/` | Remote providers: `Provider` trait, `Location` paths, Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`); `model/remote.rs` holds cached remote listings |
 | `archive.rs`, `dirsize.rs`, `links.rs` | Archive index and safe extraction; recursive sizes; symlink state |
 | `preview/`, `preview_view.rs` | `Previewer`s and their `Registry` (order: directory, image, pdf, media, archive, markdown, table, text, binary); one render arm per `Content` |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and the editor pane |

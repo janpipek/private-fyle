@@ -4,13 +4,12 @@
       "Clear selection" command (Esc already clears marks). Implement
       missing actions as separate features.
 - [ ] Archive follow-ups: nested archives; maybe write support.
-- [ ] Additional virtual locations (idea, integrations undecided): Proton
-      Drive via a CLI, Google Drive, FTP/SFTP, and AWS (initially S3).
-      Expose them through panel navigation and Locations, with clear remote
-      paths and supported actions. Decide per-provider adapters (CLI or API),
-      authentication/credential storage, caching, and read/write scope before
-      implementation; remote operations need background progress, cancellation,
-      and useful connection errors.
+- [ ] Additional virtual locations: the provider layer is done
+      (`src/remote.rs`: Proton Drive through the official `proton-drive`
+      CLI; Google Drive, SFTP, S3 and others through rclone; credentials stay
+      with those tools). Still open: UI wiring (background listing with
+      cancellation, Locations entries, copy/move/trash jobs, `Cmd`s and
+      connection errors in the status line).
 - [ ] Embedded terminal (idea, undecided): alacritty_terminal + PTY rendered
       in gpui as Zed does, vs. libghostty. Recommendation so far: none for
       now (F9 opens an external terminal); if wanted later,

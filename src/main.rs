@@ -30,6 +30,8 @@ mod panel;
 mod places;
 mod preview;
 mod preview_view;
+#[allow(dead_code)] // providers are not wired into the UI yet; remove once they are
+mod remote;
 mod rename;
 mod search;
 mod settings;
