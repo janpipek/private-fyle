@@ -83,7 +83,7 @@ impl Tool for JustTasks {
     }
 
     fn requires(&self) -> Vec<Requirement> {
-        vec![Requirement::parse("just").unwrap()]
+        vec![Requirement::parse("just").expect("\"just\" is a valid requirement")]
     }
 
     fn plan(&self, inv: &Invocation) -> Result<Action, String> {

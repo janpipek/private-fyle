@@ -72,7 +72,10 @@ impl Programs {
     }
 
     pub fn find(&self, name: &str) -> Option<PathBuf> {
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self
+            .cache
+            .lock()
+            .expect("program cache lock is never poisoned");
         cache
             .entry(name.to_string())
             .or_insert_with(|| find_in(&self.search, name))

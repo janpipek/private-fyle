@@ -116,7 +116,8 @@ impl LinkState {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
+#[cfg(unix)]
 mod tests {
     use super::{Broken, LinkState};
     use std::fs;

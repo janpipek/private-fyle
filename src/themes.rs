@@ -97,7 +97,10 @@ impl ThemePicker {
             ThemeChoice::Dark => "dark".to_string(),
             ThemeChoice::Named(name) => name,
         };
-        (0..self.len()).find(|&ix| self.get(ix).unwrap().eq_ignore_ascii_case(&target))
+        (0..self.len()).find(|&ix| {
+            self.get(ix)
+                .is_some_and(|name| name.eq_ignore_ascii_case(&target))
+        })
     }
 
     pub fn original(&self) -> &str {

@@ -1015,12 +1015,21 @@ impl Commander {
         let (bg_found, bg_cancel) = (found.clone(), cancel.clone());
         self._search_task = cx.spawn_in(window, async move |this, cx| {
             let mut search = cx.background_spawn(async move {
-                search::run(&query, &bg_cancel, |hit| bg_found.lock().unwrap().push(hit))
+                search::run(&query, &bg_cancel, |hit| {
+                    bg_found
+                        .lock()
+                        .expect("search hits lock is never poisoned")
+                        .push(hit)
+                })
             });
             loop {
                 let timer = cx.background_executor().timer(Duration::from_millis(120));
                 let finished = first_of(&mut search, timer).await;
-                let batch: Vec<_> = found.lock().unwrap().drain(..).collect();
+                let batch: Vec<_> = found
+                    .lock()
+                    .expect("search hits lock is never poisoned")
+                    .drain(..)
+                    .collect();
                 let keep_going = this
                     .update(cx, |this, cx| {
                         let folder = &this.folders[ix];
@@ -2116,13 +2125,20 @@ impl Commander {
         self._size_tasks[ix] = cx.spawn_in(window, async move |this, cx| {
             let mut scan = cx.background_spawn(async move {
                 dirsize::scan_dirs(&bg_roots, &bg_cancel, |path, size| {
-                    bg_latest.lock().unwrap().insert(path.to_path_buf(), *size);
+                    bg_latest
+                        .lock()
+                        .expect("size updates lock is never poisoned")
+                        .insert(path.to_path_buf(), *size);
                 })
             });
             loop {
                 let timer = cx.background_executor().timer(Duration::from_millis(150));
                 let finished = first_of(&mut scan, timer).await.is_some();
-                let updates: Vec<_> = latest.lock().unwrap().drain().collect();
+                let updates: Vec<_> = latest
+                    .lock()
+                    .expect("size updates lock is never poisoned")
+                    .drain()
+                    .collect();
                 let keep_going = this
                     .update(cx, |this, cx| {
                         let panel = this.folders[ix].clone();
@@ -2636,7 +2652,11 @@ impl Commander {
                         p.done.load(Ordering::Relaxed),
                         p.total.load(Ordering::Relaxed),
                     );
-                    let current = p.current.lock().unwrap().clone();
+                    let current = p
+                        .current
+                        .lock()
+                        .expect("progress lock is never poisoned")
+                        .clone();
                     let cancelling = p.cancelled();
                     let progress = job.progress.clone();
                     h_flex()

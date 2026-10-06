@@ -433,6 +433,9 @@ fn rename_no_replace(src: &Path, dst: &Path) -> io::Result<()> {
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "NUL in source path"))?;
     let dst = std::ffi::CString::new(dst.as_os_str().as_bytes())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "NUL in destination path"))?;
+    // SAFETY: `src` and `dst` are NUL-terminated CStrings that outlive the call,
+    // so both pointers are valid; AT_FDCWD makes them ordinary paths and
+    // RENAME_NOREPLACE is a valid flag. The call only reads the strings.
     let result = unsafe {
         libc::renameat2(
             libc::AT_FDCWD,

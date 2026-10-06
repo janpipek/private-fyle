@@ -90,11 +90,18 @@ impl Progress {
     }
 
     pub fn pending_conflict(&self) -> Option<ConflictRequest> {
-        self.conflict.lock().unwrap().pending.clone()
+        self.conflict
+            .lock()
+            .expect("conflict lock is never poisoned")
+            .pending
+            .clone()
     }
 
     pub fn respond(&self, id: u64, decision: Decision) -> Result<(), &'static str> {
-        let mut state = self.conflict.lock().unwrap();
+        let mut state = self
+            .conflict
+            .lock()
+            .expect("conflict lock is never poisoned");
         let Some(request) = &state.pending else {
             return Err("conflict is no longer pending");
         };
@@ -113,7 +120,10 @@ impl Progress {
     }
 
     pub fn resolve(&self, conflict: &Conflict) -> io::Result<Decision> {
-        let mut state = self.conflict.lock().unwrap();
+        let mut state = self
+            .conflict
+            .lock()
+            .expect("conflict lock is never poisoned");
         if self.cancelled() {
             return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
         }
@@ -136,13 +146,19 @@ impl Progress {
                 state.pending = None;
                 return Ok(decision);
             }
-            state = self.conflict_ready.wait(state).unwrap();
+            state = self
+                .conflict_ready
+                .wait(state)
+                .expect("conflict lock is never poisoned");
         }
     }
 
     fn step(&self, path: &Path) -> io::Result<()> {
         self.done.fetch_add(1, Ordering::Relaxed);
-        *self.current.lock().unwrap() = path.display().to_string();
+        *self
+            .current
+            .lock()
+            .expect("progress lock is never poisoned") = path.display().to_string();
         if self.cancelled() {
             return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
         }

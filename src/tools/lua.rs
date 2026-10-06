@@ -124,7 +124,7 @@ impl LuaTool {
         let params = parse_params(&def).map_err(id_error)?;
         let key = lua
             .lock()
-            .unwrap()
+            .expect("Lua lock is never poisoned")
             .create_registry_value(def)
             .map_err(|e| id_error(e.to_string()))?;
         Ok(Self {
@@ -146,7 +146,7 @@ impl LuaTool {
         facts: &Facts,
         extra: impl FnOnce(&Lua, &Table) -> mlua::Result<Option<Table>>,
     ) -> Result<Option<R>, String> {
-        let lua = self.lua.lock().unwrap();
+        let lua = self.lua.lock().expect("Lua lock is never poisoned");
         let run = || -> mlua::Result<Option<R>> {
             let def: Table = lua.registry_value(&self.def)?;
             let Some(function) = def.get::<Option<Function>>(name)? else {
