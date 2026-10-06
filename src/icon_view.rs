@@ -296,15 +296,20 @@ impl IconGrid {
             _ => Size::Medium,
         };
         let picture = match thumbnail {
-            Some(image) => div()
-                .size(px(size))
-                .overflow_hidden()
-                .child(
-                    img(ImageSource::Render(image))
-                        .size_full()
-                        .object_fit(ObjectFit::Contain),
-                )
-                .into_any_element(),
+            Some(image) => {
+                // Size the image to its fitted box: left to the layout,
+                // gpui's aspect ratio stretched portrait images past the
+                // box height and the clip cropped them.
+                let frame = image.size(0);
+                let (w, h) = crate::grid::fit(frame.width.0 as f32, frame.height.0 as f32, size);
+                div()
+                    .size(px(size))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(img(ImageSource::Render(image)).w(px(w)).h(px(h)))
+                    .into_any_element()
+            }
             None => Icon::new(icon).size(px(size * 0.8)).into_any_element(),
         };
         h_flex()

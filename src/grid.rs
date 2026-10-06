@@ -142,9 +142,19 @@ pub fn move_cursor(cursor: usize, count: usize, cols: usize, page_rows: usize, m
     }
 }
 
+/// The size of a `width` × `height` picture scaled to fit a square of
+/// `side`, keeping its aspect ratio (it may grow to fill the square).
+pub fn fit(width: f32, height: f32, side: f32) -> (f32, f32) {
+    if width <= 0.0 || height <= 0.0 {
+        return (side, side);
+    }
+    let scale = side / width.max(height);
+    (width * scale, height * scale)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Layout, Move, ViewMode, clamp_size, move_cursor, step_size};
+    use super::{Layout, Move, ViewMode, clamp_size, fit, move_cursor, step_size};
 
     #[test]
     fn sizes_snap_and_step_within_the_ends() {
@@ -238,5 +248,13 @@ mod tests {
             .expect("valid mode")["v"];
             assert_eq!(parsed, mode);
         }
+    }
+
+    #[test]
+    fn pictures_fit_the_square_keeping_their_shape() {
+        assert_eq!(fit(43.0, 128.0, 96.0), (32.25, 96.0));
+        assert_eq!(fit(128.0, 32.0, 96.0), (96.0, 24.0));
+        assert_eq!(fit(128.0, 128.0, 96.0), (96.0, 96.0));
+        assert_eq!(fit(0.0, 10.0, 96.0), (96.0, 96.0));
     }
 }
