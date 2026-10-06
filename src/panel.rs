@@ -455,7 +455,11 @@ impl Render for FolderView {
                                     .child(Input::new(&input).small())
                             })
                             .when(self.location_input.is_none(), |d| {
-                                d.gap_0p5().children(breadcrumb_items)
+                                d.flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .gap_0p5()
+                                    .children(breadcrumb_items)
                             }),
                     )
                     .child(
