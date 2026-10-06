@@ -53,8 +53,8 @@ GPL-3.0-or-later. Linux first; Windows is paused, macOS comes later.
   boundary errors become `Result<_, String>` messages shaped
   `"<path>: <error>"` for the status line or dialogs. No `anyhow` or
   `thiserror`.
-- No `unwrap()` outside tests. Exceptions: `Mutex::lock()`, and invariants
-  as `expect("why it cannot fail")`.
+- No `unwrap()` outside tests (clippy enforces it); where a value cannot
+  be missing, use `expect("why it cannot fail")`, also for `Mutex::lock()`.
 - `unsafe` only for libc FFI, each block with a `// SAFETY:` comment.
 - Never block the UI thread: file system walks, archive reads, processes
   and anything possibly slow run via `background_spawn`, cancellable when
