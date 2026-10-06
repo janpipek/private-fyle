@@ -20,8 +20,6 @@ use crate::theme_picker::{self, ThemePickerDelegate};
 use crate::themes::ThemePicker;
 use crate::zoom;
 
-/// Built-in tools plus the user's `<config dir>/fyle/tools.toml`.
-/// The gpui action behind a [`Cmd`].
 /// Zooms the UI by changing the theme's font sizes; returns the new size.
 pub fn set_font_size(cx: &mut App, f: impl FnOnce(f32) -> f32) -> f32 {
     let size = f(f32::from(cx.theme().font_size));

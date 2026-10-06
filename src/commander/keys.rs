@@ -184,6 +184,7 @@ pub fn bind_keys(cx: &mut App) {
     ]);
 }
 
+/// The gpui action behind a [`Cmd`].
 pub fn action_for(cmd: Cmd) -> Box<dyn Action> {
     match cmd {
         Cmd::Open => Box::new(Open),
