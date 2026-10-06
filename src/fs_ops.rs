@@ -4,6 +4,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use crate::links::LinkState;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
     pub name: String,
@@ -13,6 +15,8 @@ pub struct Entry {
     pub size: u64,
     pub modified: Option<SystemTime>,
     pub attrs: Attrs,
+    /// Symlink state; the other fields describe the link's target.
+    pub link: LinkState,
 }
 
 /// Platform attributes shown in optional columns.
@@ -228,6 +232,7 @@ pub fn read_dir(dir: &Path, show_hidden: bool) -> io::Result<Vec<Entry>> {
             size: 0,
             modified: None,
             attrs: Attrs::default(),
+            link: Default::default(),
         });
     }
     for item in fs::read_dir(dir)? {
@@ -235,10 +240,21 @@ pub fn read_dir(dir: &Path, show_hidden: bool) -> io::Result<Vec<Entry>> {
         let name = item.file_name().to_string_lossy().into_owned();
         let path = item.path();
         // Follow symlinks so linked directories can be entered.
-        let meta = fs::metadata(&path).or_else(|_| item.metadata()).ok();
+        let followed = fs::metadata(&path);
+        let meta = followed
+            .as_ref()
+            .ok()
+            .cloned()
+            .or_else(|| item.metadata().ok());
         if !show_hidden && is_hidden(&name, meta.as_ref()) {
             continue;
         }
+        // Only shown links are probed.
+        let link = if item.file_type().is_ok_and(|kind| kind.is_symlink()) {
+            LinkState::probe(&path, &followed)
+        } else {
+            LinkState::NotLink
+        };
         entries.push(Entry {
             name,
             path,
@@ -246,6 +262,7 @@ pub fn read_dir(dir: &Path, show_hidden: bool) -> io::Result<Vec<Entry>> {
             is_parent: false,
             size: meta.as_ref().map_or(0, |m| m.len()),
             attrs: meta.as_ref().map(Attrs::from_meta).unwrap_or_default(),
+            link,
             modified: meta.and_then(|m| m.modified().ok()),
         });
     }
@@ -279,6 +296,7 @@ fn drives() -> Vec<Entry> {
                 size: 0,
                 modified: None,
                 attrs: Default::default(),
+                link: Default::default(),
             })
             .collect()
     }
@@ -416,6 +434,7 @@ mod tests {
             size: 0,
             modified: None,
             attrs: Attrs::default(),
+            link: Default::default(),
         };
         let split = |name: &str, is_dir| {
             let e = entry(name, is_dir);
@@ -444,6 +463,7 @@ mod tests {
             size,
             modified: None,
             attrs: Default::default(),
+            link: Default::default(),
         }
     }
 

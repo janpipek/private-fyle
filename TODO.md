@@ -17,11 +17,6 @@
   - Right-click file actions are implemented, sharing command definitions,
     names and availability with the menu bar and command palette.
     Implement missing actions as separate features.
-- [ ] Distinguish symbolic links in list and icon views: add a consistent
-      link badge/overlay while retaining the target's file-type icon. Show
-      the link target in a tooltip or details, and visibly distinguish broken
-      links. Indicators must remain clear across themes without relying only
-      on colour; linked directories should still be navigable.
 - [ ] Selection helpers: Select all, Clear selection, Invert selection, and
       Select by filename pattern or extension. Expose them in Edit and the
       command palette, with configurable shortcuts; work in both list and
@@ -56,6 +51,11 @@
 
 ## Done
 
+- [x] Distinguish symbolic links (list view): the target's file icon plus a
+      badge (curved arrow; crossed circle and muted name when broken), a
+      tooltip with the target and resolved path, link line in the F3 header.
+      `links::LinkState` and `link_badge::badged` are reusable for the icon
+      view. Tar archive symlinks are marked too.
 - [x] Optional directory sizes: Calculate Sizes (Ctrl-Shift-S) measures marked / cursor /
       all folders in the background (Esc cancels), cached until refresh or
       navigation, used by size sort and the marked-total footer; `≥` marks

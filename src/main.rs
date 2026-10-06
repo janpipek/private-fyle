@@ -13,6 +13,8 @@ mod fs_ops;
 mod git_status;
 mod icons;
 mod jobs;
+mod link_badge;
+mod links;
 mod location_view;
 mod menu_bar;
 mod menus;

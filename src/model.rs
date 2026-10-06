@@ -11,6 +11,7 @@ use std::sync::Arc;
 use crate::archive;
 use crate::dirsize::DirSize;
 use crate::fs_ops::{self, Entry, SortKey};
+use crate::links::LinkState;
 use crate::search::Hit;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -417,6 +418,7 @@ impl Folder {
                 size: 0,
                 modified: None,
                 attrs: Default::default(),
+                link: Default::default(),
             },
             depth: 0,
             hit_line: None,
@@ -837,6 +839,7 @@ impl Folder {
                 size: 0,
                 modified: None,
                 attrs: Default::default(),
+                link: Default::default(),
             })
             .collect();
         entries.extend(
@@ -854,6 +857,12 @@ impl Folder {
                     attrs: fs_ops::Attrs {
                         mode: node.mode,
                         ..Default::default()
+                    },
+                    link: match &node.kind {
+                        archive::Kind::Symlink(target) => LinkState::Link {
+                            target: target.into(),
+                        },
+                        _ => LinkState::NotLink,
                     },
                 }),
         );
@@ -1177,6 +1186,7 @@ mod tests {
                     size: 0,
                     modified: None,
                     attrs: Default::default(),
+                    link: Default::default(),
                 },
                 line: (rel == "a.txt").then(|| (3, "found".to_string())),
             }

@@ -322,7 +322,7 @@ impl PreviewPane {
 impl Render for PreviewPane {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        let (title, detail) = match &self.state {
+        let (title, detail, link) = match &self.state {
             State::Ready(p) => (
                 p.name.clone(),
                 match p.content {
@@ -330,10 +330,12 @@ impl Render for PreviewPane {
                     Content::Directory { .. } => p.kind.to_string(),
                     _ => format!("{} · {}", p.kind, fs_ops::format_size(p.size)),
                 },
+                p.link.tooltip(&p.path),
             ),
-            State::Loading => ("Loading…".into(), String::new()),
-            State::Failed(_) | State::Empty => ("Preview".into(), String::new()),
+            State::Loading => ("Loading…".into(), String::new(), None),
+            State::Failed(_) | State::Empty => ("Preview".into(), String::new(), None),
         };
+        let link_tip = link;
         let center = |text: String| {
             div()
                 .size_full()
@@ -361,6 +363,17 @@ impl Render for PreviewPane {
                     .rounded(theme.radius)
                     .bg(theme.muted)
                     .child(div().flex_1().min_w_0().truncate().child(title))
+                    // Where a symlink leads (and the resolved path), in full.
+                    .when_some(link_tip, |d, tip| {
+                        d.child(
+                            div()
+                                .min_w_0()
+                                .truncate()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(tip.replace('\n', " → ")),
+                        )
+                    })
                     .child(
                         div()
                             .flex_none()

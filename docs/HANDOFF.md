@@ -102,6 +102,7 @@ Done (details in `TODO.md` under "Done"):
 | `preview/` | `Previewer` trait and `Registry`. Order: directory, image, pdf, media, archive, markdown, table, text, binary. `preview_view.rs` has one render arm per `Content` variant. |
 | `editor.rs` / `editor_view.rs` | `Document` model (UTF-8, ≤ 8 MiB, atomic save) and the editor pane |
 | `tools/` | Tool, Action and Registry model; `defaults.toml`; built-ins (git website, just tasks, image gallery); `exec.rs` runs them |
+| `links.rs` | `LinkState` (`NotLink` / `Link{target}` / `Broken{target, reason}`), set on `Entry.link` by `read_dir` and search, on `Preview.link` by the registry; `tooltip(path)` text. `link_badge.rs` is the view helper (`badged`). Linked folders keep `is_dir` and the link path, so navigation is unchanged |
 | `search.rs`, `jobs.rs`, `places.rs`, `rename.rs`, `openers.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs` | UI-independent models, each with tests |
 | `*_view.rs`, `theme_picker.rs` | Thin views |
 

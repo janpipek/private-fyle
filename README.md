@@ -63,6 +63,15 @@ targets that entry. Escape closes the menu and returns focus to that panel.
 | Ctrl-Shift-C        | Cancel running copy/move/delete jobs (also a Cancel button per job) |
 | F10 / Ctrl-Q        | Quit                                      |
 
+Symbolic links keep their target's file icon with a small badge: a curved
+arrow for a working link, a crossed circle (and a muted name) for a broken
+one (missing target or a loop). Hover the name for `→ target` and the
+resolved path, or `Broken link (…) → target`; F3 shows the same in its header
+(for a broken link, in place of the preview). Links inside tar archives show
+the badge too (zip does not store the target when only listing).
+A link to a folder is entered like a folder: the panel path, breadcrumbs and
+history keep the link's path, not the resolved one.
+
 In tree mode, clicking a folder's chevron also expands/collapses it; Enter
 still makes the folder the panel's root.
 
@@ -189,7 +198,11 @@ permissions); `src/editor_view.rs` is the editor pane.
 directories, unique names, never writing through aliases of the source);
 `src/conflict_view.rs` formats the conflict details.
 `src/icons.rs` maps names/extensions to semantic icon kinds; the table view
-picks the glyph for each kind.
+picks the glyph for each kind. `src/links.rs` holds the UI-independent
+symlink state (`LinkState`: not a link / link with target / broken with
+reason), probed in `fs_ops::read_dir` from the metadata already fetched (one
+`read_link` per shown link; the resolved path is computed for tooltips only);
+`src/link_badge.rs` draws the badge over an icon.
 `src/breadcrumbs.rs` derives panel path segments, parses edited paths and guards
 background navigation results. `src/places.rs` discovers grouped desktop places,
 Linux mounts, bookmarks and frequent paths; `src/location_view.rs` renders the

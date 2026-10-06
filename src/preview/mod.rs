@@ -162,6 +162,8 @@ pub struct Preview {
     /// Name of the previewer that produced it, e.g. "Text".
     pub kind: &'static str,
     pub content: Content,
+    /// Set when `path` is a symlink; the other fields describe its target.
+    pub link: crate::links::LinkState,
 }
 
 pub trait Previewer: Send + Sync {
@@ -206,7 +208,14 @@ impl Registry {
             return self.preview_in_archive(path, &file, &inner);
         }
         let error = |e: io::Error| format!("{}: {e}", path.display());
-        let probe = Probe::read(path).map_err(error)?;
+        // A broken link cannot be read; say where it points instead.
+        let probe = Probe::read(path).map_err(|e| {
+            let link = crate::links::LinkState::of(path);
+            match link.is_broken().then(|| link.tooltip(path)).flatten() {
+                Some(tip) => format!("{}: {tip}", path.display()),
+                None => error(e),
+            }
+        })?;
         let previewer = self
             .previewers
             .iter()
@@ -219,6 +228,7 @@ impl Registry {
             size: probe.size,
             kind: previewer.name(),
             content,
+            link: crate::links::LinkState::of(path),
         })
     }
 
@@ -244,6 +254,7 @@ impl Registry {
                     files,
                     files_size,
                 },
+                link: Default::default(),
             });
         }
         let modified = fs::metadata(file).and_then(|m| m.modified()).ok();

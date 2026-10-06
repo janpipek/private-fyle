@@ -13,6 +13,7 @@ use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::table::{
     Column, ColumnSort, DataTable, TableDelegate, TableEvent, TableState,
 };
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -785,6 +786,8 @@ impl TableDelegate for FileTable {
         let theme = cx.theme();
         let color = if folder.is_marked(&entry.path) {
             theme.danger
+        } else if entry.link.is_broken() {
+            theme.muted_foreground
         } else if entry.is_dir {
             theme.primary
         } else {
@@ -818,14 +821,19 @@ impl TableDelegate for FileTable {
                     });
                     div().w(px(14.)).flex_none().children(toggle)
                 });
+                let tip = entry.link.tooltip(&entry.path);
                 h_flex()
+                    .id(("name", row_ix))
                     .items_center()
                     .gap_1p5()
                     .min_w_0()
                     .pl(px(16. * row.depth as f32))
+                    .when_some(tip, |d, tip| {
+                        d.tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                    })
                     .text_color(color)
                     .children(chevron)
-                    .child(icon)
+                    .child(crate::link_badge::badged(Icon::new(icon), &entry.link, cx))
                     .child(
                         div()
                             .truncate()
@@ -947,6 +955,8 @@ mod tests {
             assert!(svg.is_some(), "{icon:?}: {path} is not bundled");
         }
         for icon in [
+            Lucide::Redo2,
+            Lucide::Ban,
             Lucide::Map,
             Lucide::SquareTerminal,
             Lucide::Copy,

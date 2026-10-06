@@ -135,6 +135,11 @@ pub fn run(
             },
         };
         let meta = item.metadata().ok();
+        let link = if item.path_is_symlink() {
+            crate::links::LinkState::of(path)
+        } else {
+            Default::default()
+        };
         on_hit(Hit {
             entry: Entry {
                 name: relative_name(&query.root, path),
@@ -146,6 +151,7 @@ pub fn run(
                     .as_ref()
                     .map(crate::fs_ops::Attrs::from_meta)
                     .unwrap_or_default(),
+                link,
                 modified: meta.and_then(|m| m.modified().ok()),
             },
             line,
