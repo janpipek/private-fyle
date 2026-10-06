@@ -6,11 +6,15 @@ mod breadcrumbs;
 mod columns;
 mod commander;
 mod conflict_view;
+mod context_menu;
 mod dirsize;
 mod editor;
 mod editor_view;
 mod fs_ops;
 mod git_status;
+mod glyphs;
+mod grid;
+mod icon_view;
 mod icons;
 mod jobs;
 mod link_badge;
@@ -75,6 +79,7 @@ fn main() {
             commander::bind_keys(cx);
             editor_view::bind_keys(cx);
             panel::bind_keys(cx);
+            icon_view::bind_keys(cx);
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     cx.quit();

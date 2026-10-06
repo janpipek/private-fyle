@@ -58,6 +58,7 @@ impl Commander {
     pub fn menu_state(&self, cx: &App) -> menus::State {
         let folder = self.folders[self.active].read(cx);
         let current = folder.current();
+        let view = self.views[self.active].read(cx);
         menus::State {
             has_targets: folder.marked_count() > 0 || current.is_some_and(|e| !e.is_parent),
             cursor_on_file: current.is_some_and(|e| !e.is_dir),
@@ -70,6 +71,8 @@ impl Commander {
                     !e.is_dir && !e.is_parent && archive::format_of(&e.path).is_some()
                 }),
             tree: folder.is_tree(),
+            view: view.view_mode(),
+            icon_size: view.icon_size(cx),
             hidden: self.show_hidden,
             preview: self.preview_on,
             jobs_running: !self.jobs.is_empty(),

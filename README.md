@@ -23,7 +23,7 @@ targets that entry. Escape closes the menu and returns focus to that panel.
 
 | Key                 | Action                                    |
 | ------------------- | ----------------------------------------- |
-| Up / Down, PgUp/Dn  | Move cursor                               |
+| Up / Down, PgUp/Dn  | Move cursor (icon view: one row / a page of rows) |
 | Home / End          | First / last entry                        |
 | Enter / dbl-click   | Enter directory or archive (zip, tar, tar.gz/tgz: browsed like a folder, read-only), or open the file (first matching `[[opener]]`, else the system default) |
 | Shift-Enter         | Open with…: matching openers, system default, built-in editor |
@@ -56,7 +56,9 @@ targets that entry. Escape closes the menu and returns focus to that panel.
 | F4                  | Edit the cursor file (UTF-8 text, up to 8 MiB) in place of the other panel; Ctrl-S saves, Esc/Ctrl-W closes (with unsaved changes it asks: Save, Discard or Cancel); saving asks before overwriting a file changed on disk. `[editor] command` in `config.toml` uses an external editor instead |
 | Ctrl-P              | Command palette: all commands with their keys, filtered by typing |
 | Ctrl-K Ctrl-T       | Theme picker: arrows preview live, Enter keeps and saves to `config.toml`, Esc restores |
-| Right / Left        | Tree: expand / collapse (or go to parent) |
+| Right / Left        | Tree: expand / collapse (or go to parent); in icon view: next / previous cell |
+| Ctrl-1 / Ctrl-2     | List view / icon view for the active panel (View menu; saved as `left_view` / `right_view`) |
+| Alt-= / Alt--       | Larger / smaller icons in icon view (saved as `icon_size`) |
 | Ctrl-R              | Refresh (also forgets computed folder sizes) |
 | Ctrl-Shift-S        | Calculate Sizes (View menu, palette, right-click): recursive size of the marked folders, else the folder under the cursor, else (cursor on `..` or a file) of every folder listed. Runs in the background, shows in the Size column (`… 1.2 G` while running, `≥ 1.2 G` when incomplete: unreadable entries or stopped); Esc stops. Symlinks are not followed, hard-linked files count once, other filesystems are skipped; not available inside archives. Sorting by size uses the results; the footer sums marked entries (`≥` and "n folders not measured" when unknown). Never runs automatically |
 | Ctrl-+ / Ctrl-- / Ctrl-0 | Zoom in / out / reset (also Ctrl-wheel); saved as `font_size` in `config.toml` |
@@ -74,6 +76,18 @@ history keep the link's path, not the resolved one.
 
 In tree mode, clicking a folder's chevron also expands/collapses it; Enter
 still makes the folder the panel's root.
+
+Icon view (View › Icon View, per panel): a grid of large file-type icons with
+the name below (two lines, then `…`; the tooltip shows the full name, size
+and date, plus the target of a link). It shows the same entries as the list
+(directories first, same sort, filter, hidden files, search results and
+archives; `..` is a cell too) and keeps the cursor when you switch. The
+cursor is the highlighted cell; marked cells get a coloured outline and a
+check, so marks do not rely on colour. Arrows move by cell and row, PgUp/PgDn
+by visible rows, Home/End to the ends; click, double-click, right-click,
+Space and all other panel commands work as in the list. Tree mode only
+applies to the list (switching to icons turns it off). Larger / Smaller Icons
+step through 48, 64, 96, 128 and 160 px. Thumbnails for images are planned.
 
 Click a column's sort icon to sort (directories always stay on top); drag
 header borders to resize. Columns… (in the command palette) picks the
@@ -231,7 +245,8 @@ Where things live (`src/`):
 | `commander.rs`, `commander/` | Main window: the two panels, actions, dialogs, jobs bar, tools orchestration. Split by area into `commander/` (keys, navigation, search, files, jobs, view, archives, tools, menus, appearance); new logic goes into its own module, only wiring here. |
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
 | `model.rs` | `Folder`: entries, cursor, marks, filter, sort, tree, search results, archive mount, directory size cache |
-| `panel.rs` | `FolderView` (DataTable delegate `FileTable`), header with breadcrumbs, filter bar |
+| `panel.rs` | `FolderView` (DataTable delegate `FileTable`), header with breadcrumbs, filter bar; shows the list or the icon grid |
+| `grid.rs`, `icon_view.rs`, `glyphs.rs`, `context_menu.rs` | Icon view: `ViewMode`, icon sizes, `Layout` (columns for a width) and cursor moves (UI-independent, tested); the lazy `IconGrid` view; the `FileIcon` → glyph table and the right-click menu shared with the list |
 | `columns.rs` | `ColumnKind` catalog, grouped, ids like `exif.iso`. A new column is a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |
 | `fs_ops.rs`, `transfer.rs`, `jobs.rs` | `Entry` and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
 | `archive.rs`, `dirsize.rs`, `links.rs` | Archive index and safe extraction; recursive sizes; symlink state |

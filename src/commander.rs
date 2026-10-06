@@ -9,6 +9,7 @@ mod keys;
 mod location;
 mod menus;
 mod navigation;
+mod panel_view;
 mod search;
 mod tools;
 mod view;
@@ -35,6 +36,7 @@ use self::jobs::RunningJob;
 use self::keys::CONTEXT;
 use self::tools::load_tools;
 use crate::editor_view::EditorPane;
+use crate::grid::ViewMode;
 use crate::jobs::Yank;
 use crate::menu_bar::MenuBar;
 use crate::menus::Cmd;
@@ -127,9 +129,13 @@ impl Commander {
             "Tab: switch panel · Enter: open · Backspace: up · Space/Insert: mark".into();
         set_font_size(cx, |_| zoom::clamp(settings.font_size));
         let panels = &settings.panels;
+        let mut ix = 0;
         let folders = [left, right].map(|path| {
+            // Tree mode does not apply to the icon grid: load once, without it.
+            let tree = panels.tree && panels.view(ix) == ViewMode::List;
+            ix += 1;
             let mut folder =
-                Folder::new(path).with_options(settings.show_hidden, panels.tree, panels.sort());
+                Folder::new(path).with_options(settings.show_hidden, tree, panels.sort());
             if let Some(e) = folder.load_or_ancestor() {
                 status = e.into();
             }
@@ -137,7 +143,17 @@ impl Commander {
         });
         let columns = crate::columns::normalize(&settings.panels.columns);
         let views = [0, 1].map(|ix| {
-            cx.new(|cx| FolderView::new(folders[ix].clone(), columns.clone(), window, cx))
+            let mode = panels.view(ix);
+            cx.new(|cx| {
+                FolderView::new(
+                    folders[ix].clone(),
+                    columns.clone(),
+                    mode,
+                    panels.icon_size,
+                    window,
+                    cx,
+                )
+            })
         });
 
         let registry = Arc::new(PreviewRegistry::with_defaults());
@@ -451,6 +467,10 @@ impl Render for Commander {
                     this.sort_by(Cmd::SortDescending, cx)
                 }),
             )
+            .on_action(cx.listener(Self::list_view))
+            .on_action(cx.listener(Self::icon_view))
+            .on_action(cx.listener(Self::larger_icons))
+            .on_action(cx.listener(Self::smaller_icons))
             .on_action(cx.listener(Self::expand))
             .on_action(cx.listener(Self::collapse))
             .on_action(cx.listener(Self::zoom_in))

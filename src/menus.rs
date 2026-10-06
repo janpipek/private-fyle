@@ -5,6 +5,7 @@
 //! [`Cmd`] to its gpui action.
 
 use crate::fs_ops::SortKey;
+use crate::grid::{self, ViewMode};
 
 /// A user-visible command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -32,6 +33,10 @@ pub enum Cmd {
     Filter,
     TogglePreview,
     ToggleTree,
+    ListView,
+    IconView,
+    LargerIcons,
+    SmallerIcons,
     Expand,
     Collapse,
     ToggleHidden,
@@ -85,6 +90,9 @@ pub struct State {
     /// The cursor is on an archive file that can be extracted.
     pub cursor_on_archive: bool,
     pub tree: bool,
+    /// How the active panel shows its folder, and its icon size.
+    pub view: ViewMode,
+    pub icon_size: u32,
     pub hidden: bool,
     pub preview: bool,
     pub jobs_running: bool,
@@ -95,7 +103,7 @@ pub struct State {
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 56] = [
+    pub const ALL: [Cmd; 60] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::GoBack,
@@ -122,6 +130,10 @@ impl Cmd {
         Cmd::NewFile,
         Cmd::TogglePreview,
         Cmd::ToggleTree,
+        Cmd::ListView,
+        Cmd::IconView,
+        Cmd::LargerIcons,
+        Cmd::SmallerIcons,
         Cmd::Expand,
         Cmd::Collapse,
         Cmd::ToggleHidden,
@@ -180,6 +192,10 @@ impl Cmd {
             Cmd::Filter => "Filter…",
             Cmd::TogglePreview => "Preview",
             Cmd::ToggleTree => "Tree",
+            Cmd::ListView => "List View",
+            Cmd::IconView => "Icon View",
+            Cmd::LargerIcons => "Larger Icons",
+            Cmd::SmallerIcons => "Smaller Icons",
             Cmd::Expand => "Expand Folder",
             Cmd::Collapse => "Collapse Folder",
             Cmd::ToggleHidden => "Hidden Files",
@@ -229,6 +245,10 @@ impl Cmd {
             Cmd::ExtractArchive => "Extract archive into a folder in the other panel",
             Cmd::TogglePreview => "Toggle preview",
             Cmd::ToggleTree => "Toggle tree mode",
+            Cmd::ListView => "Show the active panel as a list",
+            Cmd::IconView => "Show the active panel as icons",
+            Cmd::LargerIcons => "Larger icons in icon view",
+            Cmd::SmallerIcons => "Smaller icons in icon view",
             Cmd::ToggleHidden => "Toggle hidden files",
             Cmd::SortByName => "Sort by name",
             Cmd::SortByExt => "Sort by extension",
@@ -260,6 +280,8 @@ impl Cmd {
         match self {
             Cmd::TogglePreview => Some(state.preview),
             Cmd::ToggleTree => Some(state.tree),
+            Cmd::ListView => Some(state.view == ViewMode::List),
+            Cmd::IconView => Some(state.view == ViewMode::Icons),
             Cmd::ToggleHidden => Some(state.hidden),
             Cmd::SortDescending => Some(state.sort.descending),
             cmd => cmd.sort_key().map(|key| state.sort.key == key),
@@ -324,6 +346,18 @@ impl Cmd {
                 if !state.in_directory =>
             {
                 Some("Not in a folder")
+            }
+            Cmd::ToggleTree | Cmd::Expand | Cmd::Collapse if state.view == ViewMode::Icons => {
+                Some("Tree mode only applies to the list view")
+            }
+            Cmd::LargerIcons | Cmd::SmallerIcons if state.view != ViewMode::Icons => {
+                Some("Only in icon view")
+            }
+            Cmd::LargerIcons if grid::step_size(state.icon_size, 1) == state.icon_size => {
+                Some("Already the largest size")
+            }
+            Cmd::SmallerIcons if grid::step_size(state.icon_size, -1) == state.icon_size => {
+                Some("Already the smallest size")
             }
             Cmd::Expand | Cmd::Collapse if !state.tree => Some("Only in tree mode"),
             Cmd::CancelJobs if !state.jobs_running => Some("No running jobs"),
@@ -406,6 +440,7 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
         ("View", {
             let mut view = items(&[
                 &[TogglePreview, ToggleTree, ToggleHidden],
+                &[ListView, IconView, LargerIcons, SmallerIcons],
                 &[Expand, Collapse],
             ]);
             view.push(Item::Separator);
@@ -610,5 +645,46 @@ mod tests {
         assert_eq!(Cmd::SortByName.checked(&busy), Some(true));
         assert_eq!(Cmd::SortBySize.checked(&busy), Some(false));
         assert_eq!(Cmd::SortDescending.checked(&busy), Some(false));
+    }
+
+    #[test]
+    fn view_commands_follow_the_panel_mode() {
+        let list = State {
+            icon_size: 96,
+            ..State::default()
+        };
+        assert_eq!(Cmd::ListView.checked(&list), Some(true));
+        assert_eq!(Cmd::IconView.checked(&list), Some(false));
+        assert_eq!(
+            Cmd::LargerIcons.unavailable(&list),
+            Some("Only in icon view")
+        );
+        assert_eq!(Cmd::ToggleTree.unavailable(&list), None);
+
+        let icons = State {
+            view: ViewMode::Icons,
+            tree: false,
+            ..list
+        };
+        assert_eq!(Cmd::IconView.checked(&icons), Some(true));
+        assert_eq!(Cmd::LargerIcons.unavailable(&icons), None);
+        assert_eq!(Cmd::SmallerIcons.unavailable(&icons), None);
+        for cmd in [Cmd::ToggleTree, Cmd::Expand, Cmd::Collapse] {
+            assert_eq!(
+                cmd.unavailable(&icons),
+                Some("Tree mode only applies to the list view")
+            );
+        }
+        let largest = State {
+            icon_size: 160,
+            ..icons.clone()
+        };
+        assert!(Cmd::LargerIcons.unavailable(&largest).is_some());
+        assert_eq!(Cmd::SmallerIcons.unavailable(&largest), None);
+        let smallest = State {
+            icon_size: 48,
+            ..icons
+        };
+        assert!(Cmd::SmallerIcons.unavailable(&smallest).is_some());
     }
 }

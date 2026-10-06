@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::fs_ops::SortKey;
+use crate::grid::ViewMode;
 use crate::model::Sort;
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -93,6 +94,11 @@ pub struct PanelSettings {
     /// Start directory of the right panel; default: home directory.
     pub right: Option<PathBuf>,
     pub tree: bool,
+    /// How each panel starts: "list" or "icons" (no tree mode in icons).
+    pub left_view: ViewMode,
+    pub right_view: ViewMode,
+    /// Icon size in pixels in icon view; snaps to 48, 64, 96, 128 or 160.
+    pub icon_size: u32,
     /// Columns shown, in order; Name is always first.
     pub columns: Vec<crate::columns::ColumnKind>,
     pub sort: SortSetting,
@@ -149,6 +155,9 @@ impl Default for PanelSettings {
             left: None,
             right: None,
             tree: false,
+            left_view: ViewMode::List,
+            right_view: ViewMode::List,
+            icon_size: crate::grid::DEFAULT_SIZE,
             columns: crate::columns::ColumnKind::DEFAULT.to_vec(),
             sort: SortSetting::Name,
             sort_descending: false,
@@ -157,6 +166,15 @@ impl Default for PanelSettings {
 }
 
 impl PanelSettings {
+    /// The start view mode of panel `ix` (0 left, 1 right).
+    pub fn view(&self, ix: usize) -> ViewMode {
+        if ix == 0 {
+            self.left_view
+        } else {
+            self.right_view
+        }
+    }
+
     pub fn sort(&self) -> Sort {
         Sort {
             key: match self.sort {
@@ -301,6 +319,49 @@ pub fn save_columns_to(path: &Path, columns: &[crate::columns::ColumnKind]) -> R
     std::fs::write(path, doc.to_string()).map_err(|e| error(&e))
 }
 
+/// Writes `[panels] left_view` or `right_view` (panel `ix`) into the
+/// settings file, keeping the rest of the file intact.
+pub fn save_panel_view(ix: usize, mode: ViewMode) -> Result<PathBuf, String> {
+    let path = Settings::path().ok_or("No config directory on this platform")?;
+    save_panel_view_to(&path, ix, mode)?;
+    Ok(path)
+}
+
+pub fn save_panel_view_to(path: &Path, ix: usize, mode: ViewMode) -> Result<(), String> {
+    let key = if ix == 0 { "left_view" } else { "right_view" };
+    save_panel_value_to(path, key, mode.id().into())
+}
+
+/// Writes `[panels] icon_size` into the settings file, keeping the rest of
+/// the file intact.
+pub fn save_icon_size(size: u32) -> Result<PathBuf, String> {
+    let path = Settings::path().ok_or("No config directory on this platform")?;
+    save_icon_size_to(&path, size)?;
+    Ok(path)
+}
+
+pub fn save_icon_size_to(path: &Path, size: u32) -> Result<(), String> {
+    save_panel_value_to(path, "icon_size", i64::from(size).into())
+}
+
+fn save_panel_value_to(path: &Path, key: &str, value: toml_edit::Value) -> Result<(), String> {
+    let error = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(error(&e)),
+    };
+    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| error(&e))?;
+    if !doc.contains_table("panels") {
+        doc["panels"] = toml_edit::table();
+    }
+    doc["panels"][key] = toml_edit::Item::Value(value);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| error(&e))?;
+    }
+    std::fs::write(path, doc.to_string()).map_err(|e| error(&e))
+}
+
 /// Appends `dir` to `bookmarks` in the settings file (unless present),
 /// keeping the rest of the file intact.
 pub fn add_bookmark(dir: &Path) -> Result<PathBuf, String> {
@@ -367,6 +428,8 @@ mod tests {
             left = "/tmp"
             right = "~/projects"
             tree = true
+            left_view = "icons"
+            icon_size = 128
             sort = "size"
             sort_descending = true
 
@@ -386,6 +449,9 @@ mod tests {
         let right = settings.panels.right.as_ref().unwrap();
         assert!(right.ends_with("projects") && !right.starts_with("~"));
         assert!(settings.panels.tree);
+        assert_eq!(settings.panels.view(0), ViewMode::Icons);
+        assert_eq!(settings.panels.view(1), ViewMode::List);
+        assert_eq!(settings.panels.icon_size, 128);
         assert_eq!(
             settings.panels.sort(),
             Sort {
@@ -492,6 +558,35 @@ mod tests {
         assert!(text.contains("tree = true # mine"), "{text}");
         assert!(text.contains(r#""exif.iso""#), "{text}");
         assert_eq!(Settings::parse(&text).unwrap().panels.columns, columns);
+    }
+
+    #[test]
+    fn save_view_and_icon_size_keep_other_panel_settings() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+        save_panel_view_to(&path, 1, ViewMode::Icons).unwrap(); // no file yet
+        save_icon_size_to(&path, 160).unwrap();
+        let panels = Settings::load_from(&path).0.panels;
+        assert_eq!(
+            (panels.view(0), panels.view(1)),
+            (ViewMode::List, ViewMode::Icons)
+        );
+        assert_eq!(panels.icon_size, 160);
+
+        std::fs::write(
+            &path,
+            "[panels]\ntree = true # mine\nleft_view = \"list\"\nicon_size = 96\n",
+        )
+        .unwrap();
+        save_panel_view_to(&path, 0, ViewMode::Icons).unwrap();
+        save_icon_size_to(&path, 64).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("tree = true # mine"), "{text}");
+        let panels = Settings::parse(&text).unwrap().panels;
+        assert_eq!(panels.view(0), ViewMode::Icons);
+        assert_eq!(panels.icon_size, 64);
+        assert!(panels.tree);
+        assert!(Settings::parse("[panels]\nleft_view = \"grid\"").is_err());
     }
 
     #[test]

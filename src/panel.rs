@@ -19,9 +19,13 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::columns::ColumnKind;
+use crate::context_menu::{self, ContextMenuBuilder};
 use crate::fs_ops;
 use crate::git_status;
-use crate::icons::{self, FileIcon};
+use crate::glyphs::glyph;
+use crate::grid::ViewMode;
+use crate::icon_view::{GridEvent, IconGrid};
+use crate::icons;
 use crate::model::{Folder, Sort};
 use gpui_kit::assets::IconName as Lucide;
 
@@ -40,8 +44,6 @@ pub enum HeaderEvent {
     Error(String),
 }
 
-type ContextMenuBuilder = Box<dyn Fn(PopupMenu, &mut Window, &mut App) -> PopupMenu>;
-
 actions!(fyle_panel, [CloseFilter, CloseLocation]);
 
 const FILTER_CONTEXT: &str = "FilterBar";
@@ -57,6 +59,11 @@ pub fn bind_keys(cx: &mut App) {
 pub struct FolderView {
     folder: Entity<Folder>,
     table: Entity<TableState<FileTable>>,
+    /// The icon grid, shown instead of the table in icon view. It shares the
+    /// table's focus handle, so the panel's key context and focus stay put
+    /// when switching.
+    grid: Entity<IconGrid>,
+    mode: ViewMode,
     active: bool,
     /// Filter-as-you-type input, while open.
     filter_input: Option<Entity<InputState>>,
@@ -81,6 +88,8 @@ impl FolderView {
     pub fn new(
         folder: Entity<Folder>,
         columns: Vec<ColumnKind>,
+        mode: ViewMode,
+        icon_size: u32,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -102,7 +111,16 @@ impl FolderView {
                 .col_movable(false)
                 .loop_selection(false)
         });
+        let focus = table.focus_handle(cx);
+        let grid = cx.new(|cx| IconGrid::new(folder.clone(), focus, icon_size, cx));
         let subscriptions = vec![
+            cx.subscribe(&grid, |this, _, event: &GridEvent, cx| match event {
+                GridEvent::Select(ix) => this.set_cursor(*ix, cx),
+                GridEvent::Activate(ix) => {
+                    this.set_cursor(*ix, cx);
+                    cx.emit(Activate);
+                }
+            }),
             cx.observe(&folder, |this, _, cx| {
                 this.sync_cursor(cx);
                 this.refresh_git(cx);
@@ -119,6 +137,8 @@ impl FolderView {
         let mut this = Self {
             folder,
             table,
+            grid,
+            mode,
             active: false,
             filter_input: None,
             _filter_subscription: None,
@@ -227,17 +247,41 @@ impl FolderView {
         cx: &mut Context<Self>,
     ) {
         let focus = self.focus_handle(cx);
+        let builder: ContextMenuBuilder = Rc::new(builder);
         self.table.update(cx, |table, cx| {
             let delegate = table.delegate_mut();
-            delegate.context_menu = Some(Box::new(builder));
+            delegate.context_menu = Some(builder.clone());
             delegate.focus = Some(focus);
             cx.notify();
         });
+        self.grid
+            .update(cx, |grid, _| grid.set_context_menu(builder));
+    }
+
+    pub fn view_mode(&self) -> ViewMode {
+        self.mode
+    }
+
+    pub fn set_view_mode(&mut self, mode: ViewMode, cx: &mut Context<Self>) {
+        if self.mode != mode {
+            self.mode = mode;
+            cx.notify();
+        }
+    }
+
+    pub fn icon_size(&self, cx: &App) -> u32 {
+        self.grid.read(cx).icon_size()
+    }
+
+    pub fn set_icon_size(&mut self, size: u32, cx: &mut Context<Self>) {
+        self.grid
+            .update(cx, |grid, cx| grid.set_icon_size(size, cx));
     }
 
     pub fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
         if self.active != active {
             self.active = active;
+            self.grid.update(cx, |grid, cx| grid.set_active(active, cx));
             cx.notify();
         }
     }
@@ -574,10 +618,12 @@ impl Render for FolderView {
                     }),
             )
             .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .child(DataTable::new(&self.table).with_size(theme.font_size * 1.85)),
+                div().flex_1().min_h_0().child(match self.mode {
+                    ViewMode::List => DataTable::new(&self.table)
+                        .with_size(theme.font_size * 1.85)
+                        .into_any_element(),
+                    ViewMode::Icons => self.grid.clone().into_any_element(),
+                }),
             )
             .when_some(self.filter_input.clone(), |d, input| {
                 d.child(
@@ -692,14 +738,14 @@ impl TableDelegate for FileTable {
         if self.context_row.take() != Some(row_ix) {
             return menu;
         }
-        self.folder.update(cx, |folder, cx| {
-            folder.select_context_row(row_ix);
-            cx.notify();
-        });
-        match &self.context_menu {
-            Some(build) => build(menu, window, cx),
-            None => menu,
-        }
+        context_menu::file_menu(
+            &self.folder,
+            row_ix,
+            self.context_menu.as_ref(),
+            menu,
+            window,
+            cx,
+        )
     }
 
     fn columns_count(&self, _: &App) -> usize {
@@ -919,55 +965,6 @@ impl TableDelegate for FileTable {
             ColumnKind::Xattrs | ColumnKind::Selinux | ColumnKind::Exif(_) => {
                 unreachable!("handled above")
             }
-        }
-    }
-}
-
-/// The glyph drawing each kind of [`FileIcon`]. Only icons from GPUI Kit's
-/// default bundle are used (see the test), so no icon assets are vendored.
-fn glyph(icon: FileIcon) -> Lucide {
-    match icon {
-        FileIcon::ParentDir => Lucide::ArrowUp,
-        FileIcon::Folder => Lucide::Folder,
-        FileIcon::FolderOpen => Lucide::FolderOpen,
-        FileIcon::FolderGit => Lucide::Github,
-        FileIcon::Code | FileIcon::Script => Lucide::SquareTerminal,
-        FileIcon::Config => Lucide::Settings,
-        FileIcon::Data | FileIcon::Text => Lucide::FileText,
-        FileIcon::Image => Lucide::Palette,
-        FileIcon::Audio | FileIcon::Video => Lucide::Play,
-        FileIcon::Archive => Lucide::Inbox,
-        FileIcon::Spreadsheet => Lucide::ChartPie,
-        FileIcon::Font => Lucide::CaseSensitive,
-        FileIcon::Diff => Lucide::Replace,
-        FileIcon::File | FileIcon::Lock | FileIcon::Key => Lucide::File,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    // Not `super::*`: gpui's glob export would shadow `#[test]`.
-    use super::{FileIcon, Lucide, glyph};
-    use gpui_kit::AssetSource as _;
-
-    #[test]
-    fn every_glyph_is_in_the_default_bundle() {
-        for icon in FileIcon::ALL {
-            let path = glyph(icon).path();
-            let svg = gpui_kit::assets::Assets.load(&path).unwrap();
-            assert!(svg.is_some(), "{icon:?}: {path} is not bundled");
-        }
-        for icon in [
-            Lucide::Redo2,
-            Lucide::Ban,
-            Lucide::Map,
-            Lucide::SquareTerminal,
-            Lucide::Copy,
-            Lucide::ChevronRight,
-        ] {
-            let path = icon.path();
-            let svg = gpui_kit::assets::Assets.load(&path).unwrap();
-            assert!(svg.is_some(), "header icon {icon:?}: {path} is not bundled");
         }
     }
 }

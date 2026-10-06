@@ -46,7 +46,14 @@ height = 760
 # directory, right = home directory.
 # left = "~/projects"
 # right = "~"
-tree = false              # start panels in tree mode
+tree = false              # start panels in tree mode (list view only)
+# How each panel shows its folder: "list" or "icons" (View menu, Ctrl-1 /
+# Ctrl-2 switch the active panel and save the choice).
+left_view = "list"
+right_view = "list"
+# Icon size in icon view, in pixels: 48, 64, 96, 128 or 160 (Alt-=
+# and Alt-- step through them and save it; both panels share it).
+icon_size = 96
 # Columns, in order (Columns… in the command palette edits this list):
 #   file:       name, ext, size, modified, created
 #   unix:       permissions, owner

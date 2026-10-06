@@ -102,9 +102,10 @@ import -window root shot.png
 
 ## Gotchas
 
-- Key contexts: `Commander` holds global keys; `Commander > DataTable`
-  holds panel keys (Space and Backspace live here so they don't fire in
-  the editor); `EditorPane` and `FilterBar` hold their own.
+- Key contexts: `Commander` holds global keys; `panel_bindings` in keys.rs
+  binds the panel keys for both `Commander > DataTable` and
+  `Commander > IconGrid` (Space and Backspace live there so they don't
+  fire in the editor; the grid's arrows are in `IconGrid`, icon_view.rs); `EditorPane` and `FilterBar` hold their own.
 - Dialogs restore focus 250 ms after closing. To focus something
   afterwards (e.g. the editor after the new-file dialog), spawn a task
   with a 300 ms timer.

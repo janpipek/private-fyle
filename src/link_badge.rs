@@ -22,6 +22,11 @@ pub fn badge_glyph(link: &LinkState) -> Option<Lucide> {
 /// `icon` with the link badge at its bottom-right corner (unchanged for
 /// ordinary entries).
 pub fn badged(icon: Icon, link: &LinkState, cx: &App) -> Div {
+    badged_sized(icon, link, Size::XSmall, cx)
+}
+
+/// [`badged`] with a badge of `size`, for large icons.
+pub fn badged_sized(icon: Icon, link: &LinkState, size: Size, cx: &App) -> Div {
     let theme = cx.theme();
     let color = if link.is_broken() {
         theme.danger
@@ -41,7 +46,7 @@ pub fn badged(icon: Icon, link: &LinkState, cx: &App) -> Div {
                     .rounded_full()
                     .bg(theme.background)
                     .text_color(color)
-                    .child(Icon::new(glyph).with_size(Size::XSmall)),
+                    .child(Icon::new(glyph).with_size(size)),
             )
         })
 }

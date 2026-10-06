@@ -18,6 +18,7 @@ use super::keys::{
 };
 use crate::dirsize::{self, DirSize};
 use crate::fs_ops;
+use crate::grid::ViewMode;
 use crate::menus::Cmd;
 use crate::model::Folder;
 
@@ -52,16 +53,38 @@ impl Commander {
     }
 
     pub fn toggle_tree(&mut self, _: &ToggleTree, _: &mut Window, cx: &mut Context<Self>) {
+        if self.tree_unavailable(cx) {
+            return;
+        }
         let error = self.update_folder(cx, |f| f.set_tree(!f.is_tree()));
         self.set_error(error.map_or(Ok(()), Err), cx);
     }
 
+    /// Tree mode belongs to the list: in icon view, says so in the status.
+    fn tree_unavailable(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.views[self.active].read(cx).view_mode() != ViewMode::Icons {
+            return false;
+        }
+        self.status = Cmd::ToggleTree
+            .unavailable(&self.menu_state(cx))
+            .unwrap_or_default()
+            .into();
+        cx.notify();
+        true
+    }
+
     pub fn expand(&mut self, _: &Expand, _: &mut Window, cx: &mut Context<Self>) {
+        if self.tree_unavailable(cx) {
+            return;
+        }
         let error = self.update_folder(cx, Folder::expand);
         self.set_error(error.map_or(Ok(()), Err), cx);
     }
 
     pub fn collapse(&mut self, _: &Collapse, _: &mut Window, cx: &mut Context<Self>) {
+        if self.tree_unavailable(cx) {
+            return;
+        }
         let error = self.update_folder(cx, Folder::collapse);
         self.set_error(error.map_or(Ok(()), Err), cx);
     }

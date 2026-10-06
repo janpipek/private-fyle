@@ -25,6 +25,10 @@ actions!(
         CalculateSizes,
         ToggleHidden,
         ToggleTree,
+        ListView,
+        IconView,
+        LargerIcons,
+        SmallerIcons,
         TogglePreview,
         Filter,
         EditFile,
@@ -70,6 +74,8 @@ actions!(
 pub const CONTEXT: &str = "Commander";
 /// Overrides for keys the DataTable would otherwise use for column navigation.
 pub const TABLE_CONTEXT: &str = "Commander > DataTable";
+/// The icon grid's equivalent of [`TABLE_CONTEXT`].
+pub const GRID_CONTEXT: &str = "Commander > IconGrid";
 
 /// Binds the user's `[[keymap]]` entries; returns errors for bad ones.
 pub fn bind_user_keys(entries: &[crate::settings::KeymapEntry], cx: &mut App) -> Vec<String> {
@@ -93,86 +99,110 @@ pub fn bind_user_keys(entries: &[crate::settings::KeymapEntry], cx: &mut App) ->
                 }
             }
         };
-        let context = match entry.context {
-            KeyContext::Panel => TABLE_CONTEXT,
-            KeyContext::Global => CONTEXT,
-            KeyContext::Editor => "EditorPane",
+        // Panel keys apply in the list and in the icon grid.
+        let contexts: &[&str] = match entry.context {
+            KeyContext::Panel => &[TABLE_CONTEXT, GRID_CONTEXT],
+            KeyContext::Global => &[CONTEXT],
+            KeyContext::Editor => &["EditorPane"],
         };
-        let predicate = KeyBindingContextPredicate::parse(context)
-            .ok()
-            .map(Into::into);
-        match KeyBinding::load(
-            &entry.keys,
-            action,
-            predicate,
-            false,
-            None,
-            cx.keyboard_mapper().as_ref(),
-        ) {
-            Ok(binding) => bindings.push(binding),
-            Err(e) => errors.push(format!("keymap: {:?}: {e}", entry.keys)),
+        for context in contexts {
+            let predicate = KeyBindingContextPredicate::parse(context)
+                .ok()
+                .map(Into::into);
+            match KeyBinding::load(
+                &entry.keys,
+                action.boxed_clone(),
+                predicate,
+                false,
+                None,
+                cx.keyboard_mapper().as_ref(),
+            ) {
+                Ok(binding) => bindings.push(binding),
+                Err(e) => {
+                    errors.push(format!("keymap: {:?}: {e}", entry.keys));
+                    break;
+                }
+            }
         }
     }
     cx.bind_keys(bindings);
     errors
 }
 
+/// Keys for the panel's key context: the list (`Commander > DataTable`) or
+/// the icon grid (`Commander > IconGrid`). `tree_keys` adds Left / Right as
+/// collapse / expand; the grid uses those keys to move between cells.
+fn panel_bindings(context: &'static str, tree_keys: bool) -> Vec<KeyBinding> {
+    let context = Some(context);
+    let mut bindings = vec![
+        KeyBinding::new("enter", Open, context),
+        KeyBinding::new("shift-enter", OpenWith, context),
+        KeyBinding::new("backspace", GoUp, context),
+        KeyBinding::new("alt-left", GoBack, context),
+        KeyBinding::new("alt-right", GoForward, context),
+        KeyBinding::new("tab", SwitchPanel, context),
+        KeyBinding::new("shift-tab", SwitchPanel, context),
+        KeyBinding::new("home", GoFirst, context),
+        KeyBinding::new("end", GoLast, context),
+        KeyBinding::new("escape", Unmark, context),
+        KeyBinding::new("insert", ToggleMark, context),
+        KeyBinding::new("space", ToggleMark, context),
+        KeyBinding::new("secondary-a", SelectAll, context),
+        KeyBinding::new("*", InvertSelection, context),
+        KeyBinding::new("+", SelectPattern, context),
+        KeyBinding::new("f2", ToolsMenu, context),
+        KeyBinding::new("secondary-c", YankFiles, context),
+        KeyBinding::new("secondary-x", CutFiles, context),
+        KeyBinding::new("secondary-v", PasteFiles, context),
+        KeyBinding::new("shift-f6", Rename, context),
+        KeyBinding::new("ctrl-g", GoTo, context),
+        KeyBinding::new("alt-f1", GoTo, context),
+        KeyBinding::new("secondary-l", EditLocation, context),
+        KeyBinding::new("ctrl-d", AddBookmark, context),
+        KeyBinding::new("f9", OpenTerminal, context),
+        KeyBinding::new("alt-f7", FindFiles, context),
+        KeyBinding::new("secondary-shift-f", FindFiles, context),
+        KeyBinding::new("/", Filter, context),
+        KeyBinding::new("ctrl-f", Filter, context),
+        KeyBinding::new("f4", EditFile, context),
+        KeyBinding::new("shift-f4", NewFile, context),
+        KeyBinding::new("f5", Copy, context),
+        KeyBinding::new("shift-f5", ExtractArchive, context),
+        KeyBinding::new("f6", Move, context),
+        KeyBinding::new("f7", MakeDir, context),
+        KeyBinding::new("f8", Delete, context),
+        KeyBinding::new("delete", Delete, context),
+        KeyBinding::new("shift-f8", DeletePermanently, context),
+        KeyBinding::new("shift-delete", DeletePermanently, context),
+        KeyBinding::new("secondary-r", Refresh, context),
+        KeyBinding::new("ctrl-shift-s", CalculateSizes, context),
+        KeyBinding::new("ctrl-h", ToggleHidden, context),
+        KeyBinding::new("ctrl-t", ToggleTree, context),
+        KeyBinding::new("ctrl-1", ListView, context),
+        KeyBinding::new("ctrl-2", IconView, context),
+        KeyBinding::new("alt-=", LargerIcons, context),
+        KeyBinding::new("alt-+", LargerIcons, context),
+        KeyBinding::new("alt--", SmallerIcons, context),
+    ];
+    if tree_keys {
+        bindings.push(KeyBinding::new("left", Collapse, context));
+        bindings.push(KeyBinding::new("right", Expand, context));
+    }
+    bindings
+}
+
 pub fn bind_keys(cx: &mut App) {
     // Window-wide keys; panel keys are bound in the table context so they do
     // not fire while typing in the editor.
     let ctx = Some(CONTEXT);
-    let table = Some(TABLE_CONTEXT);
+    cx.bind_keys(panel_bindings(TABLE_CONTEXT, true));
+    cx.bind_keys(panel_bindings(GRID_CONTEXT, false));
     cx.bind_keys([
-        KeyBinding::new("enter", Open, table),
-        KeyBinding::new("shift-enter", OpenWith, table),
-        KeyBinding::new("backspace", GoUp, table),
-        KeyBinding::new("alt-left", GoBack, table),
-        KeyBinding::new("alt-right", GoForward, table),
-        KeyBinding::new("tab", SwitchPanel, table),
-        KeyBinding::new("shift-tab", SwitchPanel, table),
-        KeyBinding::new("home", GoFirst, table),
-        KeyBinding::new("end", GoLast, table),
-        KeyBinding::new("left", Collapse, table),
-        KeyBinding::new("right", Expand, table),
-        KeyBinding::new("escape", Unmark, table),
-        KeyBinding::new("insert", ToggleMark, table),
-        KeyBinding::new("space", ToggleMark, table),
-        KeyBinding::new("secondary-a", SelectAll, table),
-        KeyBinding::new("*", InvertSelection, table),
-        KeyBinding::new("+", SelectPattern, table),
         KeyBinding::new("f1", Help, ctx),
-        KeyBinding::new("f2", ToolsMenu, table),
-        KeyBinding::new("secondary-c", YankFiles, table),
-        KeyBinding::new("secondary-x", CutFiles, table),
-        KeyBinding::new("secondary-v", PasteFiles, table),
-        KeyBinding::new("shift-f6", Rename, table),
-        KeyBinding::new("ctrl-g", GoTo, table),
-        KeyBinding::new("alt-f1", GoTo, table),
-        KeyBinding::new("secondary-l", EditLocation, table),
-        KeyBinding::new("ctrl-d", AddBookmark, table),
-        KeyBinding::new("f9", OpenTerminal, table),
-        KeyBinding::new("alt-f7", FindFiles, table),
-        KeyBinding::new("secondary-shift-f", FindFiles, table),
         KeyBinding::new("f3", TogglePreview, ctx),
-        KeyBinding::new("/", Filter, table),
-        KeyBinding::new("ctrl-f", Filter, table),
-        KeyBinding::new("f4", EditFile, table),
-        KeyBinding::new("shift-f4", NewFile, table),
         KeyBinding::new("ctrl-k ctrl-t", SelectTheme, ctx),
         KeyBinding::new("secondary-p", CommandPalette, ctx),
         KeyBinding::new("secondary-shift-p", CommandPalette, ctx),
-        KeyBinding::new("f5", Copy, table),
-        KeyBinding::new("shift-f5", ExtractArchive, table),
-        KeyBinding::new("f6", Move, table),
-        KeyBinding::new("f7", MakeDir, table),
-        KeyBinding::new("f8", Delete, table),
-        KeyBinding::new("delete", Delete, table),
-        KeyBinding::new("shift-f8", DeletePermanently, table),
-        KeyBinding::new("shift-delete", DeletePermanently, table),
-        KeyBinding::new("secondary-r", Refresh, table),
-        KeyBinding::new("ctrl-shift-s", CalculateSizes, table),
-        KeyBinding::new("ctrl-h", ToggleHidden, table),
-        KeyBinding::new("ctrl-t", ToggleTree, table),
         KeyBinding::new("secondary-=", ZoomIn, ctx),
         KeyBinding::new("secondary-+", ZoomIn, ctx),
         KeyBinding::new("secondary-shift-=", ZoomIn, ctx),
@@ -207,6 +237,10 @@ pub fn action_for(cmd: Cmd) -> Box<dyn Action> {
         Cmd::Filter => Box::new(Filter),
         Cmd::TogglePreview => Box::new(TogglePreview),
         Cmd::ToggleTree => Box::new(ToggleTree),
+        Cmd::ListView => Box::new(ListView),
+        Cmd::IconView => Box::new(IconView),
+        Cmd::LargerIcons => Box::new(LargerIcons),
+        Cmd::SmallerIcons => Box::new(SmallerIcons),
         Cmd::Expand => Box::new(Expand),
         Cmd::Collapse => Box::new(Collapse),
         Cmd::ToggleHidden => Box::new(ToggleHidden),

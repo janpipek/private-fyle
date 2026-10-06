@@ -1,15 +1,14 @@
 # TODO
 
-- [ ] Menus and selection, remaining parts: View → List/Icon view once icon
-      view exists; output/history in Tools; a "Clear selection" command (Esc
-      already clears marks); selection commands in icon view. Implement
+- [ ] Menus and selection, remaining parts: output/history in Tools; a
+      "Clear selection" command (Esc already clears marks). Implement
       missing actions as separate features.
 - [ ] Archive follow-ups: nested archives; maybe write support.
-- [ ] Optional icon view per panel, alongside the existing list view:
-      a grid of icons with file names, using preview thumbnails for images
-      and file-type icons for other entries. Switch through View → List/Icon
-      view; each panel chooses its own mode. Support adjustable icon/thumbnail
-      size and the same selection, navigation and file actions as list view.
+- [ ] Icon view, stage 2: thumbnails for images in the grid cells, reusing
+      the freedesktop thumbnail cache (`~/.cache/thumbnails`) when possible,
+      generated in the background and kept off the render path.
+      `IconGrid::cell_visual` is the one place that picks what a cell draws.
+      Maybe video/PDF frames later (see richer previews).
 - [ ] Additional virtual locations (idea, integrations undecided): Proton
       Drive via a CLI, Google Drive, FTP/SFTP, and AWS (initially S3).
       Expose them through panel navigation and Locations, with clear remote
@@ -39,6 +38,12 @@
 
 ## Done
 
+- [x] Icon view per panel, stage 1 (`grid.rs`, `icon_view.rs`): View › List
+      View / Icon View (Ctrl-1 / Ctrl-2) and Larger / Smaller Icons (Alt-= /
+      Alt--) for the active panel; a lazy grid of file-type icons (link badge,
+      marks as outline + check, name over two lines, tooltip with size) with
+      arrow/page navigation, same cursor, marks, context menu and commands as
+      the list. Saved as `[panels] left_view`, `right_view`, `icon_size`.
 - [x] Distinguish symbolic links (list view): the target's file icon plus a
       badge (curved arrow; crossed circle and muted name when broken), a
       tooltip with the target and resolved path, link line in the F3 header.
