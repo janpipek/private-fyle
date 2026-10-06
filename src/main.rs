@@ -58,6 +58,12 @@ fn main() {
         .or_else(|| settings.panels.right.clone())
         .or_else(std::env::home_dir)
         .unwrap_or(cwd);
+    // Breadcrumbs, history and Go to need absolute paths ("fyle src" → /…/src).
+    let [left, right] = [left, right].map(|path| {
+        path.canonicalize()
+            .or_else(|_| std::path::absolute(&path))
+            .unwrap_or(path)
+    });
 
     gpui_kit::application()
         .with_assets(gpui_kit::assets::Assets)
