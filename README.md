@@ -13,7 +13,10 @@ Defaults: left = current directory, right = home directory.
 ## Keys
 
 The menu bar (File, Edit, View, Go, Tools, Help) lists the commands with
-their shortcuts; unavailable ones are greyed out, toggles show a check.
+their shortcuts; unavailable ones are greyed out with an explanation, and
+toggles show a check. Opening Tools discovers actions for the active folder
+and marked entries; actions are grouped by purpose and missing programs are
+shown on disabled rows. F2 opens the searchable version of the same tools.
 Right-click an entry in either panel for file actions. Clicking a marked
 entry keeps the marked group; clicking another entry clears the marks and
 targets that entry. Escape closes the menu and returns focus to that panel.

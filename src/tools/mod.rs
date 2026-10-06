@@ -364,6 +364,27 @@ pub struct Offer {
     pub missing: Vec<String>,
 }
 
+/// Applicable offers grouped for presentation, preserving registry order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OfferGroup {
+    pub label: String,
+    pub offers: Vec<Offer>,
+}
+
+pub fn group_offers(offers: Vec<Offer>) -> Vec<OfferGroup> {
+    let mut groups: Vec<OfferGroup> = Vec::new();
+    for offer in offers {
+        match groups.last_mut() {
+            Some(group) if group.label == offer.group => group.offers.push(offer),
+            _ => groups.push(OfferGroup {
+                label: offer.group.clone(),
+                offers: vec![offer],
+            }),
+        }
+    }
+    groups
+}
+
 #[derive(Default)]
 pub struct Registry {
     tools: Vec<Box<dyn Tool>>,

@@ -634,3 +634,31 @@ fn lua_plugins_load_from_a_directory() {
     assert!(errors[0].starts_with("broken.lua:"));
     assert!(lua::load_dir(&tmp.0.join("missing")).0.is_empty());
 }
+
+#[test]
+fn offers_are_grouped_in_registry_order_with_missing_details_intact() {
+    let offer = |id: &str, group: &str, missing: &[&str]| Offer {
+        id: id.into(),
+        group: group.into(),
+        label: id.to_uppercase(),
+        missing: missing.iter().map(|item| item.to_string()).collect(),
+    };
+    let groups = group_offers(vec![
+        offer("a", "Project", &[]),
+        offer("b", "Project", &["just"]),
+        offer("c", "Convert", &["ImageMagick"]),
+    ]);
+
+    assert_eq!(groups.len(), 2);
+    assert_eq!(groups[0].label, "Project");
+    assert_eq!(
+        groups[0]
+            .offers
+            .iter()
+            .map(|o| o.id.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "b"]
+    );
+    assert_eq!(groups[0].offers[1].missing, ["just"]);
+    assert_eq!(groups[1].label, "Convert");
+}

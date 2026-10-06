@@ -54,7 +54,9 @@ Done (details in `TODO.md` under "Done"):
   lists bookmarks, desktop places and frecency history.
 - **Menus:** a menu bar (File, Edit, View with a Sort submenu, Go, Tools,
   Help) built from `menus.rs`, shared with the palette; shortcuts shown,
-  unavailable items disabled, toggles checked. Select all / invert / by
+  unavailable items disabled with explanations, toggles checked. Tools are
+  discovered asynchronously when its menu opens and shown there by purpose;
+  F2 remains the searchable tools dialog. Select all / invert / by
   pattern (Ctrl-A, *, +), Back/Forward (Alt-Left/Right), Configuration,
   About. Right-click file actions use the same command definitions in either
   panel; clicking a marked entry preserves the group, other entries clear marks.
@@ -132,16 +134,8 @@ Done (details in `TODO.md` under "Done"):
 
 ## Next steps (suggested order)
 
-1. **Discoverable menus, remaining parts** (the owner's priority; the
-   uncommitted TODO entry lists all of it):
-   - Tools menu listing the context-aware tools themselves (today it opens
-     the F2 menu). `Registry::offers` runs filesystem probes, so compute it
-     when the menu opens, not on every cursor move.
-   - Explanations for disabled items: `Cmd::unavailable` returns a reason,
-     but `OwnedMenuItem` cannot show it. Perhaps show it in the status line.
-   - Not verified in the GUI: no display in the sandbox. Check the menu bar
-     appearance, that keyboard focus returns to the panel after a menu
-     closes, and that `*` / `+` bind on the owner's keyboard layout.
+1. **Discoverable menus, remaining parts** (the uncommitted TODO entry lists
+   the remaining view-mode and action work).
 2. **Copy/move conflict resolution** (also in the uncommitted TODO).
 3. **Tabs per panel:** parked by the owner; ask before starting.
 4. **Shell command on the selection** with output capture: the owner found

@@ -8,12 +8,12 @@
   - View: Preview, Tree, Hidden files, Columns, Sort, Theme; add List/Icon view
     when icon view is available.
   - Go: Parent, Go to…, Bookmarks, Terminal here; add Back/Forward when available.
-  - Tools: context-aware actions grouped by purpose, adapting to the active
+  - Tools now lists context-aware actions grouped by purpose for the active
     directory and selection (repository tasks for code, conversion/resizing
     for images); add output/history when available.
   - Help: Keyboard shortcuts, Configuration, About; F1 opens Help.
-  - Show configured shortcuts beside actions and checked states for toggles;
-    disable inapplicable actions with an explanation where practical.
+  - Configured shortcuts, checked toggle states, and explanations on disabled
+    actions are implemented.
   - Right-click file actions are implemented, sharing command definitions,
     names and availability with the menu bar and command palette.
     Implement missing actions as separate features.

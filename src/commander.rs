@@ -12,11 +12,11 @@ use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::component::list::{List, ListState};
-use gpui_kit::component::menu::{AppMenuBar, PopupMenu};
+use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::progress::Progress as ProgressBar;
 use gpui_kit::component::{
-    ActiveTheme as _, Disableable as _, GlobalState, IndexPath, Sizable as _, ThemeRegistry,
-    WindowExt as _, h_flex, v_flex,
+    ActiveTheme as _, Disableable as _, IndexPath, Sizable as _, ThemeRegistry, WindowExt as _,
+    h_flex, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -26,6 +26,7 @@ use crate::editor::Document;
 use crate::editor_view::{EditorEvent, EditorPane};
 use crate::fs_ops;
 use crate::jobs::{self, JobKind, Progress, Yank};
+use crate::menu_bar::{MenuBar, MenuBuilder};
 use crate::menus::{self, Cmd};
 use crate::model::{Activation, Folder};
 use crate::palette::{Command, Palette};
@@ -234,9 +235,12 @@ pub struct Commander {
     openers: Vec<crate::openers::Opener>,
     /// Entries waiting to be pasted.
     yank: Option<Yank>,
-    menu_bar: Entity<AppMenuBar>,
+    menu_bar: Entity<MenuBar>,
     /// What the menu bar was last built for.
     menu_state: Option<menus::State>,
+    /// Rejects tool discovery that finishes after another Tools menu opened.
+    tools_menu_generation: u64,
+    _tools_menu_task: Task<()>,
     bookmarks: Vec<PathBuf>,
     history: History,
     /// Last directory recorded in the history.
@@ -331,8 +335,10 @@ impl Commander {
             programs: Arc::new(Programs::from_env()),
             _tool_task: Task::ready(()),
             yank: None,
-            menu_bar: AppMenuBar::new(cx),
+            menu_bar: MenuBar::new(cx),
             menu_state: None,
+            tools_menu_generation: 0,
+            _tools_menu_task: Task::ready(()),
             openers: settings.openers.clone(),
             bookmarks: settings.bookmarks.clone(),
             history: History::path()
@@ -1307,38 +1313,108 @@ impl Commander {
         if self.menu_state.as_ref() == Some(&state) {
             return;
         }
-        let command = |cmd: Cmd| OwnedMenuItem::Action {
-            name: cmd.label().into(),
-            action: action_for(cmd),
-            os_action: None,
-            checked: cmd.checked(&state).unwrap_or(false),
-            disabled: cmd.unavailable(&state).is_some(),
-        };
-        let menu = |name: &'static str, items: Vec<OwnedMenuItem>| OwnedMenu {
-            name: name.into(),
-            disabled: false,
-            items,
-        };
+        let commander = cx.weak_entity();
         let menus = menus::menu_bar()
             .into_iter()
             .map(|(name, items)| {
-                let items = items
-                    .into_iter()
-                    .map(|item| match item {
-                        menus::Item::Separator => OwnedMenuItem::Separator,
-                        menus::Item::Cmd(cmd) => command(cmd),
-                        menus::Item::Submenu(name, cmds) => OwnedMenuItem::Submenu(menu(
-                            name,
-                            cmds.iter().map(|&cmd| command(cmd)).collect(),
-                        )),
+                let state = state.clone();
+                let builder: MenuBuilder = if name == "Tools" {
+                    let commander = commander.clone();
+                    Rc::new(move |menu, window, cx| {
+                        let popup = cx.entity().downgrade();
+                        let _ = commander.update(cx, |this, cx| {
+                            this.discover_tools_for_menu(popup, window, cx)
+                        });
+                        tool_menu_footer(menu.label("Loading tools…"), &state)
                     })
-                    .collect();
-                menu(name, items)
+                } else {
+                    Rc::new(move |menu, window, cx| command_menu(menu, &items, &state, window, cx))
+                };
+                (SharedString::from(name), builder)
             })
             .collect();
         self.menu_state = Some(state);
-        GlobalState::global_mut(cx).set_app_menus(menus);
-        self.menu_bar.update(cx, |bar, cx| bar.reload(cx));
+        self.menu_bar.update(cx, |bar, cx| bar.reload(menus, cx));
+    }
+
+    /// Snapshot the active panel once, then discover tools away from the UI thread.
+    fn discover_tools_for_menu(
+        &mut self,
+        popup: WeakEntity<PopupMenu>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.tools_menu_generation = self.tools_menu_generation.wrapping_add(1);
+        let generation = self.tools_menu_generation;
+        let context = self.tool_context(cx);
+        let detection_context = context.clone();
+        let (registry, programs) = (self.tools.clone(), self.programs.clone());
+        self._tools_menu_task = cx.spawn_in(window, async move |this, cx| {
+            let (facts, groups) = cx
+                .background_spawn(async move {
+                    let facts = tools::detect::detect(&detection_context);
+                    let offers = registry.offers(&detection_context, &facts, &programs);
+                    (facts, tools::group_offers(offers))
+                })
+                .await;
+            let _ =
+                this.update_in(cx, |this, window, cx| {
+                    if this.tools_menu_generation != generation {
+                        return;
+                    }
+                    let Some(popup) = popup.upgrade() else { return };
+                    let commander = cx.weak_entity();
+                    let state = this.menu_state(cx);
+                    popup.update(cx, |popup, cx| {
+                        popup.rebuild(window, cx, |mut menu, _, _| {
+                            if groups.is_empty() {
+                                menu = menu.label("No tools for this selection");
+                            } else {
+                                for group in &groups {
+                                    menu = menu.label(group.label.clone());
+                                    for offer in &group.offers {
+                                        let selected_offer = offer.clone();
+                                        let context = context.clone();
+                                        let facts = facts.clone();
+                                        let commander = commander.clone();
+                                        let missing = offer.missing.clone();
+                                        let label = offer.label.clone();
+                                        let item = PopupMenuItem::element(move |_, cx| {
+                                            h_flex()
+                                                .w_full()
+                                                .justify_between()
+                                                .gap_4()
+                                                .child(label.clone())
+                                                .when(!missing.is_empty(), |row| {
+                                                    row.child(
+                                                        div()
+                                                            .text_xs()
+                                                            .text_color(cx.theme().muted_foreground)
+                                                            .child(format!(
+                                                                "needs {}",
+                                                                missing.join(", ")
+                                                            )),
+                                                    )
+                                                })
+                                        })
+                                        .disabled(!offer.missing.is_empty())
+                                        .on_click(move |_, window, cx| {
+                                            let offer = selected_offer.clone();
+                                            let context = context.clone();
+                                            let facts = facts.clone();
+                                            let _ = commander.update(cx, |this, cx| {
+                                                this.ask_params(offer, context, facts, window, cx)
+                                            });
+                                        });
+                                        menu = menu.item(item);
+                                    }
+                                }
+                            }
+                            tool_menu_footer(menu, &state)
+                        });
+                    });
+                });
+        });
     }
 
     fn file_context_menu(&self, mut menu: PopupMenu, cx: &App) -> PopupMenu {
@@ -2306,6 +2382,50 @@ fn summarize(verb: &str, done: usize, errors: &[String]) -> String {
             if rest.is_empty() { "" } else { " …" }
         ),
     }
+}
+
+fn command_item(cmd: Cmd, state: &menus::State) -> PopupMenuItem {
+    let unavailable = cmd.unavailable(state);
+    let label = unavailable
+        .map(|reason| format!("{} — {reason}", cmd.label()))
+        .unwrap_or_else(|| cmd.label().to_string());
+    PopupMenuItem::new(label)
+        .action(action_for(cmd))
+        .checked(cmd.checked(state).unwrap_or(false))
+        .disabled(unavailable.is_some())
+}
+
+fn command_menu(
+    mut menu: PopupMenu,
+    items: &[menus::Item],
+    state: &menus::State,
+    window: &mut Window,
+    cx: &mut Context<PopupMenu>,
+) -> PopupMenu {
+    for item in items {
+        menu = match item {
+            menus::Item::Cmd(cmd) => menu.item(command_item(*cmd, state)),
+            menus::Item::Separator => menu.separator(),
+            menus::Item::Submenu(label, commands) => {
+                let commands = commands.to_vec();
+                let state = state.clone();
+                menu.submenu(*label, window, cx, move |menu, _, _| {
+                    commands
+                        .iter()
+                        .fold(menu, |menu, cmd| menu.item(command_item(*cmd, &state)))
+                })
+            }
+        };
+    }
+    menu
+}
+
+fn tool_menu_footer(mut menu: PopupMenu, state: &menus::State) -> PopupMenu {
+    menu = menu.separator();
+    for cmd in [Cmd::ToolsMenu, Cmd::FindFiles] {
+        menu = menu.item(command_item(cmd, state));
+    }
+    menu.separator().item(command_item(Cmd::CancelJobs, state))
 }
 
 /// Built-in tools plus the user's `<config dir>/fyle/tools.toml`.

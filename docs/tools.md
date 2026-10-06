@@ -6,8 +6,11 @@ website, `uv sync`, convert images with ImageMagick, zip a selection, convert
 CSV, build a web gallery from images, run `ruff`, run justfile recipes, …
 
 Code: `src/tools/` (model, tested) and `src/tools_view.rs` + `commander.rs`
-(UI). F2 opens the menu: tools grouped by section, disabled ones show the
-missing program; then a parameter form if needed, a pick list for
+(UI). Opening the top-level Tools menu asynchronously discovers applicable
+tools from a frozen snapshot of the active folder and marked entries. It shows
+them directly, grouped by purpose; disabled rows name missing programs. F2
+opens a searchable dialog over the same tools. Choosing either route enters a
+parameter form if needed, then a pick list for
 `Action::Pick`, a confirmation listing the exact commands (URLs open without
 asking), and the result in the status line or, for `output = "log"`, an
 output dialog. Planning and running happen in the background.
