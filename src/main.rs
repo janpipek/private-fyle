@@ -3,6 +3,7 @@
 
 mod columns;
 mod commander;
+mod conflict_view;
 mod editor;
 mod editor_view;
 mod fs_ops;
@@ -27,6 +28,7 @@ mod theme_picker;
 mod themes;
 mod tools;
 mod tools_view;
+mod transfer;
 mod xattr;
 
 use std::path::PathBuf;

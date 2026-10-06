@@ -22,6 +22,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::columns::ColumnKind;
+use crate::conflict_view;
 use crate::editor::Document;
 use crate::editor_view::{EditorEvent, EditorPane};
 use crate::fs_ops;
@@ -44,6 +45,7 @@ use crate::tools::{
     self, Action as ToolAction, Offer, ParamKind, Programs, Registry, Target, ToolContext, Values,
 };
 use crate::tools_view::{MenuDelegate, PickDelegate};
+use crate::transfer::{ConflictChoice, Decision, EntryInfo};
 
 actions!(
     fyle,
@@ -235,6 +237,7 @@ pub struct Commander {
     openers: Vec<crate::openers::Opener>,
     /// Entries waiting to be pasted.
     yank: Option<Yank>,
+    yank_generation: u64,
     menu_bar: Entity<MenuBar>,
     /// What the menu bar was last built for.
     menu_state: Option<menus::State>,
@@ -248,6 +251,8 @@ pub struct Commander {
     jobs: Vec<RunningJob>,
     next_job_id: usize,
     jobs_ticking: bool,
+    /// Conflict dialog currently owned by `(job id, request id)`.
+    active_conflict: Option<(usize, u64)>,
     _jobs_ticker: Task<()>,
     /// Find files: "Containing text" is a regular expression (remembered).
     search_regex: Rc<Cell<bool>>,
@@ -335,6 +340,7 @@ impl Commander {
             programs: Arc::new(Programs::from_env()),
             _tool_task: Task::ready(()),
             yank: None,
+            yank_generation: 0,
             menu_bar: MenuBar::new(cx),
             menu_state: None,
             tools_menu_generation: 0,
@@ -348,6 +354,7 @@ impl Commander {
             jobs: Vec::new(),
             next_job_id: 0,
             jobs_ticking: false,
+            active_conflict: None,
             _jobs_ticker: Task::ready(()),
             search_regex: Rc::default(),
             search_cancel: None,
@@ -509,6 +516,7 @@ impl Commander {
         cx.write_to_clipboard(ClipboardItem::new_string(text));
         let verb = if cut { "Cut" } else { "Yanked" };
         self.status = format!("{verb} {}; Ctrl-V pastes", describe(&paths)).into();
+        self.yank_generation = self.yank_generation.wrapping_add(1);
         self.yank = Some(Yank { paths, cut });
         self.update_folder(cx, Folder::clear_marks);
         cx.notify();
@@ -524,10 +532,12 @@ impl Commander {
         let dest = self.folders[self.active].read(cx).path().to_path_buf();
         match yank.paste_into(&dest) {
             Ok(kind) => {
-                if yank.cut {
-                    self.yank = None; // moved: nothing left to paste
-                }
-                self.start_job(kind, yank.paths, Some(dest), window, cx);
+                let restore = yank.cut.then(|| {
+                    let generation = self.yank_generation;
+                    self.yank = None;
+                    (generation, yank.clone())
+                });
+                self.start_job_inner(kind, yank.paths, Some(dest), restore, window, cx);
             }
             Err(e) => {
                 self.status = e.into();
@@ -1968,6 +1978,18 @@ impl Commander {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.start_job_inner(kind, sources, dest, None, window, cx);
+    }
+
+    fn start_job_inner(
+        &mut self,
+        kind: JobKind,
+        sources: Vec<PathBuf>,
+        dest: Option<PathBuf>,
+        restore_yank: Option<(u64, Yank)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if matches!(kind, JobKind::Copy | JobKind::Move) {
             self.update_folder(cx, Folder::clear_marks);
         }
@@ -1977,14 +1999,28 @@ impl Commander {
         let worker = progress.clone();
         let task = cx.spawn_in(window, async move |this, cx| {
             let outcome = cx
-                .background_spawn(
-                    async move { jobs::run(kind, &sources, dest.as_deref(), &worker) },
-                )
+                .background_spawn(async move {
+                    jobs::run_interactive(kind, &sources, dest.as_deref(), &worker)
+                })
                 .await;
-            let _ = this.update(cx, |this, cx| {
+            let _ = this.update_in(cx, |this, window, cx| {
                 this.jobs.retain(|job| job.id != id);
+                if this.active_conflict.is_some_and(|active| active.0 == id) {
+                    this.active_conflict = None;
+                    window.close_dialog(cx);
+                }
+                if let Some((generation, mut yank)) = restore_yank {
+                    yank.paths
+                        .retain(|path| std::fs::symlink_metadata(path).is_ok());
+                    if this.yank_generation == generation && this.yank.is_none() {
+                        this.yank = (!yank.paths.is_empty()).then_some(yank);
+                    }
+                }
                 this.reload_all(cx);
                 let mut status = summarize(kind.verb().1, outcome.done, &outcome.errors);
+                if outcome.skipped > 0 {
+                    status += &format!(", {} skipped", outcome.skipped);
+                }
                 if outcome.cancelled {
                     status += " (cancelled)";
                 }
@@ -2017,7 +2053,8 @@ impl Commander {
                     .timer(Duration::from_millis(150))
                     .await;
                 let running = this
-                    .update(cx, |this, cx| {
+                    .update_in(cx, |this, window, cx| {
+                        this.show_pending_conflict(window, cx);
                         cx.notify();
                         this.jobs_ticking = !this.jobs.is_empty();
                         this.jobs_ticking
@@ -2030,9 +2067,148 @@ impl Commander {
         });
     }
 
-    fn cancel_jobs(&mut self, _: &CancelJobs, _: &mut Window, cx: &mut Context<Self>) {
+    fn show_pending_conflict(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.active_conflict.is_some() || window.has_active_dialog(cx) {
+            return;
+        }
+        let Some((job_id, progress, request)) = self.jobs.iter().find_map(|job| {
+            job.progress
+                .pending_conflict()
+                .map(|request| (job.id, job.progress.clone(), request))
+        }) else {
+            return;
+        };
+        self.active_conflict = Some((job_id, request.id));
+        let conflict = request.conflict.clone();
+        let request_id = request.id;
+        let apply_to_all = Rc::new(Cell::new(false));
+        let this = cx.weak_entity();
+        window.open_dialog(cx, move |dialog, _, cx| {
+            let choice_button = |label: &'static str, choice: ConflictChoice| {
+                let (this, progress, apply_to_all) =
+                    (this.clone(), progress.clone(), apply_to_all.clone());
+                Button::new(SharedString::from(format!(
+                    "conflict-{job_id}-{request_id}-{choice:?}"
+                )))
+                .label(label)
+                .small()
+                .outline()
+                .on_click(move |_, window, cx| {
+                    let decision = Decision {
+                        choice,
+                        apply_to_all: apply_to_all.get(),
+                    };
+                    match progress.respond(request_id, decision) {
+                        Ok(()) => {
+                            let _ = this.update(cx, |this, cx| {
+                                if this.active_conflict == Some((job_id, request_id)) {
+                                    this.active_conflict = None;
+                                    window.close_dialog(cx);
+                                }
+                            });
+                        }
+                        Err(error) => {
+                            let _ = this.update(cx, |this, cx| {
+                                this.status = format!("Conflict: {error}").into();
+                                cx.notify();
+                            });
+                        }
+                    }
+                })
+            };
+            let cancel_this = this.clone();
+            let cancel_progress = progress.clone();
+            let cancel = Button::new(SharedString::from(format!(
+                "conflict-{job_id}-{request_id}-cancel"
+            )))
+            .label("Cancel operation")
+            .small()
+            .danger()
+            .on_click(move |_, window, cx| {
+                cancel_progress.cancel();
+                let _ = cancel_this.update(cx, |this, cx| {
+                    if this.active_conflict == Some((job_id, request_id)) {
+                        this.active_conflict = None;
+                        window.close_dialog(cx);
+                    }
+                });
+            });
+            let checkbox_state = apply_to_all.clone();
+            let mut choices = h_flex()
+                .flex_wrap()
+                .gap_2()
+                .child(choice_button("Skip", ConflictChoice::Skip))
+                .child(choice_button("Keep both", ConflictChoice::KeepBoth));
+            if conflict.allows(ConflictChoice::Replace) {
+                choices = choices.child(choice_button("Replace", ConflictChoice::Replace));
+            }
+            if conflict.allows(ConflictChoice::Merge) {
+                choices = choices.child(choice_button("Merge", ConflictChoice::Merge));
+            }
+            choices = choices.child(cancel);
+
+            let cancel_this = this.clone();
+            let cancel_progress = progress.clone();
+            let close_this = this.clone();
+            let close_progress = progress.clone();
+            dialog
+                .title("File conflict")
+                .w(px(780.))
+                .child(
+                    v_flex()
+                        .gap_4()
+                        .child("The destination already contains an entry with this name.")
+                        .child(
+                            h_flex()
+                                .items_start()
+                                .gap_3()
+                                .child(conflict_card("Source", &conflict.source, cx))
+                                .child(conflict_card("Destination", &conflict.destination, cx)),
+                        ),
+                )
+                .footer(
+                    v_flex()
+                        .w_full()
+                        .gap_3()
+                        .child(
+                            Checkbox::new(SharedString::from(format!(
+                                "conflict-{job_id}-{request_id}-all"
+                            )))
+                            .label("Apply to remaining conflicts of this type")
+                            .checked(apply_to_all.get())
+                            .on_click(move |checked, window, _| {
+                                checkbox_state.set(*checked);
+                                window.refresh();
+                            }),
+                        )
+                        .child(choices),
+                )
+                .on_cancel(move |_, _, cx| {
+                    cancel_progress.cancel();
+                    let _ = cancel_this.update(cx, |this, _| {
+                        if this.active_conflict == Some((job_id, request_id)) {
+                            this.active_conflict = None;
+                        }
+                    });
+                    true
+                })
+                .on_close(move |_, _, cx| {
+                    let _ = close_this.update(cx, |this, _| {
+                        if this.active_conflict == Some((job_id, request_id)) {
+                            close_progress.cancel();
+                            this.active_conflict = None;
+                        }
+                    });
+                })
+        });
+    }
+
+    fn cancel_jobs(&mut self, _: &CancelJobs, window: &mut Window, cx: &mut Context<Self>) {
         for job in &self.jobs {
-            job.progress.cancel.store(true, Ordering::Relaxed);
+            job.progress.cancel();
+        }
+        if self.active_conflict.take().is_some() {
+            window.close_dialog(cx);
         }
         cx.notify();
     }
@@ -2050,6 +2226,8 @@ impl Commander {
                 .border_t_1()
                 .border_color(theme.border)
                 .children(self.jobs.iter().map(|job| {
+                    let this = cx.weak_entity();
+                    let job_id = job.id;
                     let p = &job.progress;
                     let (done, total) = (
                         p.done.load(Ordering::Relaxed),
@@ -2085,8 +2263,17 @@ impl Commander {
                                 .label("Cancel")
                                 .xsmall()
                                 .ghost()
-                                .on_click(move |_, _, _| {
-                                    progress.cancel.store(true, Ordering::Relaxed)
+                                .on_click(move |_, window, cx| {
+                                    progress.cancel();
+                                    let _ = this.update(cx, |this, cx| {
+                                        if this
+                                            .active_conflict
+                                            .is_some_and(|active| active.0 == job_id)
+                                        {
+                                            this.active_conflict = None;
+                                            window.close_dialog(cx);
+                                        }
+                                    });
                                 }),
                         )
                 })),
@@ -2332,7 +2519,15 @@ impl Render for Commander {
             .bg(bg)
             .text_color(fg)
             .text_sm()
-            .child(self.menu_bar.clone())
+            // AppMenuBar fills its parent, so give it a single row rather
+            // than letting it claim the full window height.
+            .child(
+                div()
+                    .w_full()
+                    .h_8()
+                    .flex_none()
+                    .child(self.menu_bar.clone()),
+            )
             .child(
                 h_flex()
                     .flex_1()
@@ -2363,6 +2558,14 @@ impl Render for Commander {
     }
 }
 
+impl Drop for Commander {
+    fn drop(&mut self) {
+        for job in &self.jobs {
+            job.progress.cancel();
+        }
+    }
+}
+
 fn describe(paths: &[PathBuf]) -> String {
     match paths {
         [one] => format!(
@@ -2382,6 +2585,34 @@ fn summarize(verb: &str, done: usize, errors: &[String]) -> String {
             if rest.is_empty() { "" } else { " …" }
         ),
     }
+}
+
+fn conflict_card(title: &'static str, info: &EntryInfo, cx: &App) -> Div {
+    let theme = cx.theme();
+    v_flex()
+        .flex_1()
+        .min_w_0()
+        .gap_2()
+        .p_3()
+        .border_1()
+        .border_color(theme.border)
+        .rounded_md()
+        .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
+        .children(
+            conflict_view::details(info)
+                .into_iter()
+                .map(|(label, value)| {
+                    v_flex()
+                        .gap_0p5()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(label),
+                        )
+                        .child(div().text_sm().child(value))
+                }),
+        )
 }
 
 fn command_item(cmd: Cmd, state: &menus::State) -> PopupMenuItem {
