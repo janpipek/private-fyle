@@ -2,6 +2,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod archive;
+mod breadcrumbs;
 mod columns;
 mod commander;
 mod conflict_view;
@@ -11,6 +12,7 @@ mod fs_ops;
 mod git_status;
 mod icons;
 mod jobs;
+mod location_view;
 mod menu_bar;
 mod menus;
 mod model;

@@ -17,16 +17,6 @@
   - Right-click file actions are implemented, sharing command definitions,
     names and availability with the menu bar and command palette.
     Implement missing actions as separate features.
-- [ ] Breadcrumb paths per panel: display the current path as clickable
-      segments so users can jump directly to any ancestor. Allow switching
-      to an editable full path for typing or pasting a location, and copying
-      the full path. Support keyboard navigation and long paths; archive
-      browsing should clearly distinguish the archive from its internal path.
-  - Add a locations icon beside each panel's breadcrumb path, opening a
-    grouped list of drives/mounted volumes, desktop/environment favourites
-    and places, and user favourites/bookmarks. Reuse the existing Go to/Places
-    data; choosing a location navigates that panel. Provide a tooltip and
-    keyboard access so the icon's purpose is discoverable.
 - [ ] Distinguish symbolic links in list and icon views: add a consistent
       link badge/overlay while retaining the target's file-type icon. Show
       the link target in a tooltip or details, and visibly distinguish broken
@@ -45,8 +35,22 @@
       and file-type icons for other entries. Switch through View → List/Icon
       view; each panel chooses its own mode. Support adjustable icon/thumbnail
       size and the same selection, navigation and file actions as list view.
+- [ ] Additional virtual locations (idea, integrations undecided): Proton
+      Drive via a CLI, Google Drive, FTP/SFTP, and AWS (initially S3).
+      Expose them through panel navigation and Locations, with clear remote
+      paths and supported actions. Decide per-provider adapters (CLI or API),
+      authentication/credential storage, caching, and read/write scope before
+      implementation; remote operations need background progress, cancellation,
+      and useful connection errors.
 - [ ] Embedded terminal (idea, undecided): alacritty_terminal + PTY rendered
       in gpui as Zed does, vs. libghostty; see discussion.
+- [ ] Localization: extract user-facing text into translation resources,
+      including command labels, menus, dialogs, help, and status/error messages.
+      Support system-language detection, a saved language override, and an
+      English fallback; handle plural forms and locale-aware dates and numbers.
+      Keep command IDs and configuration keys stable, accommodate longer
+      translations, and document how to contribute a language. Translation
+      tooling and initial target languages remain to be decided.
 - [ ] Ideas from yazi (terminal file manager):
   - [ ] Tabs per panel (parked).
   - [ ] Richer previews: PDF pages beyond the first, video thumbnails, scrolling
@@ -56,6 +60,10 @@
 
 ## Done
 
+- [x] Breadcrumb paths per panel: clickable, keyboard-focusable ancestors,
+      Ctrl-L full-path editing, full-path copy, long-path scrolling, and a
+      distinct archive/internal path. Each panel also has a Locations picker
+      grouped into drives/mounts, desktop places, bookmarks and frequent paths.
 - [x] Browse archives (zip, tar, tar.gz/tgz) as read-only virtual directories (`archive.rs`,
       a mode of `Folder`); F3 previews entries; F5 / Shift-F5 extract to the other panel as a
       background job with the copy conflict dialog; entries never escape the destination.

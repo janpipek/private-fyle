@@ -52,6 +52,7 @@ impl Deref for Row {
     }
 }
 
+#[derive(Clone)]
 pub struct Folder {
     path: PathBuf,
     /// Rows shown: `all` narrowed by `filter`.
@@ -242,8 +243,8 @@ impl Folder {
         Some((file, inner))
     }
 
-    /// The location for the panel header: the archive and, after a `›`,
-    /// the path inside it.
+    /// A compact text form of the panel location, separating an archive file
+    /// from its internal path.
     pub fn header(&self) -> String {
         match (self.archive(), self.inner_path()) {
             (Some(file), Some(inner)) => format!("{} › {inner}", fs_ops::display_path(file))
@@ -482,9 +483,7 @@ impl Folder {
 
     /// Right arrow: expand the cursor directory, or step into its first child.
     pub fn expand(&mut self) -> Option<String> {
-        let Some(row) = self.current().filter(|r| r.is_dir && !r.is_parent) else {
-            return None;
-        };
+        let row = self.current().filter(|r| r.is_dir && !r.is_parent)?;
         if !self.tree {
             return None;
         }
@@ -505,9 +504,7 @@ impl Folder {
 
     /// Left arrow: collapse the cursor directory, or jump to its parent row.
     pub fn collapse(&mut self) -> Option<String> {
-        let Some(row) = self.current().filter(|_| self.tree) else {
-            return None;
-        };
+        let row = self.current().filter(|_| self.tree)?;
         if self.expanded.contains(&row.path) {
             let path = row.path.clone();
             return self.toggle_expanded(&path);

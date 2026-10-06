@@ -21,11 +21,11 @@ impl Previewer for TablePreviewer {
 
     fn load(&self, probe: &Probe) -> io::Result<Content> {
         let delimiter = if probe.ext == "tsv" { '\t' } else { ',' };
-        let mut lines = BufReader::new(File::open(&probe.path)?).lines();
+        let lines = BufReader::new(File::open(&probe.path)?).lines();
         let mut records = Vec::new();
         let mut truncated = false;
         let mut pending = String::new();
-        while let Some(line) = lines.next() {
+        for line in lines {
             let line = line?;
             if !pending.is_empty() {
                 pending.push('\n');

@@ -12,6 +12,15 @@ pub struct Place {
     pub path: PathBuf,
 }
 
+/// A discoverable section in the panel locations picker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Group {
+    /// Section heading in the locations picker.
+    pub label: String,
+    /// Locations in this section.
+    pub places: Vec<Place>,
+}
+
 impl Place {
     fn new(label: impl Into<String>, path: impl Into<PathBuf>) -> Self {
         Self {
@@ -63,6 +72,123 @@ pub fn system_places() -> Vec<Place> {
     #[cfg(not(windows))]
     places.push(Place::new("Root", "/"));
     dedup_existing(places)
+}
+
+/// Drives and mounted volumes, desktop places, then fyle bookmarks. Discovery
+/// reads desktop configuration and mount tables, so callers run it off the UI
+/// thread.
+pub fn grouped_locations(bookmarks: &[PathBuf], frequent: &[PathBuf]) -> Vec<Group> {
+    let group = |label: &str, places: Vec<Place>| {
+        let mut seen = std::collections::HashSet::new();
+        let places = places
+            .into_iter()
+            .filter(|place| place.path.is_dir() && seen.insert(place.path.clone()))
+            .collect();
+        Group {
+            label: label.into(),
+            places,
+        }
+    };
+    let drives = group("Drives & Volumes", mounted_volumes());
+    let places = group("Places", system_places());
+    let bookmarks = group(
+        "Bookmarks",
+        bookmarks
+            .iter()
+            .map(|path| Place::new(crate::tools::file_name(path), path.clone()))
+            .collect(),
+    );
+    let frequent = group(
+        "Frequent",
+        frequent
+            .iter()
+            .map(|path| Place::new(crate::tools::file_name(path), path.clone()))
+            .collect(),
+    );
+    [drives, places, bookmarks, frequent]
+        .into_iter()
+        .filter(|group| !group.places.is_empty())
+        .collect()
+}
+
+#[cfg(windows)]
+fn mounted_volumes() -> Vec<Place> {
+    system_places()
+        .into_iter()
+        .filter(|place| place.path.parent().is_none())
+        .collect()
+}
+
+#[cfg(not(windows))]
+fn mounted_volumes() -> Vec<Place> {
+    let text = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
+    parse_mountinfo(&text)
+}
+
+/// Parses Linux mountinfo into local volumes, excluding virtual kernel file
+/// systems. Kept public so parsing can be tested without reading the host.
+#[cfg(not(windows))]
+pub fn parse_mountinfo(text: &str) -> Vec<Place> {
+    let mut places = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for line in text.lines() {
+        let Some((before, after)) = line.split_once(" - ") else {
+            continue;
+        };
+        let fields: Vec<_> = before.split_whitespace().collect();
+        let Some(raw_path) = fields.get(4) else {
+            continue;
+        };
+        let Some(fs_type) = after.split_whitespace().next() else {
+            continue;
+        };
+        if is_virtual_filesystem(fs_type) {
+            continue;
+        }
+        let path = PathBuf::from(unescape_mount_field(raw_path));
+        if seen.insert(path.clone()) {
+            let label = if path == Path::new("/") {
+                "Root".into()
+            } else {
+                crate::tools::file_name(&path)
+            };
+            places.push(Place::new(label, path));
+        }
+    }
+    places
+}
+
+#[cfg(not(windows))]
+fn unescape_mount_field(field: &str) -> String {
+    field
+        .replace("\\040", " ")
+        .replace("\\011", "\t")
+        .replace("\\012", "\n")
+        .replace("\\134", "\\")
+}
+
+#[cfg(not(windows))]
+fn is_virtual_filesystem(fs_type: &str) -> bool {
+    matches!(
+        fs_type,
+        "autofs"
+            | "bpf"
+            | "cgroup"
+            | "cgroup2"
+            | "configfs"
+            | "debugfs"
+            | "devpts"
+            | "devtmpfs"
+            | "fusectl"
+            | "hugetlbfs"
+            | "mqueue"
+            | "proc"
+            | "pstore"
+            | "securityfs"
+            | "sysfs"
+            | "tmpfs"
+            | "tracefs"
+    )
 }
 
 fn dedup_existing(places: Vec<Place>) -> Vec<Place> {
@@ -287,6 +413,23 @@ mod tests {
                 Place::new("Home", "/home/u"),
                 Place::new("A & B", "/mnt/a&b"),
                 Place::new("x", "/opt/x"),
+            ]
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn parses_real_mounts_and_skips_kernel_filesystems() {
+        let places = parse_mountinfo(
+            "24 20 8:1 / / rw,relatime - ext4 /dev/sda1 rw\n\
+             25 24 0:22 / /proc rw,nosuid - proc proc rw\n\
+             31 24 8:2 / /media/My\\040Disk rw - vfat /dev/sdb1 rw\n",
+        );
+        assert_eq!(
+            places,
+            [
+                Place::new("Root", "/"),
+                Place::new("My Disk", "/media/My Disk"),
             ]
         );
     }

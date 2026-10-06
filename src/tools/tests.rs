@@ -172,7 +172,7 @@ fn resolves_alternatives_and_reports_missing() {
     let tmp = TempDir::new("programs");
     let programs = fake_programs(&tmp, &["convert"]);
     let magick = Requirement::parse("magick|convert (ImageMagick)").unwrap();
-    let resolved = programs.resolve(&[magick.clone()]).unwrap();
+    let resolved = programs.resolve(std::slice::from_ref(&magick)).unwrap();
     assert_eq!(resolved["magick"], tmp.0.join("bin/convert"));
 
     let missing = programs.resolve(&[magick, Requirement::parse("ruff").unwrap()]);

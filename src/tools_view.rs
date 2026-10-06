@@ -11,13 +11,16 @@ use gpui_kit::*;
 use crate::palette::words_match;
 use crate::tools::Offer;
 
+type OfferConfirm = Rc<dyn Fn(Offer, &mut Window, &mut App)>;
+type PickConfirm = Rc<dyn Fn(usize, &mut Window, &mut App)>;
+
 /// Offers grouped into sections, filtered by typed words.
 pub struct MenuDelegate {
     groups: Vec<(String, Vec<Offer>)>,
     /// `groups` narrowed by the query.
     shown: Vec<(String, Vec<Offer>)>,
     selected: Option<IndexPath>,
-    on_confirm: Rc<dyn Fn(Offer, &mut Window, &mut App)>,
+    on_confirm: OfferConfirm,
 }
 
 impl MenuDelegate {
@@ -157,7 +160,7 @@ pub struct PickDelegate {
     /// Indices into `labels` matching the query.
     shown: Vec<usize>,
     selected: Option<usize>,
-    on_confirm: Rc<dyn Fn(usize, &mut Window, &mut App)>,
+    on_confirm: PickConfirm,
 }
 
 impl PickDelegate {

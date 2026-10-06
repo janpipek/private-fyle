@@ -528,7 +528,7 @@ mod tests {
         zip.start_file("src/main.rs", opts).unwrap();
         zip.write_all(b"fn main() {}\n").unwrap();
         zip.start_file("src/big.bin", opts).unwrap();
-        zip.write_all(&vec![0u8; 64]).unwrap();
+        zip.write_all(&[0u8; 64]).unwrap();
         zip.finish().unwrap();
 
         let registry = Registry::with_defaults();

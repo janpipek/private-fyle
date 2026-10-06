@@ -2,6 +2,10 @@
 default:
     @just --list
 
+# Run the application
+run:
+    cargo run
+
 # Build the development sandbox container image
 sandbox-build:
     uv run tools/sandbox.py build

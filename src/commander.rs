@@ -1,6 +1,8 @@
 //! The window: two [`Folder`] models, each shown by a [`FolderView`], plus the
 //! commands that act on them.
 
+mod location;
+
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -33,7 +35,7 @@ use crate::menus::{self, Cmd};
 use crate::model::{Activation, Folder};
 use crate::palette::{Command, Palette};
 use crate::palette_view::PaletteDelegate;
-use crate::panel::{Activate, FolderView};
+use crate::panel::{Activate, FolderView, HeaderEvent};
 use crate::places::{self, History};
 use crate::preview::Registry as PreviewRegistry;
 use crate::preview_view::PreviewPane;
@@ -93,6 +95,8 @@ actions!(
         Help,
         Rename,
         GoTo,
+        EditLocation,
+        CopyLocation,
         AddBookmark,
         OpenTerminal,
         CancelJobs,
@@ -189,6 +193,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("shift-f6", Rename, table),
         KeyBinding::new("ctrl-g", GoTo, table),
         KeyBinding::new("alt-f1", GoTo, table),
+        KeyBinding::new("secondary-l", EditLocation, table),
         KeyBinding::new("ctrl-d", AddBookmark, table),
         KeyBinding::new("f9", OpenTerminal, table),
         KeyBinding::new("alt-f7", FindFiles, table),
@@ -258,6 +263,13 @@ pub struct Commander {
     /// Rejects tool discovery that finishes after another Tools menu opened.
     tools_menu_generation: u64,
     _tools_menu_task: Task<()>,
+    /// Newer requests replace and cancel older work for the same panel.
+    navigation_tasks: [Task<()>; 2],
+    navigation_generation: [u64; 2],
+    navigation_pending: [bool; 2],
+    _locations_task: Task<()>,
+    locations_generation: u64,
+    locations_pending: bool,
     bookmarks: Vec<PathBuf>,
     history: History,
     /// Last directory recorded in the history.
@@ -342,6 +354,31 @@ impl Commander {
                     this.open(&Open, window, cx);
                 },
             ));
+            subscriptions.push(cx.subscribe_in(
+                view,
+                window,
+                move |_, _, event: &HeaderEvent, window, cx| {
+                    let event = event.clone();
+                    cx.defer_in(window, move |this, window, cx| match event {
+                        HeaderEvent::Navigate(path) => this.navigate_panel(ix, path, window, cx),
+                        HeaderEvent::Locations => this.open_locations(ix, window, cx),
+                        HeaderEvent::Edit => {
+                            this.set_active(ix, cx);
+                            this.views[ix].update(cx, |view, cx| view.open_location(window, cx));
+                        }
+                        HeaderEvent::CopyPath(path) => {
+                            this.set_active(ix, cx);
+                            cx.write_to_clipboard(ClipboardItem::new_string(path.clone()));
+                            this.status = format!("Copied {path}").into();
+                            cx.notify();
+                        }
+                        HeaderEvent::Error(error) => {
+                            this.status = error.into();
+                            cx.notify();
+                        }
+                    });
+                },
+            ));
         }
 
         let (tools_registry, tools_error) = load_tools();
@@ -363,6 +400,12 @@ impl Commander {
             menu_state: None,
             tools_menu_generation: 0,
             _tools_menu_task: Task::ready(()),
+            navigation_tasks: [Task::ready(()), Task::ready(())],
+            navigation_generation: [0, 0],
+            navigation_pending: [false, false],
+            _locations_task: Task::ready(()),
+            locations_generation: 0,
+            locations_pending: false,
             openers: settings.openers.clone(),
             bookmarks: settings.bookmarks.clone(),
             history: History::path()
@@ -812,55 +855,22 @@ impl Commander {
         cx.notify();
     }
 
-    /// Ctrl-G: bookmarks, desktop places and frequently visited
-    /// directories; Enter goes there in the active panel.
+    /// Ctrl-G: grouped drives, desktop places, bookmarks and frequent paths.
     fn go_to(&mut self, _: &GoTo, window: &mut Window, cx: &mut Context<Self>) {
-        let mut seen = std::collections::HashSet::new();
-        let mut targets: Vec<(String, PathBuf)> = Vec::new();
-        let mut add = |group: &str, label: String, path: PathBuf| {
-            if path.is_dir() && seen.insert(path.clone()) {
-                let shown = places::tilde(&path);
-                targets.push((format!("{group}  {label} — {shown}"), path));
-            }
-        };
-        for path in &self.bookmarks {
-            add("★", tools::file_name(path), path.clone());
-        }
-        for place in places::system_places() {
-            add("⌂", place.label, place.path);
-        }
-        for path in self.history.ranked(places::now()).into_iter().take(30) {
-            add("↻", tools::file_name(&path), path);
-        }
-        let labels = targets.iter().map(|(label, _)| label.clone()).collect();
-        let paths: Rc<Vec<PathBuf>> = Rc::new(targets.into_iter().map(|(_, p)| p).collect());
-        let this = cx.entity().downgrade();
-        let delegate = PickDelegate::new(labels, move |index, window, cx| {
-            window.close_dialog(cx);
-            let path = paths[index].clone();
-            let _ = this.update(cx, |this, cx| {
-                let result = this.update_folder(cx, |folder| folder.navigate(path));
-                this.set_error(result, cx);
-                this.focus_active(window, cx);
-            });
-        });
-        let list = cx.new(|cx| ListState::new(delegate, window, cx).searchable(true));
-        list.update(cx, |list, cx| {
-            list.set_selected_index(Some(IndexPath::new(0)), window, cx)
-        });
-        let dialog_list = list.clone();
-        window.open_dialog(cx, move |dialog, _, _| {
-            dialog
-                .title("Go to")
-                .w(px(640.))
-                .child(
-                    div().h(px(420.)).child(
-                        List::new(&dialog_list)
-                            .search_placeholder("★ bookmarks · ⌂ places · ↻ frequent"),
-                    ),
-                )
-        });
-        list.update(cx, |list, cx| list.focus(window, cx));
+        self.open_locations(self.active, window, cx);
+    }
+
+    /// Ctrl-L: edits the active panel's full path.
+    fn edit_location(&mut self, _: &EditLocation, window: &mut Window, cx: &mut Context<Self>) {
+        self.views[self.active].update(cx, |view, cx| view.open_location(window, cx));
+    }
+
+    /// Copies the active panel's full path.
+    fn copy_location(&mut self, _: &CopyLocation, _: &mut Window, cx: &mut Context<Self>) {
+        let path = crate::breadcrumbs::editable_path(self.folders[self.active].read(cx).path());
+        cx.write_to_clipboard(ClipboardItem::new_string(path.clone()));
+        self.status = format!("Copied {path}").into();
+        cx.notify();
     }
 
     /// Alt-F7: find files by name and/or containing text, below the
@@ -2008,6 +2018,9 @@ impl Commander {
     /// Esc in a panel: stops a running search, else clears the filter if
     /// one is set, else the marks.
     fn unmark(&mut self, _: &Unmark, _: &mut Window, cx: &mut Context<Self>) {
+        if self.cancel_location_work(cx) {
+            return;
+        }
         if let Some(cancel) = self.search_cancel.take() {
             cancel.store(true, Ordering::Relaxed);
             return;
@@ -2735,6 +2748,8 @@ impl Render for Commander {
             .on_action(cx.listener(Self::cut_files))
             .on_action(cx.listener(Self::paste_files))
             .on_action(cx.listener(Self::go_to))
+            .on_action(cx.listener(Self::edit_location))
+            .on_action(cx.listener(Self::copy_location))
             .on_action(cx.listener(Self::add_bookmark))
             .on_action(cx.listener(Self::open_terminal))
             .on_action(cx.listener(Self::select_columns))
@@ -3028,6 +3043,8 @@ fn action_for(cmd: Cmd) -> Box<dyn Action> {
         Cmd::GoLast => Box::new(GoLast),
         Cmd::SwitchPanel => Box::new(SwitchPanel),
         Cmd::GoTo => Box::new(GoTo),
+        Cmd::EditLocation => Box::new(EditLocation),
+        Cmd::CopyLocation => Box::new(CopyLocation),
         Cmd::AddBookmark => Box::new(AddBookmark),
         Cmd::OpenTerminal => Box::new(OpenTerminal),
         Cmd::ToolsMenu => Box::new(ToolsMenu),

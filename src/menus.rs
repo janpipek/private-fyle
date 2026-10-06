@@ -49,6 +49,8 @@ pub enum Cmd {
     GoFirst,
     GoLast,
     SwitchPanel,
+    EditLocation,
+    CopyLocation,
     GoTo,
     AddBookmark,
     OpenTerminal,
@@ -90,7 +92,7 @@ pub struct State {
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 53] = [
+    pub const ALL: [Cmd; 55] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::GoBack,
@@ -99,6 +101,8 @@ impl Cmd {
         Cmd::GoFirst,
         Cmd::GoLast,
         Cmd::SwitchPanel,
+        Cmd::EditLocation,
+        Cmd::CopyLocation,
         Cmd::ToggleMark,
         Cmd::SelectAll,
         Cmd::InvertSelection,
@@ -189,6 +193,8 @@ impl Cmd {
             Cmd::GoFirst => "First Entry",
             Cmd::GoLast => "Last Entry",
             Cmd::SwitchPanel => "Other Panel",
+            Cmd::EditLocation => "Edit Location…",
+            Cmd::CopyLocation => "Copy Full Path",
             Cmd::GoTo => "Go To… (Bookmarks, Places, Frequent)",
             Cmd::AddBookmark => "Bookmark This Folder",
             Cmd::OpenTerminal => "Terminal Here",
@@ -232,6 +238,8 @@ impl Cmd {
             Cmd::GoFirst => "Go to first entry",
             Cmd::GoLast => "Go to last entry",
             Cmd::SwitchPanel => "Switch panel",
+            Cmd::EditLocation => "Edit or paste the active panel location",
+            Cmd::CopyLocation => "Copy the active panel's full path",
             Cmd::Help => "Help: commands and keys",
             Cmd::OpenConfig => "Edit configuration (config.toml)",
             Cmd::ZoomIn => "Zoom in UI",
@@ -415,7 +423,7 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
             items(&[
                 &[GoBack, GoForward, GoUp],
                 &[GoFirst, GoLast, SwitchPanel],
-                &[GoTo, AddBookmark],
+                &[EditLocation, CopyLocation, GoTo, AddBookmark],
                 &[OpenTerminal],
             ]),
         ),

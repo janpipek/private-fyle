@@ -48,7 +48,8 @@ targets that entry. Escape closes the menu and returns focus to that panel.
 | F1                  | Help: all commands with their keys (runnable, like Ctrl-P) |
 | F2                  | Tools for the selection / directory (see [`docs/tools.md`](docs/tools.md)) |
 | Alt-F7 / Ctrl-Shift-F | Find files by name (glob or substring) and/or containing text (literal or regex; hits show the matching line, and F3 preview scrolls to it), below the panel directory; results fill the panel (Enter shows a hit in its folder, Backspace returns, Esc stops) |
-| Ctrl-G / Alt-F1     | Go to: bookmarks (★), desktop places (⌂: home, user folders, GTK/KDE bookmarks, drives), frequently visited directories (↻) |
+| Ctrl-G / Alt-F1     | Locations: drives/mounted volumes, desktop places (home, user folders, GTK/KDE bookmarks), fyle bookmarks and frequent directories |
+| Ctrl-L              | Edit or paste the active panel's full path |
 | Ctrl-D              | Bookmark the current directory (saved in `config.toml`) |
 | F9                  | Open a terminal in the panel directory (`[terminal]` in `config.toml`) |
 | F3                  | Toggle quick preview (replaces the other panel, follows the cursor) |
@@ -77,6 +78,13 @@ attribute count as hidden.
 
 Drag the divider between the panels to resize them; double-click it to
 split evenly again.
+
+Each panel header shows the current location as keyboard-focusable, clickable
+breadcrumbs. The location-pin button opens a searchable list grouped into
+drives and mounted volumes, desktop places, fyle bookmarks and frequent paths;
+the adjacent buttons edit or copy the full path. Long breadcrumbs scroll with
+the current segment kept at the visible end. Archive files are labelled
+`[archive]`, and their internal path uses indented segments.
 
 Copy and move never overwrite silently. When a target exists, a dialog shows
 both entries (path, type, size, modified) and offers Skip, Keep both (a
@@ -176,6 +184,10 @@ directories, unique names, never writing through aliases of the source);
 `src/conflict_view.rs` formats the conflict details.
 `src/icons.rs` maps names/extensions to semantic icon kinds; the table view
 picks the glyph for each kind.
+`src/breadcrumbs.rs` derives panel path segments, parses edited paths and guards
+background navigation results. `src/places.rs` discovers grouped desktop places,
+Linux mounts, bookmarks and frequent paths; `src/location_view.rs` renders the
+searchable picker. Path loading and place discovery run in the background.
 
 `src/archive.rs` reads zip, tar and tar.gz archives into an `Index` (a tree of
 nodes) and extracts entries. Inside an archive a panel's path is the archive

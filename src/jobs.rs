@@ -130,11 +130,11 @@ impl Progress {
                 state.response = None;
                 return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
             }
-            if let Some((response_id, decision)) = state.response.take() {
-                if response_id == id {
-                    state.pending = None;
-                    return Ok(decision);
-                }
+            if let Some((response_id, decision)) = state.response.take()
+                && response_id == id
+            {
+                state.pending = None;
+                return Ok(decision);
             }
             state = self.conflict_ready.wait(state).unwrap();
         }

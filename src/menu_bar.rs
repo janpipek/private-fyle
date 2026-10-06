@@ -76,10 +76,10 @@ impl MenuBar {
     }
 
     fn select(&mut self, selected: Option<usize>, window: &mut Window, cx: &mut Context<Self>) {
-        if self.selected != selected {
-            if let Some(menu) = self.selected.and_then(|index| self.menus.get(index)) {
-                menu.update(cx, |menu, _| menu.close());
-            }
+        if self.selected != selected
+            && let Some(menu) = self.selected.and_then(|index| self.menus.get(index))
+        {
+            menu.update(cx, |menu, _| menu.close());
         }
         if self.selected.is_none() && selected.is_some() {
             self.action_context = window.focused(cx);
@@ -103,10 +103,8 @@ impl MenuBar {
         if self.selected != Some(index) {
             return;
         }
-        if restore_focus {
-            if let Some(handle) = &self.action_context {
-                handle.focus(window, cx);
-            }
+        if restore_focus && let Some(handle) = &self.action_context {
+            handle.focus(window, cx);
         }
         self.action_context = None;
         self.selected = None;

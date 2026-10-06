@@ -7,12 +7,13 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::table::{
     Column, ColumnSort, DataTable, TableDelegate, TableEvent, TableState,
 };
-use gpui_kit::component::{ActiveTheme as _, IconName, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -26,14 +27,29 @@ use gpui_kit::assets::IconName as Lucide;
 /// Emitted when the user activates the cursor entry with the mouse.
 pub struct Activate;
 
+/// Requests from a panel header, carrying enough data for Commander to keep
+/// the originating panel when the other panel was active.
+#[derive(Clone, Debug)]
+pub enum HeaderEvent {
+    Navigate(PathBuf),
+    Locations,
+    Edit,
+    CopyPath(String),
+    Error(String),
+}
+
 type ContextMenuBuilder = Box<dyn Fn(PopupMenu, &mut Window, &mut App) -> PopupMenu>;
 
-actions!(fyle_panel, [CloseFilter]);
+actions!(fyle_panel, [CloseFilter, CloseLocation]);
 
 const FILTER_CONTEXT: &str = "FilterBar";
+const LOCATION_CONTEXT: &str = "LocationBar";
 
 pub fn bind_keys(cx: &mut App) {
-    cx.bind_keys([KeyBinding::new("escape", CloseFilter, Some(FILTER_CONTEXT))]);
+    cx.bind_keys([
+        KeyBinding::new("escape", CloseFilter, Some(FILTER_CONTEXT)),
+        KeyBinding::new("escape", CloseLocation, Some(LOCATION_CONTEXT)),
+    ]);
 }
 
 pub struct FolderView {
@@ -43,6 +59,10 @@ pub struct FolderView {
     /// Filter-as-you-type input, while open.
     filter_input: Option<Entity<InputState>>,
     _filter_subscription: Option<Subscription>,
+    /// Editable full path, while Ctrl-L or the edit button is active.
+    location_input: Option<Entity<InputState>>,
+    _location_subscription: Option<Subscription>,
+    breadcrumb_scroll: ScrollHandle,
     /// Listing generation the Git column was last computed for.
     git_generation: Option<u64>,
     _git_task: Task<()>,
@@ -50,6 +70,7 @@ pub struct FolderView {
 }
 
 impl EventEmitter<Activate> for FolderView {}
+impl EventEmitter<HeaderEvent> for FolderView {}
 
 impl FolderView {
     pub fn new(
@@ -96,6 +117,9 @@ impl FolderView {
             active: false,
             filter_input: None,
             _filter_subscription: None,
+            location_input: None,
+            _location_subscription: None,
+            breadcrumb_scroll: ScrollHandle::new(),
             git_generation: None,
             _git_task: Task::ready(()),
             _subscriptions: subscriptions,
@@ -145,7 +169,7 @@ impl FolderView {
             let status = cx
                 .background_spawn(async move { git_status::status(&dir) })
                 .await;
-            let _ = table.update(cx, |table, cx| {
+            table.update(cx, |table, cx| {
                 table.delegate_mut().git = status.map(Arc::new);
                 cx.notify();
             });
@@ -206,6 +230,71 @@ impl FolderView {
         cx.notify();
     }
 
+    /// Replaces breadcrumbs with an editable full path and focuses it.
+    pub fn open_location(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(input) = &self.location_input {
+            input.update(cx, |input, cx| input.focus(window, cx));
+            return;
+        }
+        let value = {
+            let folder = self.folder.read(cx);
+            crate::breadcrumbs::editable_path(folder.path())
+        };
+        let input = cx.new(|cx| InputState::new(window, cx).default_value(value));
+        self._location_subscription =
+            Some(
+                cx.subscribe_in(&input, window, |this, input, event: &InputEvent, _, cx| {
+                    if let InputEvent::PressEnter { .. } = event {
+                        let text = input.read(cx).value().to_string();
+                        let (current, archive) = {
+                            let folder = this.folder.read(cx);
+                            (
+                                folder.path().to_path_buf(),
+                                folder.archive().map(Path::to_path_buf),
+                            )
+                        };
+                        match crate::breadcrumbs::parse_location(
+                            &text,
+                            &current,
+                            dirs::home_dir().as_deref(),
+                            archive.as_deref(),
+                        ) {
+                            Ok(path) => {
+                                cx.emit(HeaderEvent::Navigate(path));
+                            }
+                            Err(error) => cx.emit(HeaderEvent::Error(format!("{text}: {error}"))),
+                        }
+                        cx.notify();
+                    }
+                }),
+            );
+        input.update(cx, |input, cx| input.focus(window, cx));
+        self.location_input = Some(input);
+        cx.notify();
+        cx.on_next_frame(window, |_, window, cx| {
+            if let Ok(key) = Keystroke::parse("secondary-a") {
+                window.dispatch_keystroke(key, cx);
+            }
+        });
+    }
+
+    fn close_location(&mut self, _: &CloseLocation, window: &mut Window, cx: &mut Context<Self>) {
+        self.location_input = None;
+        self._location_subscription = None;
+        self.table.focus_handle(cx).focus(window, cx);
+        cx.notify();
+    }
+
+    /// Closes the editable location after its background navigation succeeds.
+    pub fn finish_location_navigation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.location_input.is_some() {
+            self.location_input = None;
+            self._location_subscription = None;
+            self.table.focus_handle(cx).focus(window, cx);
+            cx.notify();
+        }
+    }
+
     fn close_filter(&mut self, _: &CloseFilter, window: &mut Window, cx: &mut Context<Self>) {
         self.folder.update(cx, |folder, cx| {
             folder.set_filter("");
@@ -246,7 +335,19 @@ impl FolderView {
 impl Render for FolderView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
+        let header_foreground = if self.active {
+            theme.primary_foreground
+        } else {
+            theme.foreground
+        };
         let folder = self.folder.read(cx);
+        let path_text = crate::breadcrumbs::editable_path(folder.path());
+        let header_text = folder.header();
+        let segments = crate::breadcrumbs::segments(
+            folder.path(),
+            folder.archive(),
+            folder.inner_path().as_deref(),
+        );
         let mut footer = format!("{} dirs, {} files", folder.dir_count(), folder.file_count());
         if let Some(title) = folder.results() {
             footer = format!(
@@ -265,6 +366,48 @@ impl Render for FolderView {
         if folder.marked_count() > 0 {
             footer += &format!(" · {} marked", folder.marked_count());
         }
+        let view = cx.weak_entity();
+        let mut breadcrumb_items = Vec::new();
+        let segment_count = segments.len();
+        for (index, segment) in segments.into_iter().enumerate() {
+            let path = segment.path;
+            let label = match segment.kind {
+                crate::breadcrumbs::Kind::Archive => format!("{} [archive]", segment.label),
+                crate::breadcrumbs::Kind::ArchiveInner => format!("↳ {}", segment.label),
+                crate::breadcrumbs::Kind::Normal => segment.label,
+            };
+            let view = view.clone();
+            breadcrumb_items.push(
+                Button::new(("breadcrumb", index))
+                    .label(label)
+                    .ghost()
+                    .compact()
+                    .small()
+                    .flex_none()
+                    .text_color(header_foreground)
+                    .accessibility_label(format!("Open {}", path.display()))
+                    .on_click(move |_, _, cx| {
+                        if let Some(view) = view.upgrade() {
+                            view.update(cx, |_, cx| cx.emit(HeaderEvent::Navigate(path.clone())));
+                        }
+                    })
+                    .into_any_element(),
+            );
+            if index + 1 < segment_count {
+                breadcrumb_items.push(
+                    Icon::new(IconName::ChevronRight)
+                        .size_3()
+                        .text_color(header_foreground)
+                        .into_any_element(),
+                );
+            }
+        }
+        let locations_view = view.clone();
+        let edit_view = view.clone();
+        let copy_view = view;
+        self.breadcrumb_scroll
+            .scroll_to_item(breadcrumb_items.len().saturating_sub(1));
+        let breadcrumb_scroll = self.breadcrumb_scroll.clone();
 
         v_flex()
             .size_full()
@@ -279,7 +422,83 @@ impl Render for FolderView {
                         d.bg(theme.primary).text_color(theme.primary_foreground)
                     })
                     .when(!self.active, |d| d.bg(theme.muted))
-                    .child(div().flex_1().min_w_0().truncate().child(folder.header()))
+                    .child(
+                        Button::new("panel-locations")
+                            .icon(Lucide::Map)
+                            .ghost()
+                            .compact()
+                            .small()
+                            .flex_none()
+                            .text_color(header_foreground)
+                            .tooltip_with_action(
+                                "Locations for this panel",
+                                &crate::commander::GoTo,
+                                Some("Commander > DataTable"),
+                            )
+                            .accessibility_label("Open locations for this panel")
+                            .on_click(move |_, _, cx| {
+                                if let Some(view) = locations_view.upgrade() {
+                                    view.update(cx, |_, cx| cx.emit(HeaderEvent::Locations));
+                                }
+                            }),
+                    )
+                    .child(
+                        div()
+                            .id("breadcrumb-path")
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_x_scroll()
+                            .track_scroll(&breadcrumb_scroll)
+                            .when_some(self.location_input.clone(), |d, input| {
+                                d.key_context(LOCATION_CONTEXT)
+                                    .on_action(cx.listener(Self::close_location))
+                                    .child(Input::new(&input).small())
+                            })
+                            .when(self.location_input.is_none(), |d| {
+                                d.gap_0p5().children(breadcrumb_items)
+                            }),
+                    )
+                    .child(
+                        Button::new("panel-edit-location")
+                            .icon(Lucide::SquareTerminal)
+                            .ghost()
+                            .compact()
+                            .small()
+                            .flex_none()
+                            .text_color(header_foreground)
+                            .tooltip_with_action(
+                                "Type or paste a location",
+                                &crate::commander::EditLocation,
+                                Some("Commander > DataTable"),
+                            )
+                            .accessibility_label("Edit full path")
+                            .on_click(move |_, _, cx| {
+                                if let Some(view) = edit_view.upgrade() {
+                                    view.update(cx, |_, cx| cx.emit(HeaderEvent::Edit));
+                                }
+                            }),
+                    )
+                    .child(
+                        Button::new("panel-copy-location")
+                            .icon(Lucide::Copy)
+                            .ghost()
+                            .compact()
+                            .small()
+                            .flex_none()
+                            .text_color(header_foreground)
+                            .tooltip_with_action(
+                                format!("Copy full path: {header_text}"),
+                                &crate::commander::CopyLocation,
+                                Some("Commander > DataTable"),
+                            )
+                            .accessibility_label("Copy full path")
+                            .on_click(move |_, _, cx| {
+                                if let Some(view) = copy_view.upgrade() {
+                                    let text = path_text.clone();
+                                    view.update(cx, |_, cx| cx.emit(HeaderEvent::CopyPath(text)));
+                                }
+                            }),
+                    )
                     .when(folder.results().is_some(), |d| {
                         d.child(div().flex_none().text_xs().child("RESULTS"))
                     })
@@ -652,7 +871,7 @@ fn glyph(icon: FileIcon) -> Lucide {
 #[cfg(test)]
 mod tests {
     // Not `super::*`: gpui's glob export would shadow `#[test]`.
-    use super::{FileIcon, glyph};
+    use super::{FileIcon, Lucide, glyph};
     use gpui_kit::AssetSource as _;
 
     #[test]
@@ -661,6 +880,16 @@ mod tests {
             let path = glyph(icon).path();
             let svg = gpui_kit::assets::Assets.load(&path).unwrap();
             assert!(svg.is_some(), "{icon:?}: {path} is not bundled");
+        }
+        for icon in [
+            Lucide::Map,
+            Lucide::SquareTerminal,
+            Lucide::Copy,
+            Lucide::ChevronRight,
+        ] {
+            let path = icon.path();
+            let svg = gpui_kit::assets::Assets.load(&path).unwrap();
+            assert!(svg.is_some(), "header icon {icon:?}: {path} is not bundled");
         }
     }
 }
