@@ -398,7 +398,7 @@ impl Registry {
             registry.register(tool);
         }
         registry
-            .load_toml(include_str!("defaults.toml"))
+            .load_toml(include_str!("tools/defaults.toml"))
             .expect("built-in tools.toml is valid");
         registry
     }
