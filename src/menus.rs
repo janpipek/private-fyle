@@ -58,6 +58,9 @@ pub enum Cmd {
     Help,
     OpenConfig,
     About,
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
 }
 
 /// What availability and toggle states depend on, taken from the window.
@@ -82,7 +85,7 @@ pub struct State {
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 49] = [
+    pub const ALL: [Cmd; 52] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::GoBack,
@@ -115,6 +118,9 @@ impl Cmd {
         Cmd::SortByModified,
         Cmd::SortDescending,
         Cmd::Refresh,
+        Cmd::ZoomIn,
+        Cmd::ZoomOut,
+        Cmd::ZoomReset,
         Cmd::SelectTheme,
         Cmd::SelectColumns,
         Cmd::ToolsMenu,
@@ -186,6 +192,9 @@ impl Cmd {
             Cmd::Help => "Keyboard Shortcuts",
             Cmd::OpenConfig => "Configuration",
             Cmd::About => "About Fyle",
+            Cmd::ZoomIn => "Zoom In",
+            Cmd::ZoomOut => "Zoom Out",
+            Cmd::ZoomReset => "Reset Zoom",
         }
     }
 
@@ -210,13 +219,16 @@ impl Cmd {
             Cmd::Expand => "Expand directory (tree)",
             Cmd::Collapse => "Collapse directory (tree)",
             Cmd::GoBack => "Go back (previous directory)",
-            Cmd::GoForward => "Go forward",
+            Cmd::GoForward => "Forward",
             Cmd::GoUp => "Go to parent directory",
             Cmd::GoFirst => "Go to first entry",
             Cmd::GoLast => "Go to last entry",
             Cmd::SwitchPanel => "Switch panel",
             Cmd::Help => "Help: commands and keys",
             Cmd::OpenConfig => "Edit configuration (config.toml)",
+            Cmd::ZoomIn => "Zoom in UI",
+            Cmd::ZoomOut => "Zoom out UI",
+            Cmd::ZoomReset => "Reset UI zoom",
             other => other.label(),
         }
     }
@@ -356,7 +368,12 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
                     SortDescending,
                 ],
             ));
-            view.extend(items(&[&[], &[SelectColumns, SelectTheme], &[Refresh]]));
+            view.extend(items(&[
+                &[],
+                &[ZoomIn, ZoomOut, ZoomReset],
+                &[SelectColumns, SelectTheme],
+                &[Refresh],
+            ]));
             view
         }),
         (

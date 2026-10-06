@@ -18,7 +18,7 @@ RUN dnf install -y --setopt=install_weak_deps=False \
         just uv nodejs npm \
         dejavu-sans-fonts dejavu-sans-mono-fonts \
         vulkan-loader mesa-vulkan-drivers mesa-dri-drivers \
-        xdg-utils xorg-x11-server-Xvfb xdotool ImageMagic \
+        xdg-utils xorg-x11-server-Xvfb xdotool ImageMagick \
     && dnf clean all
 
 # Rust via rustup, so the toolchain tracks upstream stable like the host's.

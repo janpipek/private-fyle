@@ -234,7 +234,7 @@ mod tests {
     #[test]
     fn picker_filters_and_finds_original() {
         let names = ["Tokyo Night", "Ayu Dark", "tokyo storm", "Ayu Dark"].map(String::from);
-        let mut picker = ThemePicker::new(names, "tokyo night");
+        let picker = ThemePicker::new(names, "tokyo night");
         let all: Vec<_> = (0..picker.len()).map(|i| picker.get(i).unwrap()).collect();
         assert_eq!(
             all,

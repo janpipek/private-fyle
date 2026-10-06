@@ -15,8 +15,8 @@ use gpui_kit::component::list::{List, ListState};
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::progress::Progress as ProgressBar;
 use gpui_kit::component::{
-    ActiveTheme as _, Disableable as _, IndexPath, Sizable as _, ThemeRegistry, WindowExt as _,
-    h_flex, v_flex,
+    ActiveTheme as _, Disableable as _, IndexPath, Sizable as _, Theme, ThemeRegistry,
+    WindowExt as _, h_flex, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -98,6 +98,9 @@ actions!(
         CommandPalette,
         Expand,
         Collapse,
+        ZoomIn,
+        ZoomOut,
+        ZoomReset,
         Quit,
     ]
 );
@@ -205,6 +208,11 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-r", Refresh, table),
         KeyBinding::new("ctrl-h", ToggleHidden, table),
         KeyBinding::new("ctrl-t", ToggleTree, table),
+        KeyBinding::new("secondary-=", ZoomIn, ctx),
+        KeyBinding::new("secondary-+", ZoomIn, ctx),
+        KeyBinding::new("secondary-shift-=", ZoomIn, ctx),
+        KeyBinding::new("secondary--", ZoomOut, ctx),
+        KeyBinding::new("secondary-0", ZoomReset, ctx),
         KeyBinding::new("f10", Quit, ctx),
         KeyBinding::new("secondary-q", Quit, None),
         KeyBinding::new("ctrl-shift-c", CancelJobs, ctx),
@@ -1612,6 +1620,31 @@ impl Commander {
         cx.notify();
     }
 
+    fn zoom_in(&mut self, _: &ZoomIn, _: &mut Window, cx: &mut Context<Self>) {
+        Theme::update(cx, |theme| {
+            let current = f32::from(theme.font_size);
+            let new_size = (current + 1.5).min(36.0);
+            theme.font_size = px(new_size);
+            theme.mono_font_size = px(new_size * (13.0 / 16.0));
+        });
+    }
+
+    fn zoom_out(&mut self, _: &ZoomOut, _: &mut Window, cx: &mut Context<Self>) {
+        Theme::update(cx, |theme| {
+            let current = f32::from(theme.font_size);
+            let new_size = (current - 1.5).max(8.0);
+            theme.font_size = px(new_size);
+            theme.mono_font_size = px(new_size * (13.0 / 16.0));
+        });
+    }
+
+    fn zoom_reset(&mut self, _: &ZoomReset, _: &mut Window, cx: &mut Context<Self>) {
+        Theme::update(cx, |theme| {
+            theme.font_size = px(16.0);
+            theme.mono_font_size = px(13.0);
+        });
+    }
+
     /// F4: edits the cursor file in place of the inactive panel.
     fn edit_file(&mut self, _: &EditFile, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(editor) = &self.editor
@@ -2514,7 +2547,33 @@ impl Render for Commander {
             )
             .on_action(cx.listener(Self::expand))
             .on_action(cx.listener(Self::collapse))
+            .on_action(cx.listener(Self::zoom_in))
+            .on_action(cx.listener(Self::zoom_out))
+            .on_action(cx.listener(Self::zoom_reset))
             .on_action(cx.listener(Self::quit))
+            .on_scroll_wheel(cx.listener(|_this, event: &ScrollWheelEvent, _window: &mut Window, cx: &mut Context<Self>| {
+                if event.modifiers.control || event.modifiers.platform {
+                    let dy = match event.delta {
+                        ScrollDelta::Pixels(p) => f32::from(p.y),
+                        ScrollDelta::Lines(l) => l.y,
+                    };
+                    if dy > 0.0 {
+                        Theme::update(cx, |theme| {
+                            let current = f32::from(theme.font_size);
+                            let new_size = (current + 1.5).min(36.0);
+                            theme.font_size = px(new_size);
+                            theme.mono_font_size = px(new_size * (13.0 / 16.0));
+                        });
+                    } else if dy < 0.0 {
+                        Theme::update(cx, |theme| {
+                            let current = f32::from(theme.font_size);
+                            let new_size = (current - 1.5).max(8.0);
+                            theme.font_size = px(new_size);
+                            theme.mono_font_size = px(new_size * (13.0 / 16.0));
+                        });
+                    }
+                }
+            }))
             .size_full()
             .bg(bg)
             .text_color(fg)
@@ -2712,6 +2771,9 @@ fn action_for(cmd: Cmd) -> Box<dyn Action> {
         Cmd::GoForward => Box::new(GoForward),
         Cmd::OpenConfig => Box::new(OpenConfig),
         Cmd::About => Box::new(About),
+        Cmd::ZoomIn => Box::new(ZoomIn),
+        Cmd::ZoomOut => Box::new(ZoomOut),
+        Cmd::ZoomReset => Box::new(ZoomReset),
     }
 }
 
