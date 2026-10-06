@@ -26,11 +26,12 @@ GPL-3.0-or-later. Linux first; Windows is paused, macOS comes later.
   and a thin view on top. Models live in their own modules (`model.rs`,
   `transfer.rs`, `zoom.rs`, …); `*_view.rs` files only render and forward.
 - Keep files under about 1000 lines; split by responsibility when one
-  grows past that. `commander.rs` is far over: add only wiring there and
-  put new logic in new modules.
+  grows past that. `commander.rs` is split by area into `commander/*.rs`
+  (keys, navigation, search, files, jobs, view, tools, menus, appearance);
+  keep wiring there and put new logic in new modules.
 - Every user-visible command is a `Cmd` in `menus.rs` (label, palette
   label, availability with an explanation, toggle state) mapped to an
-  action in `commander::action_for`; menus, the palette and F1 help are all
+  action in `commander::keys::action_for`; menus, the palette and F1 help are all
   built from it.
 - Settings: every key in `config.example.toml` must equal the defaults (a
   test checks it). Saving a setting edits the file with `toml_edit`,
