@@ -56,6 +56,7 @@ targets that entry. Escape closes the menu and returns focus to that panel.
 | Ctrl-K Ctrl-T       | Theme picker: arrows preview live, Enter keeps and saves to `config.toml`, Esc restores |
 | Right / Left        | Tree: expand / collapse (or go to parent) |
 | Ctrl-R              | Refresh                                   |
+| Ctrl-+ / Ctrl-- / Ctrl-0 | Zoom in / out / reset (also Ctrl-wheel) |
 | Ctrl-Shift-C        | Cancel running copy/move/delete jobs (also a Cancel button per job) |
 | F10 / Ctrl-Q        | Quit                                      |
 
@@ -73,8 +74,15 @@ whole).
 Windows: ".." from a drive root lists all drives; files with the hidden
 attribute count as hidden.
 
-Copy and move never overwrite existing targets. Copy, move, trash and delete
-run in the background with progress in a jobs bar.
+Drag the divider between the panels to resize them; double-click it to
+split evenly again.
+
+Copy and move never overwrite silently. When a target exists, a dialog shows
+both entries (path, type, size, modified) and offers Skip, Keep both (a
+unique name), Replace, or Merge for two directories, and can apply the
+choice to the remaining conflicts of the same kind or cancel the operation.
+Copy, move, trash and delete run in the background with progress in a jobs
+bar.
 
 ## Settings
 
@@ -162,6 +170,9 @@ files, uv commands in uv projects, convert images, …); see
 permissions); `src/editor_view.rs` is the editor pane.
 `src/search.rs` finds files and searches contents with ripgrep's libraries
 (`ignore`, `grep-searcher`); results are a mode of the `Folder` model.
+`src/transfer.rs` copies and moves with conflict resolution (merging
+directories, unique names, never writing through aliases of the source);
+`src/conflict_view.rs` formats the conflict details.
 `src/icons.rs` maps names/extensions to semantic icon kinds; the table view
 picks the glyph for each kind.
 

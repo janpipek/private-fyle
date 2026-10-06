@@ -194,6 +194,7 @@ pub fn count_files(path: &Path) -> usize {
 
 /// Runs the operation on each source. `dest` is the target directory for
 /// copy and move. Blocking; checks `progress.cancel` between files.
+#[cfg(test)]
 pub fn run(
     kind: JobKind,
     sources: &[PathBuf],

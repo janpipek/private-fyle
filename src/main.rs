@@ -30,6 +30,7 @@ mod tools;
 mod tools_view;
 mod transfer;
 mod xattr;
+mod zoom;
 
 use std::path::PathBuf;
 

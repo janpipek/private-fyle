@@ -17,14 +17,6 @@
   - Right-click file actions are implemented, sharing command definitions,
     names and availability with the menu bar and command palette.
     Implement missing actions as separate features.
-- [ ] Copy/move conflict resolution (including paste): when a destination
-      already exists, offer Skip, Replace, and Keep both (choose a unique
-      name); for directory conflicts, offer Merge. Show source/destination
-      details (path, type, size, modified time) to help the user decide.
-      Support applying a choice to remaining conflicts and cancelling the
-      operation. Directory merging must handle conflicts within the tree;
-      file/directory type mismatches need an explicit decision. Never
-      overwrite silently.
 - [ ] Browse archives as virtual directories in a panel: enter an archive,
       navigate its folders, and return to the containing directory. Start
       with the formats already supported by archive preview (zip, tar,
@@ -72,6 +64,9 @@
 
 ## Done
 
+- [x] Copy/move/paste conflict resolution: Skip, Replace, Keep both, Merge
+      (directories), apply to remaining, cancel; details of both entries.
+- [x] Zoom (Ctrl-+/-/0, Ctrl-wheel; View menu) and a draggable panel divider.
 - [x] Right-click file actions in either panel, sharing command labels,
       availability and shortcuts with the menu bar; preserve marks when
       clicking a marked entry.

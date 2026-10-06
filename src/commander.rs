@@ -46,6 +46,7 @@ use crate::tools::{
 };
 use crate::tools_view::{MenuDelegate, PickDelegate};
 use crate::transfer::{ConflictChoice, Decision, EntryInfo};
+use crate::zoom;
 
 actions!(
     fyle,
@@ -1625,28 +1626,15 @@ impl Commander {
     }
 
     fn zoom_in(&mut self, _: &ZoomIn, _: &mut Window, cx: &mut Context<Self>) {
-        Theme::update(cx, |theme| {
-            let current = f32::from(theme.font_size);
-            let new_size = (current + 1.5).min(36.0);
-            theme.font_size = px(new_size);
-            theme.mono_font_size = px(new_size * (13.0 / 16.0));
-        });
+        set_font_size(cx, |size| zoom::step(size, 1));
     }
 
     fn zoom_out(&mut self, _: &ZoomOut, _: &mut Window, cx: &mut Context<Self>) {
-        Theme::update(cx, |theme| {
-            let current = f32::from(theme.font_size);
-            let new_size = (current - 1.5).max(8.0);
-            theme.font_size = px(new_size);
-            theme.mono_font_size = px(new_size * (13.0 / 16.0));
-        });
+        set_font_size(cx, |size| zoom::step(size, -1));
     }
 
     fn zoom_reset(&mut self, _: &ZoomReset, _: &mut Window, cx: &mut Context<Self>) {
-        Theme::update(cx, |theme| {
-            theme.font_size = px(16.0);
-            theme.mono_font_size = px(13.0);
-        });
+        set_font_size(cx, |_| zoom::DEFAULT);
     }
 
     /// F4: edits the cursor file in place of the inactive panel.
@@ -2555,26 +2543,16 @@ impl Render for Commander {
             .on_action(cx.listener(Self::zoom_out))
             .on_action(cx.listener(Self::zoom_reset))
             .on_action(cx.listener(Self::quit))
-            .on_scroll_wheel(cx.listener(|_this, event: &ScrollWheelEvent, _window: &mut Window, cx: &mut Context<Self>| {
+            .on_scroll_wheel(cx.listener(|_, event: &ScrollWheelEvent, _, cx| {
+                // Ctrl-wheel zooms like Ctrl-+ / Ctrl--.
                 if event.modifiers.control || event.modifiers.platform {
                     let dy = match event.delta {
                         ScrollDelta::Pixels(p) => f32::from(p.y),
                         ScrollDelta::Lines(l) => l.y,
                     };
-                    if dy > 0.0 {
-                        Theme::update(cx, |theme| {
-                            let current = f32::from(theme.font_size);
-                            let new_size = (current + 1.5).min(36.0);
-                            theme.font_size = px(new_size);
-                            theme.mono_font_size = px(new_size * (13.0 / 16.0));
-                        });
-                    } else if dy < 0.0 {
-                        Theme::update(cx, |theme| {
-                            let current = f32::from(theme.font_size);
-                            let new_size = (current - 1.5).max(8.0);
-                            theme.font_size = px(new_size);
-                            theme.mono_font_size = px(new_size * (13.0 / 16.0));
-                        });
+                    if dy != 0.0 {
+                        let steps = if dy > 0.0 { 1 } else { -1 };
+                        set_font_size(cx, |size| zoom::step(size, steps));
                     }
                 }
             }))
@@ -2622,21 +2600,23 @@ impl Render for Commander {
                 let left_w = DefiniteLength::Fraction(self.panel_split);
                 let right_w = DefiniteLength::Fraction(1.0 - self.panel_split);
 
-                let left_child = if let Some(editor) = self.editor.as_ref().filter(|_| 0 != self.active) {
-                    editor.clone().into_any_element()
-                } else if self.preview_on && 0 != self.active {
-                    self.preview.clone().into_any_element()
-                } else {
-                    self.views[0].clone().into_any_element()
-                };
+                let left_child =
+                    if let Some(editor) = self.editor.as_ref().filter(|_| 0 != self.active) {
+                        editor.clone().into_any_element()
+                    } else if self.preview_on && 0 != self.active {
+                        self.preview.clone().into_any_element()
+                    } else {
+                        self.views[0].clone().into_any_element()
+                    };
 
-                let right_child = if let Some(editor) = self.editor.as_ref().filter(|_| 1 != self.active) {
-                    editor.clone().into_any_element()
-                } else if self.preview_on && 1 != self.active {
-                    self.preview.clone().into_any_element()
-                } else {
-                    self.views[1].clone().into_any_element()
-                };
+                let right_child =
+                    if let Some(editor) = self.editor.as_ref().filter(|_| 1 != self.active) {
+                        editor.clone().into_any_element()
+                    } else if self.preview_on && 1 != self.active {
+                        self.preview.clone().into_any_element()
+                    } else {
+                        self.views[1].clone().into_any_element()
+                    };
 
                 let left_pane = div().w(left_w).min_w_0().h_full().child(left_child);
                 let right_pane = div().w(right_w).min_w_0().h_full().child(right_child);
@@ -2788,6 +2768,15 @@ fn tool_menu_footer(mut menu: PopupMenu, state: &menus::State) -> PopupMenu {
 
 /// Built-in tools plus the user's `<config dir>/fyle/tools.toml`.
 /// The gpui action behind a [`Cmd`].
+/// Zooms the UI by changing the theme's font sizes.
+fn set_font_size(cx: &mut App, f: impl FnOnce(f32) -> f32) {
+    Theme::update(cx, |theme| {
+        let size = f(f32::from(theme.font_size));
+        theme.font_size = px(size);
+        theme.mono_font_size = px(zoom::mono(size));
+    });
+}
+
 fn action_for(cmd: Cmd) -> Box<dyn Action> {
     match cmd {
         Cmd::Open => Box::new(Open),

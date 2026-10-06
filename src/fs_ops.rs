@@ -286,6 +286,7 @@ fn drives() -> Vec<Entry> {
     Vec::new()
 }
 
+#[cfg(test)]
 /// Called after each file (or symlink) is copied; an error aborts.
 pub type OnFile<'a> = &'a mut dyn FnMut(&Path) -> io::Result<()>;
 
@@ -295,6 +296,7 @@ pub fn copy(src: &Path, dst: &Path) -> io::Result<()> {
     copy_with(src, dst, &mut |_| Ok(()))
 }
 
+#[cfg(test)]
 /// [`copy`] reporting each copied file to `on_file`.
 pub fn copy_with(src: &Path, dst: &Path, on_file: OnFile) -> io::Result<()> {
     if dst.exists() {
@@ -312,6 +314,7 @@ pub fn copy_with(src: &Path, dst: &Path, on_file: OnFile) -> io::Result<()> {
     copy_inner(src, dst, on_file)
 }
 
+#[cfg(test)]
 fn copy_inner(src: &Path, dst: &Path, on_file: OnFile) -> io::Result<()> {
     // Unix recreates symlinks; elsewhere (creating them needs privileges on
     // Windows) the link target's content is copied.
@@ -339,6 +342,7 @@ pub fn move_to(src: &Path, dst: &Path) -> io::Result<()> {
     move_with(src, dst, &mut |_| Ok(()))
 }
 
+#[cfg(test)]
 /// [`move_to`]; `on_file` sees each file copied when the move has to copy.
 pub fn move_with(src: &Path, dst: &Path, on_file: OnFile) -> io::Result<()> {
     if dst.exists() {

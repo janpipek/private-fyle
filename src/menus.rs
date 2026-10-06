@@ -219,7 +219,7 @@ impl Cmd {
             Cmd::Expand => "Expand directory (tree)",
             Cmd::Collapse => "Collapse directory (tree)",
             Cmd::GoBack => "Go back (previous directory)",
-            Cmd::GoForward => "Forward",
+            Cmd::GoForward => "Go forward",
             Cmd::GoUp => "Go to parent directory",
             Cmd::GoFirst => "Go to first entry",
             Cmd::GoLast => "Go to last entry",

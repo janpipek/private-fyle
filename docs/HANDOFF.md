@@ -33,7 +33,7 @@ paused and macOS comes later.
 - Lua plugins are approved in principle: `mlua` with `lua54` and
   `vendored`.
 
-## Status (58 commits, about 13.1k lines of Rust, 102 tests passing)
+## Status (66 commits, about 15.4k lines of Rust, 121 tests passing)
 
 Done (details in `TODO.md` under "Done"):
 
@@ -60,6 +60,12 @@ Done (details in `TODO.md` under "Done"):
   pattern (Ctrl-A, *, +), Back/Forward (Alt-Left/Right), Configuration,
   About. Right-click file actions use the same command definitions in either
   panel; clicking a marked entry preserves the group, other entries clear marks.
+- **Conflicts:** copy, move and paste ask on existing targets (Skip,
+  Replace, Keep both, Merge; apply to remaining; cancel). Model in
+  `transfer.rs`, dialog in `commander.rs` with `conflict_view.rs`. A cut
+  is restored to the yank if its paste left sources behind.
+- **Layout:** zoom changes the theme font sizes (`zoom.rs`; not saved
+  across restarts). The panel divider drags (15–85 %), double-click resets.
 - **Commands and appearance:** Ctrl-P command palette, F1 help, a
   configurable keymap. F2 tools (TOML, built-in and Lua plugins) and openers
   (Shift-Enter). A theme picker with live preview.
@@ -109,9 +115,9 @@ Done (details in `TODO.md` under "Done"):
 ## How to verify
 
 - Before every commit run `cargo fmt --check` and `cargo test`.
-  `cargo clippy` currently reports 5 style warnings (`question_mark`,
-  `while_let_on_iterator`, `type_complexity`) and none are fixed yet; CI
-  doesn't run clippy.
+  `cargo clippy` currently reports 9 style warnings (`collapsible_if`,
+  `question_mark`, `while_let_on_iterator`, `type_complexity`,
+  `let_unit_value`) and none are fixed yet; CI doesn't run clippy.
 - UI checks run headless:
   - Needs `xvfb`, `xdotool`, `imagemagick`, `libxkbcommon-x11-dev` and
     `mesa-vulkan-drivers` (lavapipe; there's no GPU).
@@ -136,7 +142,8 @@ Done (details in `TODO.md` under "Done"):
 
 1. **Discoverable menus, remaining parts** (the uncommitted TODO entry lists
    the remaining view-mode and action work).
-2. **Copy/move conflict resolution** (also in the uncommitted TODO).
+2. **Archive browsing**, which can reuse the conflict resolution for
+   extraction.
 3. **Tabs per panel:** parked by the owner; ask before starting.
 4. **Shell command on the selection** with output capture: the owner found
    it unclear. Only "open terminal here" (F9) was wanted, and it is done.
