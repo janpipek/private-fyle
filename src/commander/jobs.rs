@@ -142,7 +142,8 @@ impl Commander {
                     }
                 }
                 this.reload_all(cx);
-                let mut status = summarize(kind.verb().1, outcome.done, &outcome.errors);
+                let mut status =
+                    summarize(kind.verb().1, kind.unit(), outcome.done, &outcome.errors);
                 if outcome.skipped > 0 {
                     status += &format!(", {} skipped", outcome.skipped);
                 }

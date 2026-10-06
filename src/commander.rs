@@ -2,6 +2,7 @@
 //! commands that act on them.
 
 mod appearance;
+mod archives;
 mod files;
 mod jobs;
 mod keys;

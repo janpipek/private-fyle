@@ -62,6 +62,14 @@ pub fn virtual_path(file: &Path, inner: &str) -> PathBuf {
     }
 }
 
+/// The panel header form of an archive location: `file.zip › inner/dir`
+/// (just the file for the archive root).
+pub fn location(file: &Path, inner: &str) -> String {
+    format!("{} › {inner}", file.display())
+        .trim_end()
+        .to_string()
+}
+
 /// Splits a path inside an archive into the archive file and the inner
 /// path (empty for the archive itself): the nearest ancestor that is a
 /// regular archive file. None for paths that are not inside one.
@@ -171,6 +179,16 @@ impl Node {
     }
 }
 
+/// Archives kept by [`Index::cached`]; the least recently used goes first.
+const CACHE_KEPT: usize = 4;
+
+type Cache = Vec<(PathBuf, u64, Option<SystemTime>, Arc<Index>)>;
+
+fn cache() -> std::sync::MutexGuard<'static, Cache> {
+    static CACHE: Mutex<Cache> = Mutex::new(Vec::new());
+    CACHE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// The tree of an archive's entries. Directories that only appear in the
 /// path of other entries exist implicitly.
 #[derive(Debug, Default)]
@@ -200,13 +218,9 @@ impl Index {
     /// tar.gz means decompressing all of it, so listings, reloads and
     /// previews should go through here.
     pub fn cached(file: &Path) -> io::Result<Arc<Self>> {
-        /// Archives kept; the least recently used goes first.
-        const KEPT: usize = 4;
-        type Cache = Vec<(PathBuf, u64, Option<SystemTime>, Arc<Index>)>;
-        static CACHE: Mutex<Cache> = Mutex::new(Vec::new());
         let meta = fs::metadata(file)?;
         let (len, modified) = (meta.len(), meta.modified().ok());
-        let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cache = cache();
         if let Some(i) = cache
             .iter()
             .position(|(p, l, m, _)| p == file && *l == len && *m == modified)
@@ -219,12 +233,23 @@ impl Index {
         cache.retain(|(p, ..)| p != file);
         drop(cache);
         let index = Arc::new(Self::read(file)?);
-        let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cache = self::cache();
         cache.push((file.to_path_buf(), len, modified, index.clone()));
-        if cache.len() > KEPT {
+        if cache.len() > CACHE_KEPT {
             cache.remove(0);
         }
         Ok(index)
+    }
+
+    /// Whether [`Index::cached`] would return `file` without reading it.
+    pub fn is_cached(file: &Path) -> bool {
+        let Ok(meta) = fs::metadata(file) else {
+            return false;
+        };
+        let (len, modified) = (meta.len(), meta.modified().ok());
+        cache()
+            .iter()
+            .any(|(p, l, m, _)| p == file && *l == len && *m == modified)
     }
 
     fn add(&mut self, raw: Raw) {
@@ -621,6 +646,30 @@ fn relative_to(path: &str, want: &str, prefix: Option<&str>) -> Option<String> {
     Some(match prefix {
         Some(prefix) if !prefix.is_empty() => format!("{prefix}/{rel}"),
         _ => rel.to_string(),
+    })
+}
+
+/// The inverse of [`extract`]'s layout: the inner path in the archive of
+/// the file that was written to `rel` (relative to the destination), given
+/// the same `wanted` and `prefix`. None if `rel` matches nothing wanted.
+pub fn entry_of(rel: &str, wanted: &[String], prefix: Option<&str>) -> Option<String> {
+    let rel = match prefix {
+        Some(prefix) if !prefix.is_empty() => rel.strip_prefix(prefix)?.strip_prefix('/')?,
+        _ => rel,
+    };
+    let first = rel.split('/').next().unwrap_or_default();
+    wanted.iter().find_map(|want| {
+        if want.is_empty() {
+            return Some(rel.to_string());
+        }
+        let (base, last) = want.rsplit_once('/').unwrap_or(("", want));
+        (last == first).then(|| {
+            if base.is_empty() {
+                rel.to_string()
+            } else {
+                format!("{base}/{rel}")
+            }
+        })
     })
 }
 
@@ -1182,6 +1231,23 @@ mod tests {
         assert!(!link_stays_inside("a", "/etc"));
         assert!(!link_stays_inside("a", ""));
         assert!(!link_stays_inside("a", "C:\\x"));
+    }
+
+    #[test]
+    fn locations_and_extracted_entries_name_the_archive_path() {
+        assert_eq!(location(Path::new("/a/f.zip"), "x/y"), "/a/f.zip › x/y");
+        assert_eq!(location(Path::new("/a/f.zip"), ""), "/a/f.zip ›");
+        let wanted = ["d/x".to_string()];
+        assert_eq!(entry_of("x/f", &wanted, None).as_deref(), Some("d/x/f"));
+        assert_eq!(
+            entry_of("f/x/f", &wanted, Some("f")).as_deref(),
+            Some("d/x/f")
+        );
+        assert_eq!(entry_of("y", &wanted, None), None);
+        assert_eq!(
+            entry_of("a/b", &[String::new()], None).as_deref(),
+            Some("a/b")
+        );
     }
 
     #[test]

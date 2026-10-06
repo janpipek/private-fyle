@@ -390,6 +390,9 @@ impl Render for FolderView {
             folder.inner_path().as_deref(),
         );
         let mut footer = format!("{} dirs, {} files", folder.dir_count(), folder.file_count());
+        if folder.is_loading() {
+            footer = "Reading archive… · Esc cancels".into();
+        }
         if let Some(title) = folder.results() {
             footer = format!(
                 "{title}: {} found · Enter shows a hit in its folder",

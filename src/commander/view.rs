@@ -178,11 +178,20 @@ impl Commander {
 
     /// Ctrl-R: reloads both panels and forgets computed folder sizes
     /// (stopping the scans that would recompute them).
-    pub fn refresh(&mut self, _: &Refresh, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn refresh(&mut self, action: &Refresh, window: &mut Window, cx: &mut Context<Self>) {
         for ix in 0..2 {
             self.stop_size_scan(ix);
         }
-        for folder in &self.folders {
+        for ix in 0..2 {
+            // An archive changed on disk is read again in the background.
+            let target = Some(self.folders[ix].read(cx).path().to_path_buf());
+            let action = action.clone();
+            if self.defer_archive_read(ix, target, window, cx, move |this, window, cx| {
+                this.refresh(&action, window, cx)
+            }) {
+                continue;
+            }
+            let folder = self.folders[ix].clone();
             if let Some(e) = folder.update(cx, |folder, cx| {
                 cx.notify();
                 folder.refresh()

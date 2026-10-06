@@ -33,6 +33,16 @@ impl JobKind {
     }
 }
 
+impl JobKind {
+    /// What [`Outcome::done`] counts, for the status line.
+    pub fn unit(self) -> &'static str {
+        match self {
+            Self::Extract => "file(s)",
+            _ => "item(s)",
+        }
+    }
+}
+
 /// Shared between the worker and the UI.
 pub struct Progress {
     /// Units of work: files for copy/move, items for trash/delete.
@@ -396,15 +406,41 @@ pub fn run_extract(
             staged.sort();
             // The move phase counts its own files, from zero.
             progress.done.store(0, Ordering::Relaxed);
-            let moved = run_with_resolver(JobKind::Move, &staged, Some(dest), progress, resolve);
-            outcome.done = moved.done;
+            // Conflicts name the archive entry, not the staged file.
+            let mut resolve_shown = |conflict: &Conflict| {
+                let mut shown = conflict.clone();
+                if let Some(entry) = staged_entry(job, &staging, &shown.source.path) {
+                    shown.source.path = PathBuf::from(archive::location(&job.file, &entry));
+                }
+                resolve(&shown)
+            };
+            let moved = run_with_resolver(
+                JobKind::Move,
+                &staged,
+                Some(dest),
+                progress,
+                &mut resolve_shown,
+            );
+            // Files written: not top-level items, and not the skipped ones.
             outcome.skipped = moved.skipped;
+            outcome.done = progress
+                .done
+                .load(Ordering::Relaxed)
+                .saturating_sub(moved.skipped);
             outcome.cancelled = moved.cancelled;
             outcome.errors.extend(moved.errors);
         }
     }
     let _ = std::fs::remove_dir_all(&staging);
     outcome
+}
+
+/// The archive entry (inner path) that was extracted to `staged` inside
+/// `staging`, for showing it instead of the staging path.
+fn staged_entry(job: &Extraction, staging: &Path, staged: &Path) -> Option<String> {
+    let rel = staged.strip_prefix(staging).ok()?.to_str()?;
+    let prefix = job.into_folder.then(|| archive::stem(&job.file));
+    archive::entry_of(rel, &job.wanted, prefix.as_deref())
 }
 
 #[cfg(test)]
@@ -518,7 +554,7 @@ mod tests {
         let progress = Progress::default();
         let outcome = run_extract(&job, &dest, &progress, &mut |_| unreachable!());
         assert_eq!(outcome.errors, Vec::<String>::new());
-        assert_eq!(outcome.done, 1);
+        assert_eq!(outcome.done, 2);
         assert_eq!(progress.total.load(Ordering::Relaxed), 2);
         assert_eq!(
             fs::read_to_string(dest.join("pack/a/1.txt")).unwrap(),
@@ -597,5 +633,49 @@ mod tests {
         assert!(outcome.cancelled);
         assert_eq!(outcome.done, 0);
         assert!(outcome.errors.is_empty());
+    }
+
+    #[test]
+    fn extraction_conflict_names_the_archive_entry() {
+        let tmp = tree();
+        let root = tmp.path();
+        let zip = root.join("pack.zip");
+        zip_with(&zip, &[("docs/keep.txt", "new"), ("top.txt", "t")]);
+        let dest = root.join("dest");
+        fs::write(dest.join("keep.txt"), "old").unwrap();
+        let job = Extraction {
+            file: zip.clone(),
+            wanted: vec!["docs/keep.txt".into()],
+            into_folder: false,
+        };
+        let mut shown = Vec::new();
+        let outcome = run_extract(&job, &dest, &Progress::default(), &mut |c| {
+            shown.push((c.source.path.clone(), c.source.size));
+            Ok(Decision {
+                choice: crate::transfer::ConflictChoice::Skip,
+                apply_to_all: false,
+            })
+        });
+        let expected = PathBuf::from(format!("{} › docs/keep.txt", zip.display()));
+        assert_eq!(shown, [(expected, Some(3))]);
+        assert_eq!((outcome.done, outcome.skipped), (0, 1));
+    }
+
+    #[test]
+    fn staged_entries_map_back_to_archive_paths() {
+        let job = |wanted: &[&str], into_folder| Extraction {
+            file: PathBuf::from("/a/pack.zip"),
+            wanted: wanted.iter().map(|w| w.to_string()).collect(),
+            into_folder,
+        };
+        let staging = Path::new("/d/.fyle-extract-1-0");
+        let entry = |job: &Extraction, rel: &str| staged_entry(job, staging, &staging.join(rel));
+        let whole = job(&[""], true);
+        assert_eq!(entry(&whole, "pack/a/1.txt").as_deref(), Some("a/1.txt"));
+        assert_eq!(entry(&whole, "other"), None);
+        let some = job(&["docs/x", "top.txt"], false);
+        assert_eq!(entry(&some, "x/deep/f").as_deref(), Some("docs/x/deep/f"));
+        assert_eq!(entry(&some, "top.txt").as_deref(), Some("top.txt"));
+        assert_eq!(entry(&some, "nope"), None);
     }
 }

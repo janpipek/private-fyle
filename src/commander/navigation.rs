@@ -20,7 +20,14 @@ use crate::tools::{self};
 use crate::tools_view::PickDelegate;
 
 impl Commander {
-    pub fn open(&mut self, _: &Open, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn open(&mut self, action: &Open, window: &mut Window, cx: &mut Context<Self>) {
+        let target = self.folders[self.active].read(cx).activation_target();
+        let action = action.clone();
+        if self.defer_archive_read(self.active, target, window, cx, move |this, window, cx| {
+            this.open(&action, window, cx)
+        }) {
+            return;
+        }
         match self.update_folder(cx, Folder::activate) {
             Ok(Activation::OpenFile(_))
                 if self.folders[self.active].read(cx).archive().is_some() =>
@@ -52,12 +59,26 @@ impl Commander {
         self.set_error(result, cx);
     }
 
-    pub fn go_back(&mut self, _: &GoBack, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn go_back(&mut self, action: &GoBack, window: &mut Window, cx: &mut Context<Self>) {
+        let target = self.folders[self.active].read(cx).history_target(true);
+        let action = action.clone();
+        if self.defer_archive_read(self.active, target, window, cx, move |this, window, cx| {
+            this.go_back(&action, window, cx)
+        }) {
+            return;
+        }
         let result = self.update_folder(cx, Folder::go_back);
         self.set_error(result.map(drop), cx);
     }
 
-    pub fn go_forward(&mut self, _: &GoForward, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn go_forward(&mut self, action: &GoForward, window: &mut Window, cx: &mut Context<Self>) {
+        let target = self.folders[self.active].read(cx).history_target(false);
+        let action = action.clone();
+        if self.defer_archive_read(self.active, target, window, cx, move |this, window, cx| {
+            this.go_forward(&action, window, cx)
+        }) {
+            return;
+        }
         let result = self.update_folder(cx, Folder::go_forward);
         self.set_error(result.map(drop), cx);
     }

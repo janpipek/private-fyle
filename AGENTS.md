@@ -27,7 +27,7 @@ GPL-3.0-or-later. Linux first; Windows is paused, macOS comes later.
   `transfer.rs`, `zoom.rs`, …); `*_view.rs` files only render and forward.
 - Keep files under about 1000 lines; split by responsibility when one
   grows past that. `commander.rs` is split by area into `commander/*.rs`
-  (keys, navigation, search, files, jobs, view, tools, menus, appearance);
+  (keys, navigation, search, files, jobs, view, archives, tools, menus, appearance);
   keep wiring there and put new logic in new modules.
 - Every user-visible command is a `Cmd` in `menus.rs` (label, palette
   label, availability with an explanation, toggle state) mapped to an

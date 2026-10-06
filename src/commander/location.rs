@@ -22,6 +22,7 @@ impl Commander {
     ) {
         self.set_active(panel, cx);
         self.focus_active(window, cx);
+        self.folders[panel].update(cx, |folder, _| folder.end_archive_load(false));
         self.navigation_generation[panel] = self.navigation_generation[panel].wrapping_add(1);
         let request = self.navigation_generation[panel];
         let mut folder = self.folders[panel].read(cx).clone();
@@ -113,6 +114,10 @@ impl Commander {
         let mut cancelled = false;
         for panel in 0..self.navigation_pending.len() {
             if self.navigation_pending[panel] {
+                self.folders[panel].update(cx, |folder, cx| {
+                    folder.end_archive_load(true);
+                    cx.notify();
+                });
                 self.navigation_generation[panel] =
                     self.navigation_generation[panel].wrapping_add(1);
                 self.navigation_pending[panel] = false;

@@ -4,10 +4,7 @@
       view exists; output/history in Tools; a "Clear selection" command (Esc
       already clears marks); selection commands in icon view. Implement
       missing actions as separate features.
-- [ ] Archive follow-ups: read the first listing of large tar.gz files in
-      the background (it blocks the UI briefly); show the archive entry, not
-      the staging path, as the source in the extraction conflict dialog;
-      nested archives; maybe write support.
+- [ ] Archive follow-ups: nested archives; maybe write support.
 - [ ] Optional icon view per panel, alongside the existing list view:
       a grid of icons with file names, using preview thumbnails for images
       and file-type icons for other entries. Switch through View → List/Icon
@@ -58,6 +55,9 @@
 - [x] Browse archives (zip, tar, tar.gz/tgz) as read-only virtual directories (`archive.rs`,
       a mode of `Folder`); F3 previews entries; F5 / Shift-F5 extract to the other panel as a
       background job with the copy conflict dialog; entries never escape the destination.
+- [x] Archive follow-ups: the first read of an archive runs in the background
+      (panel shows "Reading archive…", Esc cancels; cached afterwards), and
+      extraction conflicts show `file.zip › inner/name` as the source.
 - [x] Copy/move/paste conflict resolution: Skip, Replace, Keep both, Merge
       (directories), apply to remaining, cancel; details of both entries.
 - [x] Zoom (Ctrl-+/-/0, Ctrl-wheel; View menu), saved as `font_size`, and a draggable panel divider.

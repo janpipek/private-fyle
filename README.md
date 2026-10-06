@@ -213,9 +213,14 @@ nodes) and extracts entries. Inside an archive a panel's path is the archive
 file joined with the inner path (shown as `file.zip › inner/dir`); `Folder`
 mounts the index for such paths, so navigation, marks and sorting work as
 for directories, and preview loads an entry by extracting it to the preview
-cache. Archives are read-only. Extraction (`jobs::run_extract`) writes to a
+cache. The first read of an archive runs in the background
+(`commander/archives.rs`; the panel shows the location with "Reading archive…",
+Esc cancels, navigating elsewhere drops the result); once cached (by path, size
+and modification time) navigation inside it is instant. Archives are
+read-only. Extraction (`jobs::run_extract`) writes to a
 staging folder in the destination, then moves the result with the usual
-conflict resolution; names with `..` or absolute paths are skipped, links
+conflict resolution (the dialog names the archive entry, `file.zip › inner/name`,
+as the source; the status counts extracted files); names with `..` or absolute paths are skipped, links
 must stay inside the destination and nothing is written through a link.
 
 Where things live (`src/`):
@@ -223,7 +228,7 @@ Where things live (`src/`):
 | Module | Role |
 |---|---|
 | `main.rs` | Startup, settings, start directories, window |
-| `commander.rs`, `commander/` | Main window: the two panels, actions, dialogs, jobs bar, tools orchestration. Split by area into `commander/` (keys, navigation, search, files, jobs, view, tools, menus, appearance); new logic goes into its own module, only wiring here. |
+| `commander.rs`, `commander/` | Main window: the two panels, actions, dialogs, jobs bar, tools orchestration. Split by area into `commander/` (keys, navigation, search, files, jobs, view, archives, tools, menus, appearance); new logic goes into its own module, only wiring here. |
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
 | `model.rs` | `Folder`: entries, cursor, marks, filter, sort, tree, search results, archive mount, directory size cache |
 | `panel.rs` | `FolderView` (DataTable delegate `FileTable`), header with breadcrumbs, filter bar |

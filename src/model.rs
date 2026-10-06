@@ -87,6 +87,9 @@ pub struct Folder {
     /// the cursor was on, most recent last.
     back: Vec<Visit>,
     forward: Vec<Visit>,
+    /// Set while an archive is being read in the background: the folder
+    /// as it was before, to return to when the read ends.
+    loading: Option<Box<Folder>>,
 }
 
 /// What [`Folder::marked_total`] knows about the marked entries.
@@ -163,6 +166,7 @@ impl Folder {
             generation: 0,
             back: Vec::new(),
             forward: Vec::new(),
+            loading: None,
         }
     }
 
@@ -389,13 +393,85 @@ impl Folder {
         Some((file, inner))
     }
 
+    /// The archive file that must be read before `path` can be shown, if
+    /// `path` is inside one that is not cached yet (see
+    /// [`archive::Index::cached`]). Showing it would block on that read.
+    pub fn archive_needed(&self, path: &Path) -> Option<PathBuf> {
+        if path.as_os_str().is_empty() || path.is_dir() {
+            return None;
+        }
+        let (file, _) = archive::locate(path)?;
+        (!archive::Index::is_cached(&file)).then_some(file)
+    }
+
+    /// Where [`Folder::activate`] would go: the cursor entry if it is a
+    /// folder or an archive.
+    pub fn activation_target(&self) -> Option<PathBuf> {
+        let entry = self.current()?;
+        (entry.is_dir || (self.mount.is_none() && archive::format_of(&entry.path).is_some()))
+            .then(|| entry.path.clone())
+    }
+
+    /// Where Back (or Forward) would go.
+    pub fn history_target(&self, back: bool) -> Option<PathBuf> {
+        let list = if back { &self.back } else { &self.forward };
+        list.last().map(|v| v.path.clone())
+    }
+
+    /// Shows an empty listing of the archive location `target` while its
+    /// archive is read elsewhere (see [`Folder::archive_needed`]). The
+    /// previous state comes back with [`Folder::end_archive_load`].
+    pub fn begin_archive_load(&mut self, target: PathBuf) {
+        self.end_archive_load(false);
+        let Some(file) = self.archive_needed(&target) else {
+            return;
+        };
+        let saved = Box::new(self.clone());
+        self.entries.clear();
+        self.all.clear();
+        self.marked.clear();
+        self.filter.clear();
+        self.results = None;
+        self.cursor = 0;
+        self.mount = Some(Mount {
+            file,
+            index: Arc::default(),
+        });
+        self.path = target;
+        self.generation += 1;
+        self.loading = Some(saved);
+    }
+
+    /// Whether an archive is being read for this folder.
+    pub fn is_loading(&self) -> bool {
+        self.loading.is_some()
+    }
+
+    /// Ends [`Folder::begin_archive_load`], restoring the previous state.
+    /// With `leave`, the cursor goes to the archive in its containing
+    /// directory (used when the read is cancelled).
+    pub fn end_archive_load(&mut self, leave: bool) {
+        let Some(saved) = self.loading.take() else {
+            return;
+        };
+        let file = self.archive().map(Path::to_path_buf);
+        *self = *saved;
+        if let (true, Some(file)) = (leave, file) {
+            let parent = fs_ops::parent_of(&file).unwrap_or_default();
+            if self.path != parent || self.mount.is_some() {
+                // Best effort: the previous state stays if the directory is gone.
+                let _ = self.replace(parent, Some(file));
+            } else {
+                self.select_path(Some(&file));
+            }
+        }
+    }
+
     /// A compact text form of the panel location, separating an archive file
     /// from its internal path.
     pub fn header(&self) -> String {
         match (self.archive(), self.inner_path()) {
-            (Some(file), Some(inner)) => format!("{} › {inner}", fs_ops::display_path(file))
-                .trim_end()
-                .to_string(),
+            (Some(file), Some(inner)) => archive::location(file, &inner),
             _ => fs_ops::display_path(&self.path),
         }
     }
@@ -447,7 +523,11 @@ impl Folder {
 
     /// Re-reads the current directory, keeping cursor entry and marks.
     /// Search results are not re-run; entries that disappeared are dropped.
+    /// While an archive is being read it does nothing (the placeholder stays).
     pub fn load(&mut self) -> Result<(), String> {
+        if self.is_loading() {
+            return Ok(());
+        }
         if self.results.is_some() {
             self.generation += 1;
             let selected = self.current().map(|e| e.path.clone());
@@ -490,7 +570,12 @@ impl Folder {
         self.replace(path, Some(came_from))
     }
 
+    /// While an archive is being read, going up cancels the read instead.
     pub fn go_up(&mut self) -> Result<(), String> {
+        if self.is_loading() {
+            self.end_archive_load(true);
+            return Ok(());
+        }
         if self.results.is_some() {
             return self.replace(self.path.clone(), None);
         }
@@ -704,6 +789,7 @@ impl Folder {
     }
 
     pub fn set_show_hidden(&mut self, show_hidden: bool) -> Option<String> {
+        self.end_archive_load(false);
         self.show_hidden = show_hidden;
         self.load_or_ancestor()
     }
@@ -1281,6 +1367,70 @@ mod tests {
         assert_eq!(folder.archive(), None);
         assert_eq!(folder.path(), dir.path());
         assert_eq!(folder.current().unwrap().path, zip);
+    }
+
+    #[test]
+    fn uncached_archive_loads_in_two_steps() {
+        let dir = fixture();
+        let zip = dir.path().join("lazy.zip");
+        zip_file(&zip);
+        let mut folder = loaded(&dir);
+        let before: Vec<String> = names(&folder).into_iter().map(String::from).collect();
+        folder.select_path(Some(&zip));
+        assert_eq!(folder.activation_target(), Some(zip.clone()));
+        assert_eq!(folder.archive_needed(dir.path()), None);
+        assert_eq!(folder.archive_needed(&zip), Some(zip.clone()));
+
+        // Loading shows the archive location with nothing in it.
+        folder.begin_archive_load(zip.clone());
+        assert!(folder.is_loading());
+        assert_eq!(folder.header(), format!("{} ›", zip.display()));
+        assert!(folder.entries().is_empty());
+
+        // Cancelling returns to the directory, cursor on the archive.
+        folder.end_archive_load(true);
+        assert!(!folder.is_loading());
+        assert_eq!(
+            names(&folder),
+            before.iter().map(String::as_str).collect::<Vec<_>>()
+        );
+        assert_eq!(folder.current().unwrap().path, zip);
+
+        // Reloading does nothing while loading; going up cancels the read.
+        folder.begin_archive_load(zip.clone());
+        folder.load().unwrap();
+        assert!(folder.is_loading());
+        folder.go_up().unwrap();
+        assert!(!folder.is_loading());
+        assert_eq!(folder.archive(), None);
+        assert_eq!(folder.current().unwrap().path, zip);
+
+        // Toggling hidden files drops the loading state too.
+        folder.begin_archive_load(zip.clone());
+        assert_eq!(folder.set_show_hidden(true), None);
+        assert!(!folder.is_loading());
+        assert_eq!(folder.archive(), None);
+
+        // Once read (elsewhere), entering is instant and needs no loading.
+        archive::Index::cached(&zip).unwrap();
+        assert_eq!(folder.archive_needed(&zip), None);
+        folder.begin_archive_load(zip.clone());
+        assert!(!folder.is_loading());
+        assert_eq!(folder.activate(), Ok(Activation::Entered));
+        assert_eq!(names(&folder), ["..", "docs", "top.txt"]);
+    }
+
+    #[test]
+    fn history_target_names_the_next_directory() {
+        let dir = fixture();
+        let mut folder = loaded(&dir);
+        assert_eq!(folder.history_target(true), None);
+        let sub = folder.current().unwrap().path.clone();
+        assert_eq!(folder.activation_target(), Some(sub.clone()));
+        folder.activate().unwrap();
+        assert_eq!(folder.history_target(true).as_deref(), Some(dir.path()));
+        folder.go_back().unwrap();
+        assert_eq!(folder.history_target(false), Some(sub));
     }
 
     #[test]

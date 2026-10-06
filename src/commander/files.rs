@@ -32,11 +32,11 @@ pub fn describe(paths: &[PathBuf]) -> String {
     }
 }
 
-pub fn summarize(verb: &str, done: usize, errors: &[String]) -> String {
+pub fn summarize(verb: &str, unit: &str, done: usize, errors: &[String]) -> String {
     match errors {
-        [] => format!("{verb} {done} item(s)"),
+        [] => format!("{verb} {done} {unit}"),
         [first, rest @ ..] => format!(
-            "{verb} {done} item(s), {} failed: {first}{}",
+            "{verb} {done} {unit}, {} failed: {first}{}",
             errors.len(),
             if rest.is_empty() { "" } else { " …" }
         ),
@@ -172,7 +172,7 @@ impl Commander {
                                     let to = only.to.clone();
                                     this.update_folder(cx, |f| f.select_path(Some(&to)));
                                 }
-                                this.status = summarize("Renamed", done, &errors).into();
+                                this.status = summarize("Renamed", "item(s)", done, &errors).into();
                                 this.focus_active(window, cx);
                             }
                             Err(e) => {
