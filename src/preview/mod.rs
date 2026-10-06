@@ -25,6 +25,7 @@ pub mod text;
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub use archive::ArchivePreviewer;
 pub use binary::BinaryPreviewer;
@@ -198,6 +199,12 @@ impl Registry {
 
     /// Probes and loads `path` with the first matching previewer. Blocking.
     pub fn preview(&self, path: &Path) -> Result<Preview, String> {
+        if !path.exists()
+            && let Some((file, inner)) = crate::archive::locate(path)
+            && !inner.is_empty()
+        {
+            return self.preview_in_archive(path, &file, &inner);
+        }
         let error = |e: io::Error| format!("{}: {e}", path.display());
         let probe = Probe::read(path).map_err(error)?;
         let previewer = self
@@ -213,6 +220,128 @@ impl Registry {
             kind: previewer.name(),
             content,
         })
+    }
+
+    /// Previews an entry of an archive: a folder is summarised from the
+    /// listing, a file is extracted to the preview cache first (up to
+    /// [`ARCHIVE_LIMIT`] bytes) and previewed from there.
+    fn preview_in_archive(&self, path: &Path, file: &Path, inner: &str) -> Result<Preview, String> {
+        let error = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
+        let index = crate::archive::Index::cached(file).map_err(|e| error(&e))?;
+        let node = index
+            .get(inner)
+            .ok_or_else(|| error(&"not in the archive"))?;
+        let (name, size) = (node.name.clone(), node.size);
+        if node.is_dir() {
+            let (dirs, files, files_size) = index.summary(inner);
+            return Ok(Preview {
+                path: path.to_path_buf(),
+                name,
+                size,
+                kind: "Directory",
+                content: Content::Directory {
+                    dirs,
+                    files,
+                    files_size,
+                },
+            });
+        }
+        let modified = fs::metadata(file).and_then(|m| m.modified()).ok();
+        let cached = cache_dir(file, modified, inner).map_err(|e| error(&e))?;
+        let temp = cached.join(&name);
+        if !fs::symlink_metadata(&temp).is_ok_and(|m| m.is_file()) {
+            prune_cache(&cached);
+            fs::create_dir_all(&cached).map_err(|e| error(&e))?;
+            static PARTS: AtomicUsize = AtomicUsize::new(0);
+            let partial = cached.join(format!(
+                ".{}-{}.part",
+                std::process::id(),
+                PARTS.fetch_add(1, Ordering::Relaxed)
+            ));
+            let result = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&partial)
+                .and_then(|mut out| {
+                    crate::archive::read_file(file, inner, ARCHIVE_LIMIT, &mut out)
+                });
+            match result {
+                Ok(()) => fs::rename(&partial, &temp).map_err(|e| error(&e))?,
+                Err(e) => {
+                    let _ = fs::remove_file(&partial);
+                    return Err(error(&e));
+                }
+            }
+        }
+        let mut preview = self.preview(&temp)?;
+        preview.path = path.to_path_buf();
+        preview.name = name;
+        Ok(preview)
+    }
+}
+
+/// Largest archive entry previewed (it is extracted to disk first).
+const ARCHIVE_LIMIT: u64 = 32 * 1024 * 1024;
+
+/// Most the archive preview cache keeps on disk.
+const CACHE_LIMIT: u64 = 256 * 1024 * 1024;
+
+/// The per-user directory holding extracted archive entries.
+fn cache_root() -> io::Result<PathBuf> {
+    dirs::cache_dir()
+        .map(|dir| dir.join("fyle").join("archive-preview"))
+        .ok_or_else(|| io::Error::other("no cache directory"))
+}
+
+/// Where an archive entry is extracted for previewing: named after the
+/// archive, its modification time and the entry, so it is reused.
+fn cache_dir(
+    file: &Path,
+    modified: Option<std::time::SystemTime>,
+    inner: &str,
+) -> io::Result<PathBuf> {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (file, modified, inner).hash(&mut hasher);
+    Ok(cache_root()?.join(format!("{:016x}", hasher.finish())))
+}
+
+/// Deletes the least recently written cache folders until the cache is
+/// within [`CACHE_LIMIT`], keeping `keep`.
+fn prune_cache(keep: &Path) {
+    let Some(root) = keep.parent() else { return };
+    let Ok(items) = fs::read_dir(root) else {
+        return;
+    };
+    let mut folders: Vec<(std::time::SystemTime, u64, PathBuf)> = items
+        .flatten()
+        .filter(|item| item.path() != keep)
+        .map(|item| {
+            let size = fs::read_dir(item.path())
+                .map(|files| {
+                    files
+                        .flatten()
+                        .filter_map(|f| f.metadata().ok())
+                        .map(|m| m.len())
+                        .sum()
+                })
+                .unwrap_or(0);
+            let modified = item
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::UNIX_EPOCH);
+            (modified, size, item.path())
+        })
+        .collect();
+    let mut total: u64 = folders.iter().map(|f| f.1).sum();
+    folders.sort();
+    for (_, size, path) in folders {
+        if total <= CACHE_LIMIT {
+            break;
+        }
+        if fs::remove_dir_all(&path).is_ok() {
+            total -= size;
+        }
     }
 }
 
@@ -387,5 +516,41 @@ mod tests {
         assert!(probe(&"ž".as_bytes()[..1]).looks_like_text()); // cut-off sequence
         assert!(!probe(b"a\0b").looks_like_text());
         assert!(!probe(&[0xff, 0xfe, 0x41]).looks_like_text());
+    }
+
+    #[test]
+    fn previews_entries_inside_an_archive() {
+        use std::io::Write;
+        let dir = TempDir::new("archive-entry");
+        let zip_path = dir.0.join("pack.zip");
+        let mut zip = zip::ZipWriter::new(File::create(&zip_path).unwrap());
+        let opts = zip::write::SimpleFileOptions::default();
+        zip.start_file("src/main.rs", opts).unwrap();
+        zip.write_all(b"fn main() {}\n").unwrap();
+        zip.start_file("src/big.bin", opts).unwrap();
+        zip.write_all(&vec![0u8; 64]).unwrap();
+        zip.finish().unwrap();
+
+        let registry = Registry::with_defaults();
+        let preview = registry.preview(&zip_path.join("src/main.rs")).unwrap();
+        assert_eq!(preview.kind, "Text");
+        assert_eq!(preview.name, "main.rs");
+        assert_eq!(preview.path, zip_path.join("src/main.rs"));
+        assert!(
+            matches!(preview.content, Content::Text { ref text, .. } if text == "fn main() {}\n")
+        );
+
+        let preview = registry.preview(&zip_path.join("src")).unwrap();
+        assert_eq!(
+            preview.content,
+            Content::Directory {
+                dirs: 0,
+                files: 2,
+                files_size: 13 + 64
+            }
+        );
+        assert!(registry.preview(&zip_path.join("src/nope")).is_err());
+        // The archive itself still lists its contents.
+        assert_eq!(registry.preview(&zip_path).unwrap().kind, "Archive");
     }
 }

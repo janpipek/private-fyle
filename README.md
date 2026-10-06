@@ -25,7 +25,7 @@ targets that entry. Escape closes the menu and returns focus to that panel.
 | ------------------- | ----------------------------------------- |
 | Up / Down, PgUp/Dn  | Move cursor                               |
 | Home / End          | First / last entry                        |
-| Enter / dbl-click   | Enter directory, or open the file (first matching `[[opener]]`, else the system default) |
+| Enter / dbl-click   | Enter directory or archive (zip, tar, tar.gz/tgz: browsed like a folder, read-only), or open the file (first matching `[[opener]]`, else the system default) |
 | Shift-Enter         | Open with…: matching openers, system default, built-in editor |
 | Backspace           | Parent directory                          |
 | Alt-Left / Alt-Right | Back / forward through visited directories (per panel) |
@@ -36,7 +36,8 @@ targets that entry. Escape closes the menu and returns focus to that panel.
 | Esc                 | Clear the filter, else the marks          |
 | Shift-F4            | New file: create and edit it |
 | Ctrl-C / Ctrl-X / Ctrl-V | Yank / cut / paste entries (paths also go to the system clipboard); paste runs as a background copy/move |
-| F5                  | Copy marked (or current) to other panel   |
+| F5                  | Copy marked (or current) to other panel; inside an archive, extract them there (existing files are asked about) |
+| Shift-F5            | Extract the archive under the cursor to a folder named after it in the other panel |
 | F6                  | Move marked (or current) to other panel   |
 | Shift-F6            | Rename; with several marked, edit one name per line (bulk rename, swaps allowed) |
 | F7                  | New directory                             |
@@ -110,7 +111,7 @@ theme is applied immediately as a preview, Enter keeps it and writes it to
 previous theme.
 
 `theme = "Tokyo Night"` selects a theme by name (case-insensitive);
-`"system"`, `"light"` and `"dark"` use the built-in themes. 36 themes from
+`"system"`, `"light"` and `"dark"` use the built-in themes. 17 themes from
 GPUI Kit are bundled (Ayu, Catppuccin, Everforest, Flexoki, Gruvbox, Solarized,
 Tokyo Night, …; full list and attribution in [`themes/README.md`](themes/README.md)).
 More can be added as gpui-component theme files (`*.json`) in a `themes`
@@ -175,6 +176,16 @@ directories, unique names, never writing through aliases of the source);
 `src/conflict_view.rs` formats the conflict details.
 `src/icons.rs` maps names/extensions to semantic icon kinds; the table view
 picks the glyph for each kind.
+
+`src/archive.rs` reads zip, tar and tar.gz archives into an `Index` (a tree of
+nodes) and extracts entries. Inside an archive a panel's path is the archive
+file joined with the inner path (shown as `file.zip › inner/dir`); `Folder`
+mounts the index for such paths, so navigation, marks and sorting work as
+for directories, and preview loads an entry by extracting it to the preview
+cache. Archives are read-only. Extraction (`jobs::run_extract`) writes to a
+staging folder in the destination, then moves the result with the usual
+conflict resolution; names with `..` or absolute paths are skipped, links
+must stay inside the destination and nothing is written through a link.
 
 Previews follow the same split. `src/preview/` is the model: a `Registry`
 of `Previewer`s (directory, image with EXIF, PDF via poppler, audio/video via ffmpeg, archive, Markdown,

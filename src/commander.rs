@@ -21,12 +21,13 @@ use gpui_kit::component::{
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use crate::archive;
 use crate::columns::ColumnKind;
 use crate::conflict_view;
 use crate::editor::Document;
 use crate::editor_view::{EditorEvent, EditorPane};
 use crate::fs_ops;
-use crate::jobs::{self, JobKind, Progress, Yank};
+use crate::jobs::{self, Extraction, JobKind, Progress, Yank};
 use crate::menu_bar::{MenuBar, MenuBuilder};
 use crate::menus::{self, Cmd};
 use crate::model::{Activation, Folder};
@@ -60,6 +61,7 @@ actions!(
         Unmark,
         Copy,
         Move,
+        ExtractArchive,
         MakeDir,
         Delete,
         DeletePermanently,
@@ -200,6 +202,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-p", CommandPalette, ctx),
         KeyBinding::new("secondary-shift-p", CommandPalette, ctx),
         KeyBinding::new("f5", Copy, table),
+        KeyBinding::new("shift-f5", ExtractArchive, table),
         KeyBinding::new("f6", Move, table),
         KeyBinding::new("f7", MakeDir, table),
         KeyBinding::new("f8", Delete, table),
@@ -459,8 +462,24 @@ impl Commander {
         }
     }
 
+    /// Archives are read-only: refuses (with a status message) any change
+    /// to what the active panel shows when it is inside one.
+    fn refuse_in_archive(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.folders[self.active].read(cx).archive().is_none() {
+            return false;
+        }
+        self.status = "Archives are read-only; F5 extracts the selection".into();
+        cx.notify();
+        true
+    }
+
     fn open(&mut self, _: &Open, _: &mut Window, cx: &mut Context<Self>) {
         match self.update_folder(cx, Folder::activate) {
+            Ok(Activation::OpenFile(_))
+                if self.folders[self.active].read(cx).archive().is_some() =>
+            {
+                self.status = "Inside an archive: F3 previews, F5 extracts".into();
+            }
             Ok(Activation::OpenFile(path)) => {
                 let rule = crate::openers::matching(&self.openers, &path)
                     .first()
@@ -521,6 +540,9 @@ impl Commander {
     /// Remembers the targets for pasting; their paths also go to the
     /// system clipboard as text.
     fn set_yank(&mut self, cut: bool, cx: &mut Context<Self>) {
+        if self.refuse_in_archive(cx) {
+            return;
+        }
         let paths = self.folders[self.active].read(cx).targets();
         if paths.is_empty() {
             return;
@@ -541,6 +563,9 @@ impl Commander {
 
     /// Ctrl-V: copies (or moves, after a cut) the yanked entries here.
     fn paste_files(&mut self, _: &PasteFiles, window: &mut Window, cx: &mut Context<Self>) {
+        if self.refuse_in_archive(cx) {
+            return;
+        }
         let Some(yank) = self.yank.clone() else {
             self.status = "Nothing to paste (Ctrl-C / Ctrl-X first)".into();
             cx.notify();
@@ -576,6 +601,9 @@ impl Commander {
 
     /// Shift-Enter: choose how to open the cursor file.
     fn open_with(&mut self, _: &OpenWith, window: &mut Window, cx: &mut Context<Self>) {
+        if self.refuse_in_archive(cx) {
+            return;
+        }
         let Some(entry) = self.folders[self.active].read(cx).current().cloned() else {
             return;
         };
@@ -627,6 +655,9 @@ impl Commander {
     /// Shift-F6: renames the cursor entry, or all marked entries at once
     /// by editing one name per line.
     fn rename(&mut self, _: &Rename, window: &mut Window, cx: &mut Context<Self>) {
+        if self.refuse_in_archive(cx) {
+            return;
+        }
         let sources = Rc::new(self.folders[self.active].read(cx).targets());
         if sources.is_empty() {
             return;
@@ -713,7 +744,10 @@ impl Commander {
     /// Remembers directories the active panel shows, for frecency.
     fn record_visit(&mut self, folder: &Entity<Folder>, cx: &mut Context<Self>) {
         let folder = folder.read(cx);
-        if folder.results().is_some() || folder.path().as_os_str().is_empty() {
+        if folder.results().is_some()
+            || folder.archive().is_some()
+            || folder.path().as_os_str().is_empty()
+        {
             return;
         }
         let dir = folder.path();
@@ -729,6 +763,9 @@ impl Commander {
 
     /// F9: starts a terminal in the active panel's directory.
     fn open_terminal(&mut self, _: &OpenTerminal, _: &mut Window, cx: &mut Context<Self>) {
+        if self.refuse_in_archive(cx) {
+            return;
+        }
         let dir = self.folders[self.active].read(cx).path().to_path_buf();
         if dir.as_os_str().is_empty() {
             return;
@@ -756,6 +793,9 @@ impl Commander {
 
     /// Ctrl-D: adds the active directory to the bookmarks.
     fn add_bookmark(&mut self, _: &AddBookmark, _: &mut Window, cx: &mut Context<Self>) {
+        if self.refuse_in_archive(cx) {
+            return;
+        }
         let dir = self.folders[self.active].read(cx).path().to_path_buf();
         if dir.as_os_str().is_empty() {
             return;
@@ -826,6 +866,9 @@ impl Commander {
     /// Alt-F7: find files by name and/or containing text, below the
     /// active panel's directory.
     fn find_files(&mut self, _: &FindFiles, window: &mut Window, cx: &mut Context<Self>) {
+        if self.refuse_in_archive(cx) {
+            return;
+        }
         let root = self.folders[self.active].read(cx).path().to_path_buf();
         if root.as_os_str().is_empty() {
             return;
@@ -1025,6 +1068,9 @@ impl Commander {
 
     /// F2: tools applicable to the selection / directory, grouped.
     fn tools_menu(&mut self, _: &ToolsMenu, window: &mut Window, cx: &mut Context<Self>) {
+        if self.refuse_in_archive(cx) {
+            return;
+        }
         let ctx = self.tool_context(cx);
         let facts = tools::detect::detect(&ctx);
         let offers = self.tools.offers(&ctx, &facts, &self.programs);
@@ -1324,6 +1370,11 @@ impl Commander {
             cursor_on_file: current.is_some_and(|e| !e.is_dir),
             can_paste: self.yank.is_some(),
             in_directory: folder.results().is_none() && !folder.path().as_os_str().is_empty(),
+            in_archive: folder.archive().is_some(),
+            cursor_on_archive: folder.archive().is_none()
+                && current.is_some_and(|e| {
+                    !e.is_dir && !e.is_parent && archive::format_of(&e.path).is_some()
+                }),
             tree: folder.is_tree(),
             hidden: self.show_hidden,
             preview: self.preview_on,
@@ -1373,6 +1424,16 @@ impl Commander {
     ) {
         self.tools_menu_generation = self.tools_menu_generation.wrapping_add(1);
         let generation = self.tools_menu_generation;
+        if self.folders[self.active].read(cx).archive().is_some() {
+            if let Some(popup) = popup.upgrade() {
+                popup.update(cx, |popup, cx| {
+                    popup.rebuild(window, cx, |menu, _, _| {
+                        menu.label("Not available inside an archive")
+                    })
+                });
+            }
+            return;
+        }
         let context = self.tool_context(cx);
         let detection_context = context.clone();
         let (registry, programs) = (self.tools.clone(), self.programs.clone());
@@ -1660,6 +1721,9 @@ impl Commander {
 
     /// F4: edits the cursor file in place of the inactive panel.
     fn edit_file(&mut self, _: &EditFile, window: &mut Window, cx: &mut Context<Self>) {
+        if self.refuse_in_archive(cx) {
+            return;
+        }
         if let Some(editor) = &self.editor
             && editor.read(cx).is_modified()
         {
@@ -1725,6 +1789,9 @@ impl Commander {
 
     /// Shift-F4: asks for a name, creates an empty file and edits it.
     fn new_file(&mut self, _: &NewFile, window: &mut Window, cx: &mut Context<Self>) {
+        if self.refuse_in_archive(cx) {
+            return;
+        }
         let dir = self.folders[self.active].read(cx).path().to_path_buf();
         if dir.as_os_str().is_empty() {
             return;
@@ -1984,6 +2051,19 @@ impl Commander {
     }
 
     fn confirm_transfer(&mut self, op: Transfer, window: &mut Window, cx: &mut Context<Self>) {
+        if self.folders[1 - self.active].read(cx).archive().is_some() {
+            self.status = "The other panel shows an archive, which is read-only".into();
+            cx.notify();
+            return;
+        }
+        if self.folders[self.active].read(cx).archive().is_some() {
+            if op == Transfer::Move {
+                self.refuse_in_archive(cx);
+            } else {
+                self.confirm_extract(window, cx);
+            }
+            return;
+        }
         let sources = Rc::new(self.folders[self.active].read(cx).targets());
         let dest = self.folders[1 - self.active].read(cx).path().to_path_buf();
         if sources.is_empty() || dest.as_os_str().is_empty() {
@@ -2007,6 +2087,104 @@ impl Commander {
                             JobKind::Move
                         };
                         this.start_job(kind, sources.to_vec(), Some(dest.clone()), window, cx);
+                        this.focus_active(window, cx);
+                    });
+                    true
+                })
+        });
+    }
+
+    /// F5 inside an archive: extracts the marked (or cursor) entries to the
+    /// other panel's directory.
+    fn confirm_extract(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((file, wanted)) = self.folders[self.active].read(cx).archive_targets() else {
+            return;
+        };
+        let dest = self.folders[1 - self.active].read(cx).path().to_path_buf();
+        if wanted.is_empty() || dest.as_os_str().is_empty() {
+            return;
+        }
+        let extraction = Extraction {
+            file,
+            wanted,
+            into_folder: false,
+        };
+        self.ask_extract(extraction, dest, window, cx);
+    }
+
+    /// Shift-F5: extracts the archive under the cursor to a folder named
+    /// after it in the other panel's directory.
+    fn extract_archive(&mut self, _: &ExtractArchive, window: &mut Window, cx: &mut Context<Self>) {
+        let folder = self.folders[self.active].read(cx);
+        let file = folder
+            .current()
+            .filter(|e| {
+                folder.archive().is_none()
+                    && !e.is_dir
+                    && !e.is_parent
+                    && archive::format_of(&e.path).is_some()
+            })
+            .map(|e| e.path.clone());
+        let Some(file) = file else {
+            self.status = "Select an archive file to extract".into();
+            cx.notify();
+            return;
+        };
+        let dest = self.folders[1 - self.active].read(cx).path().to_path_buf();
+        if self.folders[1 - self.active].read(cx).archive().is_some() {
+            self.status = "The other panel shows an archive, which is read-only".into();
+            cx.notify();
+            return;
+        }
+        if dest.as_os_str().is_empty() {
+            return;
+        }
+        let extraction = Extraction {
+            file,
+            wanted: vec![String::new()],
+            into_folder: true,
+        };
+        self.ask_extract(extraction, dest, window, cx);
+    }
+
+    fn ask_extract(
+        &mut self,
+        extraction: Extraction,
+        dest: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let what = match extraction.wanted.as_slice() {
+            [one] if one.is_empty() => format!(
+                "\"{}\" to a folder",
+                extraction
+                    .file
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+            ),
+            [one] => format!("\"{}\"", one.rsplit('/').next().unwrap_or(one)),
+            many => format!("{} items", many.len()),
+        };
+        let description = format!("Extract {what} in {}?", dest.display());
+        let this = cx.entity().downgrade();
+        let extraction = Rc::new(extraction);
+        window.open_alert_dialog(cx, move |dialog, _, _| {
+            let (this, extraction, dest) = (this.clone(), extraction.clone(), dest.clone());
+            dialog
+                .title("Extract")
+                .description(description.clone())
+                .ok_text("Extract")
+                .show_cancel(true)
+                .on_ok(move |_, window, cx| {
+                    let _ = this.update(cx, |this, cx| {
+                        this.update_folder(cx, Folder::clear_marks);
+                        let (extraction, dest) = ((*extraction).clone(), dest.clone());
+                        this.spawn_job(JobKind::Extract, None, window, cx, move |progress| {
+                            jobs::run_extract(&extraction, &dest, progress, &mut |conflict| {
+                                progress.resolve(conflict)
+                            })
+                        });
                         this.focus_active(window, cx);
                     });
                     true
@@ -2039,16 +2217,27 @@ impl Commander {
         if matches!(kind, JobKind::Copy | JobKind::Move) {
             self.update_folder(cx, Folder::clear_marks);
         }
+        self.spawn_job(kind, restore_yank, window, cx, move |progress| {
+            jobs::run_interactive(kind, &sources, dest.as_deref(), progress)
+        });
+    }
+
+    /// Runs `work` in the background as a job of `kind` and reports its
+    /// outcome when done.
+    fn spawn_job(
+        &mut self,
+        kind: JobKind,
+        restore_yank: Option<(u64, Yank)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        work: impl FnOnce(&Progress) -> jobs::Outcome + Send + 'static,
+    ) {
         let progress = Arc::new(Progress::default());
         let id = self.next_job_id;
         self.next_job_id += 1;
         let worker = progress.clone();
         let task = cx.spawn_in(window, async move |this, cx| {
-            let outcome = cx
-                .background_spawn(async move {
-                    jobs::run_interactive(kind, &sources, dest.as_deref(), &worker)
-                })
-                .await;
+            let outcome = cx.background_spawn(async move { work(&worker) }).await;
             let _ = this.update_in(cx, |this, window, cx| {
                 this.jobs.retain(|job| job.id != id);
                 if this.active_conflict.is_some_and(|active| active.0 == id) {
@@ -2341,6 +2530,9 @@ impl Commander {
 
     /// Moves the targets to the system trash, or deletes them for good.
     fn confirm_delete(&mut self, permanent: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.refuse_in_archive(cx) {
+            return;
+        }
         let targets = Rc::new(self.folders[self.active].read(cx).targets());
         if targets.is_empty() {
             return;
@@ -2381,6 +2573,9 @@ impl Commander {
     }
 
     fn make_dir(&mut self, _: &MakeDir, window: &mut Window, cx: &mut Context<Self>) {
+        if self.refuse_in_archive(cx) {
+            return;
+        }
         if self.folders[self.active]
             .read(cx)
             .path()
@@ -2517,6 +2712,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::unmark))
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::move_))
+            .on_action(cx.listener(Self::extract_archive))
             .on_action(cx.listener(Self::make_dir))
             .on_action(cx.listener(Self::delete))
             .on_action(cx.listener(Self::delete_permanently))
@@ -2809,6 +3005,7 @@ fn action_for(cmd: Cmd) -> Box<dyn Action> {
         Cmd::Rename => Box::new(Rename),
         Cmd::Copy => Box::new(Copy),
         Cmd::Move => Box::new(Move),
+        Cmd::ExtractArchive => Box::new(ExtractArchive),
         Cmd::Delete => Box::new(Delete),
         Cmd::DeletePermanently => Box::new(DeletePermanently),
         Cmd::Quit => Box::new(Quit),

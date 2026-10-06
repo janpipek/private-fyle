@@ -17,6 +17,7 @@ pub enum Cmd {
     Rename,
     Copy,
     Move,
+    ExtractArchive,
     Delete,
     DeletePermanently,
     Quit,
@@ -74,6 +75,10 @@ pub struct State {
     pub can_paste: bool,
     /// The panel lists a directory (not search results or the drive list).
     pub in_directory: bool,
+    /// The panel browses inside an archive, which is read-only.
+    pub in_archive: bool,
+    /// The cursor is on an archive file that can be extracted.
+    pub cursor_on_archive: bool,
     pub tree: bool,
     pub hidden: bool,
     pub preview: bool,
@@ -85,7 +90,7 @@ pub struct State {
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 52] = [
+    pub const ALL: [Cmd; 53] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::GoBack,
@@ -102,6 +107,7 @@ impl Cmd {
         Cmd::Filter,
         Cmd::Copy,
         Cmd::Move,
+        Cmd::ExtractArchive,
         Cmd::MakeDir,
         Cmd::Delete,
         Cmd::DeletePermanently,
@@ -151,6 +157,7 @@ impl Cmd {
             Cmd::Rename => "Rename…",
             Cmd::Copy => "Copy to Other Panel",
             Cmd::Move => "Move to Other Panel",
+            Cmd::ExtractArchive => "Extract Archive to Other Panel",
             Cmd::Delete => "Move to Trash",
             Cmd::DeletePermanently => "Delete Permanently",
             Cmd::Quit => "Quit",
@@ -208,6 +215,7 @@ impl Cmd {
             Cmd::CutFiles => "Cut entries for pasting",
             Cmd::PasteFiles => "Paste copied / cut entries here",
             Cmd::Rename => "Rename (bulk when several are marked)",
+            Cmd::ExtractArchive => "Extract archive into a folder in the other panel",
             Cmd::TogglePreview => "Toggle preview",
             Cmd::ToggleTree => "Toggle tree mode",
             Cmd::ToggleHidden => "Toggle hidden files",
@@ -257,7 +265,32 @@ impl Cmd {
 
     /// Why the command cannot run now, if it cannot.
     pub fn unavailable(self, state: &State) -> Option<&'static str> {
+        const READ_ONLY: &str = "Archives are read-only (F5 extracts)";
         match self {
+            Cmd::Rename
+            | Cmd::Move
+            | Cmd::Delete
+            | Cmd::DeletePermanently
+            | Cmd::CutFiles
+            | Cmd::YankFiles
+            | Cmd::PasteFiles
+            | Cmd::NewFile
+            | Cmd::MakeDir
+            | Cmd::EditFile
+                if state.in_archive =>
+            {
+                Some(READ_ONLY)
+            }
+            Cmd::OpenWith
+            | Cmd::AddBookmark
+            | Cmd::OpenTerminal
+            | Cmd::ToolsMenu
+            | Cmd::FindFiles
+                if state.in_archive =>
+            {
+                Some("Not available inside an archive")
+            }
+            Cmd::ExtractArchive if !state.cursor_on_archive => Some("Select an archive file"),
             Cmd::OpenWith | Cmd::EditFile if !state.cursor_on_file => Some("Select a file"),
             Cmd::Rename
             | Cmd::Copy
@@ -308,6 +341,7 @@ pub fn context_menu() -> Vec<Item> {
         Separator,
         Command(Copy),
         Command(Move),
+        Command(ExtractArchive),
         Command(Rename),
         Separator,
         Command(Delete),
@@ -339,7 +373,7 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
             items(&[
                 &[Open, OpenWith, EditFile],
                 &[NewFile, MakeDir, Rename],
-                &[Copy, Move],
+                &[Copy, Move, ExtractArchive],
                 &[Delete, DeletePermanently],
                 &[Quit],
             ]),
@@ -488,6 +522,40 @@ mod tests {
         );
         assert_eq!(Cmd::MakeDir.unavailable(&idle), None);
         assert_eq!(Cmd::Expand.unavailable(&idle), Some("Only in tree mode"));
+
+        // Inside an archive only reading commands remain.
+        let archive = State {
+            has_targets: true,
+            cursor_on_file: true,
+            in_directory: true,
+            in_archive: true,
+            ..State::default()
+        };
+        for cmd in [
+            Cmd::Rename,
+            Cmd::Move,
+            Cmd::Delete,
+            Cmd::DeletePermanently,
+            Cmd::CutFiles,
+            Cmd::PasteFiles,
+            Cmd::NewFile,
+            Cmd::MakeDir,
+            Cmd::EditFile,
+            Cmd::OpenWith,
+        ] {
+            assert!(cmd.unavailable(&archive).is_some(), "{cmd:?}");
+        }
+        assert_eq!(Cmd::Copy.unavailable(&archive), None);
+        assert_eq!(Cmd::TogglePreview.unavailable(&archive), None);
+        assert_eq!(
+            Cmd::ExtractArchive.unavailable(&idle),
+            Some("Select an archive file")
+        );
+        let on_archive = State {
+            cursor_on_archive: true,
+            ..idle.clone()
+        };
+        assert_eq!(Cmd::ExtractArchive.unavailable(&on_archive), None);
 
         let busy = State {
             has_targets: true,

@@ -1,6 +1,7 @@
 // Release builds on Windows should not open a console window.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod archive;
 mod columns;
 mod commander;
 mod conflict_view;

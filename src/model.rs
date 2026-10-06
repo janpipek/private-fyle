@@ -6,7 +6,9 @@ use std::collections::BTreeSet;
 use std::io;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use crate::archive;
 use crate::fs_ops::{self, Entry, SortKey};
 use crate::search::Hit;
 
@@ -61,6 +63,9 @@ pub struct Folder {
     /// Set while showing search results instead of a directory listing;
     /// `path` is then the search root.
     results: Option<String>,
+    /// Set while browsing inside an archive; `path` is then the archive
+    /// file joined with the inner path.
+    mount: Option<Mount>,
     cursor: usize,
     marked: BTreeSet<PathBuf>,
     sort: Sort,
@@ -73,6 +78,13 @@ pub struct Folder {
     /// the cursor was on, most recent last.
     back: Vec<Visit>,
     forward: Vec<Visit>,
+}
+
+/// An archive shown as a directory tree.
+#[derive(Clone)]
+struct Mount {
+    file: PathBuf,
+    index: Arc<archive::Index>,
 }
 
 /// A directory in the Back/Forward history and its cursor entry.
@@ -103,6 +115,7 @@ impl Folder {
             all: Vec::new(),
             filter: String::new(),
             results: None,
+            mount: None,
             cursor: 0,
             marked: BTreeSet::new(),
             sort: Sort::default(),
@@ -153,7 +166,7 @@ impl Folder {
     }
 
     pub fn is_expanded(&self, path: &Path) -> bool {
-        self.tree && self.expanded.contains(path)
+        self.tree && self.mount.is_none() && self.expanded.contains(path)
     }
 
     pub fn is_marked(&self, path: &Path) -> bool {
@@ -206,6 +219,40 @@ impl Folder {
         self.set_cursor(ix);
     }
 
+    /// The archive file being browsed, if any.
+    pub fn archive(&self) -> Option<&Path> {
+        self.mount.as_ref().map(|m| m.file.as_path())
+    }
+
+    /// The location inside the archive being browsed (empty at its root).
+    pub fn inner_path(&self) -> Option<String> {
+        let mount = self.mount.as_ref()?;
+        archive::inner_of(&mount.file, &self.path)
+    }
+
+    /// The archive and the inner paths of [`Folder::targets`], for
+    /// extracting them.
+    pub fn archive_targets(&self) -> Option<(PathBuf, Vec<String>)> {
+        let file = self.archive()?.to_path_buf();
+        let inner = self
+            .targets()
+            .iter()
+            .filter_map(|p| archive::inner_of(&file, p))
+            .collect();
+        Some((file, inner))
+    }
+
+    /// The location for the panel header: the archive and, after a `›`,
+    /// the path inside it.
+    pub fn header(&self) -> String {
+        match (self.archive(), self.inner_path()) {
+            (Some(file), Some(inner)) => format!("{} › {inner}", fs_ops::display_path(file))
+                .trim_end()
+                .to_string(),
+            _ => fs_ops::display_path(&self.path),
+        }
+    }
+
     /// Title of the search whose results are shown, if any.
     pub fn results(&self) -> Option<&str> {
         self.results.as_deref()
@@ -228,6 +275,7 @@ impl Folder {
             hit_line: None,
         }];
         self.path = root;
+        self.mount = None;
         self.results = Some(title);
         self.generation += 1;
         self.marked.clear();
@@ -306,6 +354,10 @@ impl Folder {
             } else {
                 self.navigate(entry.path)?;
             }
+            Ok(Activation::Entered)
+        } else if self.mount.is_none() && archive::format_of(&entry.path).is_some() {
+            // An archive opens like a directory.
+            self.navigate(entry.path)?;
             Ok(Activation::Entered)
         } else if self.results.is_some() {
             // A search hit: show it in its directory.
@@ -569,13 +621,20 @@ impl Folder {
 
     fn replace_untracked(&mut self, path: PathBuf, select: Option<PathBuf>) -> Result<(), String> {
         let mut entries = Vec::new();
-        self.list(&path, 0, &mut entries)
-            .map_err(|e| format!("{}: {e}", fs_ops::display_path(&path)))?;
+        let error = |e: &dyn std::fmt::Display| format!("{}: {e}", fs_ops::display_path(&path));
+        let mount = self.mount_for(&path).map_err(|e| error(&e))?;
+        match &mount {
+            Some((mount, inner)) => self
+                .list_archive(mount, inner, &mut entries)
+                .map_err(|e| error(&e))?,
+            None => self.list(&path, 0, &mut entries).map_err(|e| error(&e))?,
+        }
         if path != self.path || self.results.is_some() {
             self.marked.clear();
             self.filter.clear();
         }
         self.results = None;
+        self.mount = mount.map(|(mount, _)| mount);
         self.path = path;
         self.all = entries;
         self.generation += 1;
@@ -585,6 +644,74 @@ impl Folder {
         if !self.select_path(select.as_deref()) {
             self.set_cursor(self.cursor);
         }
+        Ok(())
+    }
+
+    /// The archive (and the inner path in it) that `path` is in, if it is
+    /// not an ordinary directory. The archive is read again only when it
+    /// changed on disk ([`archive::Index::cached`]).
+    fn mount_for(&self, path: &Path) -> io::Result<Option<(Mount, String)>> {
+        if path.as_os_str().is_empty() || path.is_dir() {
+            return Ok(None);
+        }
+        let Some((file, inner)) = archive::locate(path) else {
+            return Ok(None);
+        };
+        let index = archive::Index::cached(&file)?;
+        let mount = Mount { file, index };
+        Ok(Some((mount, inner)))
+    }
+
+    /// Appends the sorted listing of the archive directory `inner`, with
+    /// ".." leading to the parent (the containing directory at the root).
+    fn list_archive(&self, mount: &Mount, inner: &str, out: &mut Vec<Row>) -> io::Result<()> {
+        if !mount.index.is_dir(inner) {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "not a folder in the archive",
+            ));
+        }
+        let parent = match inner.rsplit_once('/') {
+            Some((parent, _)) => Some(archive::virtual_path(&mount.file, parent)),
+            None if inner.is_empty() => fs_ops::parent_of(&mount.file),
+            None => Some(mount.file.clone()),
+        };
+        let mut entries: Vec<Entry> = parent
+            .into_iter()
+            .map(|path| Entry {
+                name: "..".into(),
+                path,
+                is_dir: true,
+                is_parent: true,
+                size: 0,
+                modified: None,
+                attrs: Default::default(),
+            })
+            .collect();
+        entries.extend(
+            mount
+                .index
+                .list(inner)
+                .filter(|node| self.show_hidden || !node.name.starts_with('.'))
+                .map(|node| Entry {
+                    name: node.name.clone(),
+                    path: archive::virtual_path(&mount.file, &node.path),
+                    is_dir: node.is_dir(),
+                    is_parent: false,
+                    size: node.size,
+                    modified: node.modified,
+                    attrs: fs_ops::Attrs {
+                        mode: node.mode,
+                        ..Default::default()
+                    },
+                }),
+        );
+        fs_ops::sort_entries(&mut entries, self.sort.key, self.sort.descending);
+        out.extend(entries.into_iter().map(|entry| Row {
+            entry,
+            depth: 0,
+            hit_line: None,
+        }));
         Ok(())
     }
 
@@ -938,6 +1065,141 @@ mod tests {
         let dir = TempDir::new("missing");
         let mut folder = Folder::new(dir.0.join("gone").join("deeper"));
         assert!(folder.load_or_ancestor().is_some());
+        assert_eq!(folder.path(), dir.0);
+    }
+
+    fn zip_file(path: &Path) {
+        use std::io::Write;
+        let mut zip = zip::ZipWriter::new(fs::File::create(path).unwrap());
+        let opts = zip::write::SimpleFileOptions::default();
+        for (name, text) in [
+            ("top.txt", "t"),
+            ("docs/a.md", "aa"),
+            ("docs/deep/b.md", "b"),
+        ] {
+            zip.start_file(name, opts).unwrap();
+            zip.write_all(text.as_bytes()).unwrap();
+        }
+        zip.finish().unwrap();
+    }
+
+    #[test]
+    fn browses_an_archive_like_a_directory() {
+        let dir = TempDir::new("archive");
+        let zip = dir.0.join("pack.zip");
+        zip_file(&zip);
+        let mut folder = loaded(&dir);
+        assert_eq!(folder.archive(), None);
+        folder.select_path(Some(&zip));
+        assert_eq!(folder.activate(), Ok(Activation::Entered));
+        assert_eq!(folder.archive(), Some(zip.as_path()));
+        assert_eq!(folder.inner_path().as_deref(), Some(""));
+        assert_eq!(names(&folder), ["..", "docs", "top.txt"]);
+        assert_eq!(folder.header(), format!("{} ›", zip.display()));
+
+        folder.set_cursor(1);
+        assert_eq!(folder.activate(), Ok(Activation::Entered));
+        assert_eq!(folder.inner_path().as_deref(), Some("docs"));
+        assert_eq!(names(&folder), ["..", "deep", "a.md"]);
+        assert_eq!(folder.header(), format!("{} › docs", zip.display()));
+        assert_eq!(folder.entries()[1].path, zip.join("docs/deep"));
+
+        // Files are not opened; marks and targets work.
+        folder.set_cursor(2);
+        assert_eq!(
+            folder.archive_targets(),
+            Some((zip.clone(), vec!["docs/a.md".to_string()]))
+        );
+        folder.toggle_mark();
+        assert_eq!(folder.marked_count(), 1);
+
+        // Up to the archive root, cursor on the folder we came from.
+        folder.go_up().unwrap();
+        assert_eq!(folder.inner_path().as_deref(), Some(""));
+        assert_eq!(folder.current().unwrap().name, "docs");
+        // Reloading an unchanged archive does not read it again.
+        let before = folder.mount.as_ref().unwrap().index.clone();
+        folder.load().unwrap();
+        assert!(Arc::ptr_eq(&before, &folder.mount.as_ref().unwrap().index));
+        // Up again leaves the archive, cursor on it.
+        folder.go_up().unwrap();
+        assert_eq!(folder.archive(), None);
+        assert_eq!(folder.path(), dir.0);
+        assert_eq!(folder.current().unwrap().path, zip);
+    }
+
+    #[test]
+    fn parent_row_leaves_the_archive_and_history_returns() {
+        let dir = TempDir::new("archive-back");
+        let zip = dir.0.join("pack.zip");
+        zip_file(&zip);
+        let mut folder = loaded(&dir);
+        folder.select_path(Some(&zip));
+        folder.activate().unwrap();
+        folder.set_cursor(1);
+        folder.activate().unwrap(); // docs
+        folder.set_cursor(0);
+        folder.activate().unwrap(); // ".." to the archive root
+        assert_eq!(folder.inner_path().as_deref(), Some(""));
+        folder.set_cursor(0);
+        folder.activate().unwrap(); // ".." out of the archive
+        assert_eq!(folder.archive(), None);
+
+        // Back re-enters the archive.
+        assert_eq!(folder.go_back(), Ok(true));
+        assert_eq!(folder.archive(), Some(zip.as_path()));
+        assert_eq!(folder.go_back(), Ok(true));
+        assert_eq!(folder.inner_path().as_deref(), Some("docs"));
+    }
+
+    #[test]
+    fn archive_listing_honours_hidden_and_sort() {
+        let dir = TempDir::new("archive-sort");
+        let zip = dir.0.join("pack.zip");
+        {
+            use std::io::Write;
+            let mut z = zip::ZipWriter::new(fs::File::create(&zip).unwrap());
+            let opts = zip::write::SimpleFileOptions::default();
+            for (name, text) in [("a.txt", "1"), ("b.txt", "1234"), (".hid", "")] {
+                z.start_file(name, opts).unwrap();
+                z.write_all(text.as_bytes()).unwrap();
+            }
+            z.finish().unwrap();
+        }
+        let mut folder = Folder::new(zip.clone());
+        assert_eq!(folder.load_or_ancestor(), None);
+        assert_eq!(folder.archive(), Some(zip.as_path()));
+        assert_eq!(names(&folder), ["..", "a.txt", "b.txt"]);
+        folder.set_show_hidden(true);
+        assert_eq!(names(&folder), ["..", ".hid", "a.txt", "b.txt"]);
+        folder.set_sort(Sort {
+            key: SortKey::Size,
+            descending: true,
+        });
+        assert_eq!(names(&folder), ["..", "b.txt", "a.txt", ".hid"]);
+        assert_eq!(folder.current().unwrap().name, "..");
+    }
+
+    #[test]
+    fn broken_or_missing_archives_report_errors() {
+        let dir = TempDir::new("archive-bad");
+        let bad = dir.0.join("bad.zip");
+        fs::write(&bad, "not a zip").unwrap();
+        let mut folder = loaded(&dir);
+        folder.select_path(Some(&bad));
+        assert!(folder.activate().is_err());
+        assert_eq!(folder.archive(), None);
+        assert_eq!(folder.path(), dir.0);
+
+        // An archive that disappears falls back to its directory.
+        let zip = dir.0.join("pack.zip");
+        zip_file(&zip);
+        folder.load().unwrap();
+        folder.select_path(Some(&zip));
+        folder.activate().unwrap();
+        fs::remove_file(&zip).unwrap();
+        folder.load_or_ancestor();
+        assert_eq!(folder.archive(), None);
         assert_eq!(folder.path(), dir.0);
     }
 }

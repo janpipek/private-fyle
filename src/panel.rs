@@ -279,13 +279,7 @@ impl Render for FolderView {
                         d.bg(theme.primary).text_color(theme.primary_foreground)
                     })
                     .when(!self.active, |d| d.bg(theme.muted))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .child(fs_ops::display_path(folder.path())),
-                    )
+                    .child(div().flex_1().min_w_0().truncate().child(folder.header()))
                     .when(folder.results().is_some(), |d| {
                         d.child(div().flex_none().text_xs().child("RESULTS"))
                     })

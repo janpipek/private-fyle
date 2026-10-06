@@ -17,14 +17,6 @@
   - Right-click file actions are implemented, sharing command definitions,
     names and availability with the menu bar and command palette.
     Implement missing actions as separate features.
-- [ ] Browse archives as virtual directories in a panel: enter an archive,
-      navigate its folders, and return to the containing directory. Start
-      with the formats already supported by archive preview (zip, tar,
-      tar.gz/tgz). Support selecting entries, previewing files, and extracting
-      selected entries or the whole archive to the opposite panel, reusing
-      copy conflict resolution. Show the archive path and internal location
-      clearly. Keep archive browsing read-only initially; extraction must
-      prevent entries from writing outside the chosen destination.
 - [ ] Breadcrumb paths per panel: display the current path as clickable
       segments so users can jump directly to any ancestor. Allow switching
       to an editable full path for typing or pasting a location, and copying
@@ -64,6 +56,9 @@
 
 ## Done
 
+- [x] Browse archives (zip, tar, tar.gz/tgz) as read-only virtual directories (`archive.rs`,
+      a mode of `Folder`); F3 previews entries; F5 / Shift-F5 extract to the other panel as a
+      background job with the copy conflict dialog; entries never escape the destination.
 - [x] Copy/move/paste conflict resolution: Skip, Replace, Keep both, Merge
       (directories), apply to remaining, cancel; details of both entries.
 - [x] Zoom (Ctrl-+/-/0, Ctrl-wheel; View menu), saved as `font_size`, and a draggable panel divider.
@@ -96,7 +91,7 @@
 - [x] F4 built-in editor (syntax highlighting, atomic save, unsaved-changes prompt).
 - [x] File-type icons, mapped by name/extension in `icons.rs`; glyphs from GPUI Kit's default bundle.
 - [x] Runtime theme picker with live preview (Ctrl-K Ctrl-T).
-- [x] Themes: 36 bundled (GPUI Kit), user theme folder, `theme` setting.
+- [x] Themes: 17 bundled (GPUI Kit), user theme folder, `theme` setting.
 - [x] F3 quick preview: text with syntax highlighting, images, directories, hex dump.
 - [x] Previews: rendered Markdown, CSV/TSV as a table, zip/tar/tar.gz listings.
 - [x] Tree mode (toggleable per panel, Ctrl-T).

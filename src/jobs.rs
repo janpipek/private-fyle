@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex};
 
+use crate::archive;
 use crate::fs_ops;
 use crate::transfer::{Conflict, Decision, TransferKind, TransferReport, TransferSession};
 
@@ -16,6 +17,8 @@ pub enum JobKind {
     Move,
     Trash,
     Delete,
+    /// Extracting archive entries; see [`run_extract`].
+    Extract,
 }
 
 impl JobKind {
@@ -25,6 +28,7 @@ impl JobKind {
             Self::Move => ("Moving", "Moved"),
             Self::Trash => ("Moving to trash", "Moved to trash"),
             Self::Delete => ("Deleting", "Deleted"),
+            Self::Extract => ("Extracting", "Extracted"),
         }
     }
 }
@@ -108,7 +112,7 @@ impl Progress {
         Ok(())
     }
 
-    fn resolve(&self, conflict: &Conflict) -> io::Result<Decision> {
+    pub fn resolve(&self, conflict: &Conflict) -> io::Result<Decision> {
         let mut state = self.conflict.lock().unwrap();
         if self.cancelled() {
             return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
@@ -221,6 +225,7 @@ pub fn run_with_resolver(
     let counts: Vec<usize> = match kind {
         JobKind::Copy | JobKind::Move => sources.iter().map(|s| count_files(s)).collect(),
         JobKind::Trash | JobKind::Delete => vec![1; sources.len()],
+        JobKind::Extract => unreachable!("extraction runs through run_extract"),
     };
     progress.total.store(counts.iter().sum(), Ordering::Relaxed);
 
@@ -235,6 +240,7 @@ pub fn run_with_resolver(
         let name = name.unwrap_or_else(|| src.display().to_string());
         let before = progress.done.load(Ordering::Relaxed);
         let result = match kind {
+            JobKind::Extract => unreachable!("extraction runs through run_extract"),
             JobKind::Copy | JobKind::Move => {
                 let Some(file_name) = src.file_name() else {
                     outcome
@@ -305,6 +311,84 @@ pub fn run_interactive(
     run_with_resolver(kind, sources, dest, progress, &mut |conflict| {
         progress.resolve(conflict)
     })
+}
+
+/// What to extract: `wanted` are inner paths in `file` (`""` for all of
+/// it); with `into_folder` everything lands in a folder named after the
+/// archive.
+#[derive(Debug, Clone)]
+pub struct Extraction {
+    pub file: PathBuf,
+    pub wanted: Vec<String>,
+    pub into_folder: bool,
+}
+
+/// Extracts into a staging directory inside `dest` (same file system, so
+/// the final step is a rename), then moves the results to `dest` with the
+/// usual conflict resolution: nothing existing is overwritten unasked.
+pub fn run_extract(
+    job: &Extraction,
+    dest: &Path,
+    progress: &Progress,
+    resolve: &mut dyn FnMut(&Conflict) -> io::Result<Decision>,
+) -> Outcome {
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+    let mut outcome = Outcome::default();
+    let name = job.file.display().to_string();
+    let index = match archive::Index::cached(&job.file) {
+        Ok(index) => index,
+        Err(e) => {
+            outcome.errors.push(format!("{name}: {e}"));
+            return outcome;
+        }
+    };
+    let total = job.wanted.iter().map(|w| index.count_files(w)).sum();
+    progress.total.store(total, Ordering::Relaxed);
+
+    let staging = dest.join(format!(
+        ".fyle-extract-{}-{}",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    if let Err(e) = std::fs::create_dir(&staging) {
+        outcome
+            .errors
+            .push(format!("{}: {e}", fs_ops::display_path(dest)));
+        return outcome;
+    }
+    let prefix = job.into_folder.then(|| archive::stem(&job.file));
+    let result = archive::extract(
+        &job.file,
+        &job.wanted,
+        prefix.as_deref(),
+        &staging,
+        &mut |p| progress.step(Path::new(p)),
+    );
+    match result {
+        Err(_) if progress.cancelled() => outcome.cancelled = true,
+        Err(e) => outcome.errors.push(format!("{name}: {e}")),
+        Ok(report) => {
+            outcome.errors.extend(
+                report
+                    .skipped
+                    .into_iter()
+                    .map(|why| format!("{name}: skipped {why}")),
+            );
+            let mut staged: Vec<PathBuf> = std::fs::read_dir(&staging)
+                .map(|items| items.flatten().map(|i| i.path()).collect())
+                .unwrap_or_default();
+            staged.sort();
+            // The move phase counts its own files, from zero.
+            progress.done.store(0, Ordering::Relaxed);
+            let moved = run_with_resolver(JobKind::Move, &staged, Some(dest), progress, resolve);
+            outcome.done = moved.done;
+            outcome.skipped = moved.skipped;
+            outcome.cancelled = moved.cancelled;
+            outcome.errors.extend(moved.errors);
+        }
+    }
+    let _ = std::fs::remove_dir_all(&staging);
+    outcome
 }
 
 #[cfg(test)]
@@ -390,6 +474,96 @@ mod tests {
         assert!(yank.paste_into(Path::new("/a/x/sub")).is_err());
         let copy = Yank { cut: false, ..yank };
         assert_eq!(copy.paste_into(Path::new("/b")), Ok(JobKind::Copy));
+    }
+
+    fn zip_with(path: &Path, files: &[(&str, &str)]) {
+        use std::io::Write;
+        let mut zip = zip::ZipWriter::new(fs::File::create(path).unwrap());
+        for (name, text) in files {
+            zip.start_file(*name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(text.as_bytes()).unwrap();
+        }
+        zip.finish().unwrap();
+    }
+
+    #[test]
+    fn extracts_into_a_folder_and_cleans_up() {
+        let root = tree("extract");
+        let zip = root.join("pack.zip");
+        zip_with(&zip, &[("a/1.txt", "one"), ("b.txt", "two")]);
+        let job = Extraction {
+            file: zip,
+            wanted: vec![String::new()],
+            into_folder: true,
+        };
+        let dest = root.join("dest");
+        let progress = Progress::default();
+        let outcome = run_extract(&job, &dest, &progress, &mut |_| unreachable!());
+        assert_eq!(outcome.errors, Vec::<String>::new());
+        assert_eq!(outcome.done, 1);
+        assert_eq!(progress.total.load(Ordering::Relaxed), 2);
+        assert_eq!(
+            fs::read_to_string(dest.join("pack/a/1.txt")).unwrap(),
+            "one"
+        );
+        // No staging directory is left behind.
+        let left: Vec<_> = fs::read_dir(&dest).unwrap().flatten().collect();
+        assert_eq!(left.len(), 1);
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn extraction_asks_about_existing_files() {
+        let root = tree("extract-conflict");
+        let zip = root.join("pack.zip");
+        zip_with(&zip, &[("keep.txt", "new"), ("fresh.txt", "fresh")]);
+        let dest = root.join("dest");
+        fs::write(dest.join("keep.txt"), "old").unwrap();
+        let job = Extraction {
+            file: zip,
+            wanted: vec!["keep.txt".into(), "fresh.txt".into()],
+            into_folder: false,
+        };
+        let mut asked = 0;
+        let outcome = run_extract(&job, &dest, &Progress::default(), &mut |_| {
+            asked += 1;
+            Ok(Decision {
+                choice: crate::transfer::ConflictChoice::Skip,
+                apply_to_all: false,
+            })
+        });
+        assert_eq!(asked, 1);
+        assert_eq!(outcome.skipped, 1);
+        assert_eq!(fs::read_to_string(dest.join("keep.txt")).unwrap(), "old");
+        assert_eq!(fs::read_to_string(dest.join("fresh.txt")).unwrap(), "fresh");
+
+        // Without an answer (no resolver), the file is kept and an error reported.
+        let outcome = run_extract(&job, &dest, &Progress::default(), &mut |_| {
+            Err(io::Error::other("no"))
+        });
+        assert_eq!(fs::read_to_string(dest.join("keep.txt")).unwrap(), "old");
+        assert!(!outcome.errors.is_empty());
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn cancelled_extraction_leaves_nothing() {
+        let root = tree("extract-cancel");
+        let zip = root.join("pack.zip");
+        zip_with(&zip, &[("a.txt", "a")]);
+        let job = Extraction {
+            file: zip,
+            wanted: vec![String::new()],
+            into_folder: false,
+        };
+        let progress = Progress::default();
+        progress.cancel.store(true, Ordering::Relaxed);
+        let dest = root.join("dest");
+        let outcome = run_extract(&job, &dest, &progress, &mut |_| unreachable!());
+        assert!(outcome.cancelled);
+        assert_eq!(fs::read_dir(&dest).unwrap().count(), 0);
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

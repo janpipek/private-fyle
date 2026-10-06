@@ -64,6 +64,17 @@ Done (details in `TODO.md` under "Done"):
   Replace, Keep both, Merge; apply to remaining; cancel). Model in
   `transfer.rs`, dialog in `commander.rs` with `conflict_view.rs`. A cut
   is restored to the yank if its paste left sources behind.
+- **Archives:** Enter on a zip, tar or tar.gz/tgz browses it read-only as a
+  `Folder` mount (`archive.rs`; path = archive file + inner path, header
+  `file.zip › inner`). Editing commands are refused (`menus.rs`
+  `in_archive`, `Commander::refuse_in_archive`). F5 inside extracts, Shift-F5
+  extracts the whole archive (`jobs::run_extract`: staging dir in the
+  destination, then a Move job with the conflict dialog). Links that resolve
+  outside the destination are pruned after extraction. `Index::cached`
+  shares one listing per archive (re-read only when size/mtime change), so
+  reloads and previews do not decompress again; the first read still runs on
+  the UI thread (slow for huge tar.gz). Previewed entries are extracted to
+  `~/.cache/fyle/archive-preview` (capped at 256 MiB, oldest pruned).
 - **Layout:** zoom changes the theme font sizes (`zoom.rs`) and is saved as
   `font_size` half a second after the last step. The panel divider drags
   (15–85 %), double-click resets.
@@ -81,7 +92,8 @@ Done (details in `TODO.md` under "Done"):
 |---|---|
 | `main.rs` | Startup, settings, key bindings, window |
 | `commander.rs` | Main window. Owns the two panels and all actions, dialogs, jobs bar, tools orchestration. It is large (~1600 lines); split it if you add much more. |
-| `model.rs` | `Folder`: entries, cursor, marks, filter, sort, tree, search results |
+| `model.rs` | `Folder`: entries, cursor, marks, filter, sort, tree, search results, archive mount |
+| `archive.rs` | Archive `Index` (zip/tar/tar.gz), `locate`, safe `extract`, `read_file` for previews |
 | `panel.rs` | `FolderView` (DataTable delegate `FileTable`) and the filter bar |
 | `fs_ops.rs` | `Entry`, `Attrs`, read_dir, copy/move/delete/trash, formatting |
 | `menus.rs` | `Cmd`: every user-visible command with its menu label, palette label, toggle state and availability, plus the menu bar and context menu layouts. Menus and the palette are built from it; `commander::action_for` maps each `Cmd` to its action. |
@@ -143,8 +155,8 @@ Done (details in `TODO.md` under "Done"):
 
 1. **Discoverable menus, remaining parts** (the uncommitted TODO entry lists
    the remaining view-mode and action work).
-2. **Archive browsing**, which can reuse the conflict resolution for
-   extraction.
+2. **Archive browsing** is done; follow-ups: write support, nested
+   archives, listing large tar.gz in the background.
 3. **Tabs per panel:** parked by the owner; ask before starting.
 4. **Shell command on the selection** with output capture: the owner found
    it unclear. Only "open terminal here" (F9) was wanted, and it is done.
