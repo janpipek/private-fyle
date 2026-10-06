@@ -26,7 +26,7 @@ pub fn badged(icon: Icon, link: &LinkState, cx: &App) -> Div {
 }
 
 /// [`badged`] with a badge of `size`, for large icons.
-pub fn badged_sized(icon: Icon, link: &LinkState, size: Size, cx: &App) -> Div {
+pub fn badged_sized(icon: impl IntoElement, link: &LinkState, size: Size, cx: &App) -> Div {
     let theme = cx.theme();
     let color = if link.is_broken() {
         theme.danger

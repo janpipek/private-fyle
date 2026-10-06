@@ -36,6 +36,8 @@ mod settings;
 mod terminal;
 mod theme_picker;
 mod themes;
+mod thumb_queue;
+mod thumbnails;
 mod tools;
 mod tools_view;
 mod transfer;

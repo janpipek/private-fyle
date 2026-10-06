@@ -4,11 +4,6 @@
       "Clear selection" command (Esc already clears marks). Implement
       missing actions as separate features.
 - [ ] Archive follow-ups: nested archives; maybe write support.
-- [ ] Icon view, stage 2: thumbnails for images in the grid cells, reusing
-      the freedesktop thumbnail cache (`~/.cache/thumbnails`) when possible,
-      generated in the background and kept off the render path.
-      `IconGrid::cell_visual` is the one place that picks what a cell draws.
-      Maybe video/PDF frames later (see richer previews).
 - [ ] Additional virtual locations (idea, integrations undecided): Proton
       Drive via a CLI, Google Drive, FTP/SFTP, and AWS (initially S3).
       Expose them through panel navigation and Locations, with clear remote
@@ -38,6 +33,11 @@
 
 ## Done
 
+- [x] Icon view, stage 2 (`thumbnails.rs`, `thumb_queue.rs`): image cells
+      show thumbnails from the shared freedesktop cache (generated in the
+      background, 3 at a time, visible rows plus one, 300 kept in memory;
+      failures recorded under `fail/fyle/`). Not yet: svg/ico, EXIF
+      orientation; video/PDF frames stay under richer previews.
 - [x] Icon view per panel, stage 1 (`grid.rs`, `icon_view.rs`): View › List
       View / Icon View (Ctrl-1 / Ctrl-2) and Larger / Smaller Icons (Alt-= /
       Alt--) for the active panel; a lazy grid of file-type icons (link badge,

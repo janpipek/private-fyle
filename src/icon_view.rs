@@ -1,11 +1,15 @@
 //! Icon grid view of a [`Folder`]: cells with a large file-type icon and the
-//! name below. Geometry and cursor movement come from `grid.rs`; this file
-//! only draws. Rows are rendered lazily (`uniform_list`), so large folders
+//! name below (image files show a thumbnail once it is loaded, see
+//! `thumbnails.rs`). Geometry and cursor movement come from `grid.rs`, the
+//! thumbnail scheduling from `thumb_queue.rs`; this file only draws. Rows are rendered lazily (`uniform_list`), so large folders
 //! stay fast.
 
 use std::cell::Cell;
 use std::ops::Range;
+use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::time::UNIX_EPOCH;
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::menu::ContextMenuExt as _;
@@ -20,6 +24,12 @@ use crate::glyphs::glyph;
 use crate::grid::{self, GAP, Layout, Move, PADDING};
 use crate::icons;
 use crate::model::{Folder, Row};
+use crate::thumb_queue::{Key, Queue};
+use crate::thumbnails::{self, SizeClass};
+
+/// Thumbnails kept in memory, and decoded at the same time.
+const THUMB_CAPACITY: usize = 300;
+const THUMB_JOBS: usize = 3;
 
 actions!(
     fyle_grid,
@@ -71,6 +81,15 @@ pub struct IconGrid {
     /// wheel is not undone by the next repaint.
     scrolled_to: Option<(usize, usize, u64, usize)>,
     context_menu: Option<ContextMenuBuilder>,
+    /// Decoded thumbnails and what is being loaded; None without a cache dir.
+    thumbs: Queue<Arc<RenderImage>>,
+    thumb_root: Option<PathBuf>,
+    /// The window's scale factor as last rendered, for picking thumbnail sizes.
+    scale: f32,
+    /// The rows and layout the list asked for last, and whether a frame
+    /// callback will act on them (the list also asks to measure one row).
+    visible: Option<(Range<usize>, Layout)>,
+    thumbs_scheduled: bool,
     _folder_observer: Subscription,
 }
 
@@ -83,7 +102,17 @@ impl IconGrid {
         icon_size: u32,
         cx: &mut Context<Self>,
     ) -> Self {
-        let observer = cx.observe(&folder, |_, _, cx| cx.notify());
+        let observer = cx.observe(&folder, |this, _, cx| {
+            this.thumbs.cancel_waiting();
+            cx.notify();
+        });
+        // Free the atlas tiles of the thumbnails still held.
+        cx.on_release(|this, cx| {
+            for image in this.thumbs.drain() {
+                cx.drop_image(image, None);
+            }
+        })
+        .detach();
         Self {
             folder,
             focus,
@@ -93,6 +122,11 @@ impl IconGrid {
             area: Rc::new(Cell::new((0., 0.))),
             scrolled_to: None,
             context_menu: None,
+            thumbs: Queue::new(THUMB_CAPACITY, THUMB_JOBS),
+            thumb_root: thumbnails::default_root(),
+            scale: 1.,
+            visible: None,
+            thumbs_scheduled: false,
             _folder_observer: observer,
         }
     }
@@ -146,10 +180,108 @@ impl IconGrid {
         }
     }
 
-    /// The glyph (later: thumbnail) of a cell; the one place that decides
-    /// what the picture of an entry is.
+    /// The thumbnail identity of a row, if it can have one.
+    fn thumb_key(&self, row: &Row, in_archive: bool) -> Option<Key> {
+        let root = self.thumb_root.as_deref()?;
+        let entry = &row.entry;
+        if in_archive || entry.is_dir || entry.is_parent {
+            return None;
+        }
+        let mtime = entry.modified?.duration_since(UNIX_EPOCH).ok()?.as_secs() as i64;
+        thumbnails::eligible(&entry.path, entry.size, root).then(|| Key {
+            path: entry.path.clone(),
+            mtime,
+            class: SizeClass::for_pixels((self.icon_size as f32 * self.scale).ceil() as u32),
+        })
+    }
+
+    /// Asks for the thumbnails of the cells in `rows` (visible rows first,
+    /// then one row before and after) and starts loading.
+    fn want_thumbnails(&mut self, rows: Range<usize>, layout: Layout, cx: &mut Context<Self>) {
+        let folder = self.folder.read(cx);
+        let (count, in_archive) = (folder.entries().len(), folder.archive().is_some());
+        let around = rows.start.saturating_sub(1)..(rows.end + 1).min(layout.rows(count));
+        let order = rows.clone().chain(around.filter(|row| !rows.contains(row)));
+        let keys: Vec<Key> = order
+            .flat_map(|row| layout.cells(row, count))
+            .filter_map(|ix| self.thumb_key(folder.entries().get(ix)?, in_archive))
+            .collect();
+        self.thumbs.want(keys);
+        self.start_thumbnails(cx);
+    }
+
+    /// Starts the waiting loads the concurrency bound allows, off the UI
+    /// thread; each finished load notifies the grid and starts the next.
+    fn start_thumbnails(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.thumb_root.clone() else {
+            return;
+        };
+        for key in self.thumbs.start() {
+            let (root, job) = (root.clone(), key.clone());
+            cx.spawn(async move |this, cx| {
+                let image = cx
+                    .background_spawn(async move {
+                        Some(
+                            thumbnails::thumbnail(&root, &job.path, job.class)
+                                .map(|image| Arc::new(render_image(image))),
+                        )
+                    })
+                    .await;
+                let _ = this.update(cx, |this, cx| {
+                    match image {
+                        Some(Ok(image)) => Self::release(this.thumbs.finish(key, Some(image)), cx),
+                        Some(Err(thumbnails::Skip::Io)) => this.thumbs.abandon(&key),
+                        _ => Self::release(this.thumbs.finish(key, None), cx),
+                    }
+                    this.start_thumbnails(cx);
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
+    }
+
+    /// Frees the GPU copies of thumbnails that left the cache.
+    fn release(evicted: Vec<Arc<RenderImage>>, cx: &mut App) {
+        for image in evicted {
+            cx.drop_image(image, None);
+        }
+    }
+
+    /// Remembers the rows drawn and, once per frame, requests thumbnails for
+    /// the last ones asked for (the real visible range, which the list asks
+    /// for after measuring a single row).
+    fn schedule_thumbnails(
+        &mut self,
+        rows: Range<usize>,
+        layout: Layout,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.visible = Some((rows, layout));
+        if self.thumbs_scheduled {
+            return;
+        }
+        self.thumbs_scheduled = true;
+        let this = cx.weak_entity();
+        window.on_next_frame(move |_, cx| {
+            let _ = this.update(cx, |this, cx| {
+                this.thumbs_scheduled = false;
+                if let Some((rows, layout)) = this.visible.take() {
+                    this.want_thumbnails(rows, layout, cx);
+                }
+            });
+        });
+    }
+
+    /// The picture of a cell: the thumbnail when loaded, else the file-type
+    /// glyph; the one place that decides what the picture of an entry is.
     fn cell_visual(&self, row: &Row, cx: &App) -> AnyElement {
         let entry = &row.entry;
+        let in_archive = self.folder.read(cx).archive().is_some();
+        let thumbnail = self
+            .thumb_key(row, in_archive)
+            .and_then(|key| self.thumbs.get(&key).cloned());
         let expanded = false; // tree mode does not apply to the grid
         let icon = glyph(icons::icon_for(
             &entry.name,
@@ -163,13 +295,25 @@ impl IconGrid {
             64..128 => Size::Small,
             _ => Size::Medium,
         };
+        let picture = match thumbnail {
+            Some(image) => div()
+                .size(px(size))
+                .overflow_hidden()
+                .child(
+                    img(ImageSource::Render(image))
+                        .size_full()
+                        .object_fit(ObjectFit::Contain),
+                )
+                .into_any_element(),
+            None => Icon::new(icon).size(px(size * 0.8)).into_any_element(),
+        };
         h_flex()
             .size(px(size))
             .flex_none()
             .items_center()
             .justify_center()
             .child(crate::link_badge::badged_sized(
-                Icon::new(icon).size(px(size * 0.8)),
+                picture,
                 &entry.link,
                 badge,
                 cx,
@@ -303,9 +447,12 @@ impl IconGrid {
         &mut self,
         rows: Range<usize>,
         layout: Layout,
+        window: &Window,
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
+        self.scale = window.scale_factor();
         let count = self.folder.read(cx).entries().len();
+        self.schedule_thumbnails(rows.clone(), layout, window, cx);
         rows.map(|row| {
             let cells: Vec<_> = layout
                 .cells(row, count)
@@ -386,8 +533,8 @@ impl Render for IconGrid {
                             uniform_list(
                                 "icon-rows",
                                 layout.rows(count),
-                                cx.processor(move |this, rows, _, cx| {
-                                    this.render_rows(rows, layout, cx)
+                                cx.processor(move |this, rows, window, cx| {
+                                    this.render_rows(rows, layout, window, cx)
                                 }),
                             )
                             .track_scroll(&self.scroll)
@@ -396,4 +543,12 @@ impl Render for IconGrid {
                 ),
             )
     }
+}
+
+/// A thumbnail as gpui draws it: BGRA pixels in a single frame.
+fn render_image(mut image: image::RgbaImage) -> RenderImage {
+    for pixel in image.pixels_mut() {
+        pixel.0.swap(0, 2);
+    }
+    RenderImage::new(vec![image::Frame::new(image)])
 }

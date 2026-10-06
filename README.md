@@ -87,7 +87,15 @@ check, so marks do not rely on colour. Arrows move by cell and row, PgUp/PgDn
 by visible rows, Home/End to the ends; click, double-click, right-click,
 Space and all other panel commands work as in the list. Tree mode only
 applies to the list (switching to icons turns it off). Larger / Smaller Icons
-step through 48, 64, 96, 128 and 160 px. Thumbnails for images are planned.
+step through 48, 64, 96, 128 and 160 px. Images (png, jpeg, gif, webp, bmp,
+tiff up to 64 MiB) show a thumbnail instead of the icon once it is loaded, in
+the background and for the visible cells only. Thumbnails live in the shared
+freedesktop cache (`$XDG_CACHE_HOME/thumbnails`, size `normal`/`large`/
+`x-large`/`xx-large` picked from the icon size and the display scale), so
+Nautilus, Dolphin and fyle reuse each other's; a cached one is used only if
+its recorded modification time matches, otherwise it is regenerated. Files
+that fail to decode are recorded under `fail/fyle/` and not retried until they
+change. Files inside archives keep their icons.
 
 Click a column's sort icon to sort (directories always stay on top); drag
 header borders to resize. Columns… (in the command palette) picks the
@@ -246,6 +254,7 @@ Where things live (`src/`):
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
 | `model.rs` | `Folder`: entries, cursor, marks, filter, sort, tree, search results, archive mount, directory size cache |
 | `panel.rs` | `FolderView` (DataTable delegate `FileTable`), header with breadcrumbs, filter bar; shows the list or the icon grid |
+| `thumbnails.rs`, `thumb_queue.rs` | Icon view thumbnails: the freedesktop cache (URI and MD5 names, validity by `Thumb::MTime`, atomic writes, failure records) and the load scheduler with its LRU, both UI-independent and tested |
 | `grid.rs`, `icon_view.rs`, `glyphs.rs`, `context_menu.rs` | Icon view: `ViewMode`, icon sizes, `Layout` (columns for a width) and cursor moves (UI-independent, tested); the lazy `IconGrid` view; the `FileIcon` → glyph table and the right-click menu shared with the list |
 | `columns.rs` | `ColumnKind` catalog, grouped, ids like `exif.iso`. A new column is a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |
 | `fs_ops.rs`, `transfer.rs`, `jobs.rs` | `Entry` and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
