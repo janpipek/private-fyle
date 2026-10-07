@@ -220,9 +220,29 @@ impl Commander {
         }
         self.last_visited = Some(location.clone());
         self.history.visit_location(location, places::now());
-        if let Some(path) = History::path() {
-            let _ = self.history.save(&path);
+        if let Some(path) = History::path()
+            && let Some(snapshot) = self.history_saves.enqueue((path, self.history.clone()))
+        {
+            self.start_history_save(snapshot, cx);
         }
+    }
+
+    fn start_history_save(
+        &mut self,
+        snapshot: (std::path::PathBuf, History),
+        cx: &mut Context<Self>,
+    ) {
+        self._history_save_task = cx.spawn(async move |this, cx| {
+            let (path, snapshot) = snapshot;
+            let _ = cx
+                .background_spawn(async move { snapshot.save(&path) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Some(snapshot) = this.history_saves.complete() {
+                    this.start_history_save(snapshot, cx);
+                }
+            });
+        });
     }
 
     /// F9: starts a terminal in the active panel's directory.

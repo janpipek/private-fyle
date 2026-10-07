@@ -2,6 +2,8 @@
 //! standard and favourite locations, and frequently visited directories
 //! ranked zoxide-style ("frecency").
 
+pub mod history_save;
+
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;

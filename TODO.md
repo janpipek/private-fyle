@@ -102,7 +102,8 @@
       bound and invalidate metadata work by listing generation.
 - [x] Persist typed locations losslessly in frequent-directory history and
       local bookmarks; keep legacy history rows and path-string bookmarks
-      readable, and write history through a unique synced temporary file.
+      readable, write history through a unique synced temporary file, and
+      serialize background saves while coalescing pending snapshots.
 - [x] Preserve unknown file sizes from providers; show unknown values distinctly,
       keep size sorting deterministic, count marked totals as lower bounds, and
       refuse remote quick-view downloads when the size is unknown.

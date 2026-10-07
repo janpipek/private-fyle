@@ -151,6 +151,8 @@ bookmarks use a versioned location value so native path bytes and control
 characters round-trip. Bookmarks remain local paths. Frequent-directory
 history reads the existing `count<TAB>time<TAB>path` format and writes typed,
 versioned locations, keeping local, remote and archive addresses distinct.
+History snapshots save in one background writer; while a save is active,
+later visits coalesce into the newest pending snapshot.
 
 ### Keys
 

@@ -61,6 +61,9 @@ pub struct Commander {
     _tool_task: Task<()>,
     /// Saves the zoomed font size once zooming pauses.
     _zoom_save: Task<()>,
+    /// The current history save and its coalesced latest snapshot.
+    history_saves: crate::places::history_save::Queue<(PathBuf, History)>,
+    _history_save_task: Task<()>,
     openers: Vec<crate::openers::Opener>,
     /// Entries waiting to be pasted.
     yank: Option<Yank>,
@@ -273,6 +276,8 @@ impl Commander {
             programs: Arc::new(Programs::from_env()),
             _tool_task: Task::ready(()),
             _zoom_save: Task::ready(()),
+            history_saves: Default::default(),
+            _history_save_task: Task::ready(()),
             yank: None,
             yank_generation: 0,
             menu_bar: MenuBar::new(cx),
