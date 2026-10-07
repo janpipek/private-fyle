@@ -63,7 +63,7 @@ palette. The bottom area shows status messages and running jobs.
 | Alt-= / Alt--       | Larger / smaller icons in icon view (saved as `icon_size`) |
 | Ctrl-R              | Refresh (also forgets computed folder sizes) |
 | Ctrl-Shift-S        | Calculate Sizes (View menu, palette, right-click): recursive size of the marked folders, else the folder under the cursor, else (cursor on `..` or a file) of every folder listed. Runs in the background, shows in the Size column (`… 1.2 G` while running, `≥ 1.2 G` when incomplete: unreadable entries or stopped); Esc stops. Symlinks are not followed, hard-linked files count once, other filesystems are skipped; not available inside archives. Sorting by size uses the results; the footer sums marked entries (`≥` and "n folders not measured" when unknown). Never runs automatically |
-| Ctrl-+ / Ctrl-- / Ctrl-0 | Zoom in / out / reset (also Ctrl-wheel); saved as `font_size` in `config.toml` |
+| Ctrl-+ / Ctrl-- / Ctrl-0 | Zoom in / out / reset (also Ctrl-wheel throughout the panels, including table rows, headers and blank space); saved as `font_size` in `config.toml` |
 | Ctrl-Shift-C        | Cancel running copy/move/delete jobs (also a Cancel button per job) |
 | F10 / Ctrl-Q        | Quit                                      |
 
@@ -75,6 +75,13 @@ resolved path, or `Broken link (…) → target`; F3 shows the same in its heade
 the badge too (zip does not store the target when only listing).
 A link to a folder is entered like a folder: the panel path, breadcrumbs and
 history keep the link's path, not the resolved one.
+
+F3 previews Parquet files as a table using the native reader. The sample is
+limited to 500 rows and 40 columns, with cells capped at 1,024 characters,
+footer metadata at 8 MiB, and selected column chunks have a 64 MiB decoding
+budget. Uncompressed, Snappy, gzip, Brotli, LZ4 and Zstandard chunks are
+supported. Files with
+repeated, list or map columns show an unsupported-format message.
 
 In tree mode, clicking a folder's chevron also expands/collapses it; Enter
 still makes the folder the panel's root.
@@ -100,12 +107,14 @@ that fail to decode are recorded under `fail/fyle/` and not retried until they
 change. Files inside archives keep their icons.
 
 Click a column's sort icon to sort (directories always stay on top); drag
-header borders to resize. Columns… (in the command palette) picks the
-columns from a grouped catalog: file, owner and permissions, Git status,
+header borders to resize. Unknown file sizes show as `—`. Columns… (in the
+command palette) picks the columns from a grouped catalog: file, owner and permissions, Git status,
 extended attributes, and EXIF fields of photos (date taken, camera, lens,
 exposure, aperture, ISO, focal length, dimensions, GPS). With the Ext column
 shown, names leave out their extension (`.gitignore` and other dotfiles stay
-whole).
+whole). EXIF, owner, extended-attribute and SELinux values load for visible
+local rows in the background; remote and archive locations are never treated
+as native paths for these fields.
 
 Windows: ".." from a drive root lists all drives; files with the hidden
 attribute count as hidden.
@@ -143,6 +152,14 @@ bar.
 All keys are optional; see [`config.example.toml`](config.example.toml) for
 every key with its default. Errors (including unknown keys) are shown in the
 status line and the defaults are used. Settings are read at startup.
+
+Bookmarks still accept ordinary path strings in `config.toml`; newly saved
+bookmarks use a versioned location value so native path bytes and control
+characters round-trip. Bookmarks remain local paths. Frequent-directory
+history reads the existing `count<TAB>time<TAB>path` format and writes typed,
+versioned locations, keeping local, remote and archive addresses distinct.
+History snapshots save in one background writer; while a save is active,
+later visits coalesce into the newest pending snapshot.
 
 ### Keys
 
@@ -227,10 +244,15 @@ Providers:
 
 Google Drive through rclone:
 
+See [`HOWTO.md`](HOWTO.md) for installing rclone, configuring OAuth access and
+opening a Drive remote in fyle.
+
 - Drive allows several items with one name. Only the first of each name is
   listed; the status line warns (e.g. "gdrive:/X: 2 items share a name with
   another item and are hidden; run rclone dedupe").
-- Native Google Docs, Sheets and Slides have no size (shown as 0). Downloading
+- Native Google Docs, Sheets and Slides have unknown size (shown as `—`, not
+  zero). The marked total treats them as unknown bytes; quick view waits until
+  a size is available instead of starting an unbounded download. Downloading
   one exports it with rclone's default export formats (docx, xlsx, pptx, svg
   for drawings), so a Doc is listed and saved as `Report.docx`.
 - Every Drive remote also gets a read-only `<name>.shared` remote,
@@ -301,12 +323,28 @@ dev container.
 
 ## Architecture
 
-Model first: `src/model.rs` holds each panel's state (`Folder`: path, rows,
-cursor, marks, sort, hidden files, tree expansion) with no UI code and its own unit tests.
+Model first: `src/model.rs` holds each panel's state (`Folder`: typed
+`PanelContent` with `Directory(Location)`, `Search { root, title }` and
+`Places` modes, rows, cursor, marks, sort, hidden files, tree expansion) with
+no UI code and its own unit tests. Navigation destinations use `PanelTarget`,
+which keeps the places overview separate from file addresses.
 `src/panel.rs` is a `DataTable` view on top of a `Folder`; it only renders the
-model and forwards cursor moves, sorting and double-clicks to it.
+model and forwards cursor moves, sorting and double-clicks to it. The
+UI-independent `src/listing.rs` service owns local, archive and remote listing
+I/O. Commander runs requests in cancellable background tasks and applies only
+the current result; `Folder` sorts and filters the cached rows without I/O.
+Each panel keeps a bounded cache of its last 32 remote listings, while explicit
+refreshes bypass that cache.
 `src/commander.rs` owns the two models and their views and implements the
-commands. `src/fs_ops.rs` contains the file system operations.
+commands. `src/fs_ops.rs` contains the file system operations. `Entry.size` is optional,
+so a provider's missing size stays distinct from a known zero.
+`src/location.rs` identifies local paths, configured remote paths and archive
+members without a live connection. Local paths retain native bytes and symlink
+spelling; archive members are validated. `Folder` derives its path spelling
+from `PanelContent`; rows, marks, history, activation and remote transfer
+selections carry typed identities. `Folder::path()` and `Entry::path` remain
+compatibility spellings for panel and native-operation boundaries; virtual
+spellings must not be passed to native filesystem calls.
 `src/tools/` is the model for context-dependent tools (run ruff on Python
 files, uv commands in uv projects, convert images, …); see
 [`docs/tools.md`](docs/tools.md). F2 opens them; your own go in
@@ -331,14 +369,14 @@ Linux mounts, bookmarks and frequent paths; `src/location_view.rs` renders
 them as the locations menu and the searchable picker. Path loading and place discovery run in the background.
 
 `src/archive.rs` reads zip, tar and tar.gz archives into an `Index` (a tree of
-nodes) and extracts entries. Inside an archive a panel's path is the archive
-file joined with the inner path (shown as `file.zip › inner/dir`); `Folder`
-mounts the index for such paths, so navigation, marks and sorting work as
-for directories, and preview loads an entry by extracting it to the preview
-cache. The first read of an archive runs in the background
-(`commander/archives.rs`; the panel shows the location with "Reading archive…",
-Esc cancels, navigating elsewhere drops the result); once cached (by path, size
-and modification time) navigation inside it is instant. Archives are
+nodes). `src/archive/extraction.rs` safely extracts selected entries. Inside
+an archive a panel uses a typed archive location with its inner member (shown
+as `file.zip › inner/dir`); `locate` only converts native path spellings at
+input boundaries. The listing
+service reads the index in the background, supports cancellation, and returns
+typed rows for navigation and sorting. Preview loads an entry by extracting it
+to the preview cache. The shared index cache is keyed by path, size and
+modification time. Archives are
 read-only. Extraction (`jobs::run_extract`) writes to a
 staging folder in the destination, then moves the result with the usual
 conflict resolution (the dialog names the archive entry, `file.zip › inner/name`,
@@ -352,15 +390,16 @@ Where things live (`src/`):
 | `main.rs` | Startup, settings, start directories, window |
 | `commander.rs`, `commander/` | Main window: the two panels, actions, dialogs, jobs bar, tools orchestration. Split by area into `commander/` (keys, navigation, search, files, jobs, view, archives, remotes, tools, menus, appearance); new logic goes into its own module, only wiring here. |
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
-| `model.rs` | `Folder`: entries, cursor, marks, filter, sort, tree, search results, archive mount, directory size cache |
-| `panel.rs` | `FolderView` (DataTable delegate `FileTable`), header with breadcrumbs, filter bar; shows the list or the icon grid |
+| `model.rs`, `location.rs`, `location_codec.rs` | `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; `Location` native, remote and archive addresses; versioned lossless location persistence |
+| `listing.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; typed snapshots and bounded per-panel remote listing cache |
+| `panel.rs`, `panel/metadata.rs` | `FolderView` and table wiring; bounded metadata request/cache model shared by list and icon views, with local metadata reads in background workers |
 | `thumbnails.rs`, `thumb_queue.rs` | Icon view thumbnails: the freedesktop cache (URI and MD5 names, validity by `Thumb::MTime`, atomic writes, failure records) and the load scheduler with its LRU, both UI-independent and tested |
 | `grid.rs`, `icon_view.rs`, `glyphs.rs`, `context_menu.rs` | Icon view: `ViewMode`, icon sizes, `Layout` (columns for a width) and cursor moves (UI-independent, tested); the lazy `IconGrid` view; the `FileIcon` → glyph table and the right-click menu shared with the list |
 | `columns.rs` | `ColumnKind` catalog, grouped, ids like `exif.iso`. A new column is a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |
 | `fs_ops.rs`, `transfer.rs`, `jobs.rs` | `Entry` and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
-| `remote.rs`, `remote/` | Remote providers: `Provider` trait, `Location` paths, Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `model/remote.rs` holds the cached remote listings |
-| `archive.rs`, `dirsize.rs`, `links.rs` | Archive index and safe extraction; recursive sizes; symlink state |
-| `preview/`, `preview_view.rs` | `Previewer`s and their `Registry` (order: directory, image, pdf, media, archive, markdown, table, text, binary); one render arm per `Content` |
+| `remote.rs`, `remote/` | Remote providers: `Provider` trait, `Location` paths, Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `LocalCopy` keeps a typed source address separate from the cache path used at native I/O boundaries; `model/remote.rs` holds cached listings |
+| `archive.rs`, `archive/extraction.rs`, `dirsize.rs`, `links.rs` | Archive index; safe extraction; recursive sizes; symlink state |
+| `preview/`, `preview_view.rs` | `Previewer`s and their `Registry` (order: directory, image, pdf, media, archive, markdown, Parquet, table, text, binary); one render arm per `Content`; preview identity stays separate from materialized local bytes |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and the editor pane |
 | `tools/`, `tools_view.rs` | Tool, Action and Registry model; `defaults.toml`; built-ins; Lua plugins; `exec.rs` runs them |
 | `search.rs`, `places.rs`, `breadcrumbs.rs`, `remote_labels.rs`, `rename.rs`, `openers.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs`, `zoom.rs` | Further UI-independent models, each with tests |
@@ -368,7 +407,7 @@ Where things live (`src/`):
 
 Previews follow the same split. `src/preview/` is the model: a `Registry`
 of `Previewer`s (directory, image with EXIF, PDF via poppler, audio/video via ffmpeg, archive, Markdown,
-CSV table, text, binary fallback) turns a path into
+Parquet and CSV tables, text, binary fallback) turns a path into
 plain `Content` data; the first previewer whose `matches` accepts the file's
 `Probe` (name, extension, size, first 8 KiB) wins. `src/preview_view.rs` loads
 in the background and has one render arm per `Content` variant. A new file

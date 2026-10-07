@@ -3,6 +3,8 @@
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
+use crate::location::PanelTarget;
+
 /// The visual role of one clickable part of a panel path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -30,20 +32,20 @@ pub struct Segment {
 /// Identifies the panel state a background navigation started from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NavigationGuard {
-    path: PathBuf,
+    target: PanelTarget,
     generation: u64,
 }
 
 impl NavigationGuard {
     /// Captures the path and listing generation before background work starts.
-    pub fn new(path: PathBuf, generation: u64) -> Self {
-        Self { path, generation }
+    pub fn new(target: PanelTarget, generation: u64) -> Self {
+        Self { target, generation }
     }
 
     /// Whether a result can still replace the panel without overwriting a
     /// newer load or navigation.
-    pub fn matches(&self, path: &Path, generation: u64) -> bool {
-        self.path == path && self.generation == generation
+    pub fn matches(&self, target: &PanelTarget, generation: u64) -> bool {
+        &self.target == target && self.generation == generation
     }
 }
 
@@ -231,6 +233,7 @@ fn expand_home(text: &str, home: Option<&Path>) -> io::Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    use crate::location::PanelTarget;
     use std::path::Path;
 
     use super::{Kind, NavigationGuard, editable_path, parse_location, segments};
@@ -338,9 +341,17 @@ mod tests {
 
     #[test]
     fn navigation_guard_rejects_stale_results() {
-        let guard = NavigationGuard::new(Path::new("/one").to_path_buf(), 4);
-        assert!(guard.matches(Path::new("/one"), 4));
-        assert!(!guard.matches(Path::new("/two"), 4));
-        assert!(!guard.matches(Path::new("/one"), 5));
+        let one = PanelTarget::from_panel_path(Path::new("/one"), None).unwrap();
+        let two = PanelTarget::from_panel_path(Path::new("/two"), None).unwrap();
+        let guard = NavigationGuard::new(one.clone(), 4);
+        assert!(guard.matches(&one, 4));
+        assert!(!guard.matches(&two, 4));
+        assert!(!guard.matches(&one, 5));
+
+        let file = crate::location::Location::local("/tmp/a.zip".into()).unwrap();
+        let archive = crate::location::Location::archive(file.clone(), "").unwrap();
+        assert_eq!(file.panel_path(), archive.panel_path());
+        let local_guard = NavigationGuard::new(PanelTarget::Location(file), 8);
+        assert!(!local_guard.matches(&PanelTarget::Location(archive), 8));
     }
 }

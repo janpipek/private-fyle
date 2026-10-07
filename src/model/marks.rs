@@ -3,17 +3,35 @@
 use std::path::PathBuf;
 
 use super::Folder;
+use crate::location::Location;
 
 impl Folder {
-    /// Marked entries, or the entry under the cursor when nothing is marked.
-    pub fn targets(&self) -> Vec<PathBuf> {
+    /// Marked row identities, or the row under the cursor when none are marked.
+    pub fn target_locations(&self) -> Vec<Location> {
         if !self.marked.is_empty() {
-            return self.marked.iter().cloned().collect();
+            let mut targets: Vec<_> = self.marked.iter().cloned().collect();
+            targets.sort_by_key(Location::panel_path);
+            return targets;
         }
         self.current()
-            .filter(|e| !e.is_parent)
-            .map(|e| vec![e.path.clone()])
+            .filter(|row| !row.is_parent)
+            .map(|row| vec![row.location.clone()])
             .unwrap_or_default()
+    }
+
+    /// Converts selected identities to native paths for filesystem jobs.
+    pub fn local_targets(&self) -> std::io::Result<Vec<PathBuf>> {
+        self.target_locations()
+            .into_iter()
+            .map(|location| {
+                location.as_local_path().map(PathBuf::from).ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        format!("{}: not a local path", location.panel_path().display()),
+                    )
+                })
+            })
+            .collect()
     }
 
     /// Target a context-menu row, preserving a marked selection only when
@@ -22,7 +40,7 @@ impl Folder {
         let Some(row) = self.entries.get(ix) else {
             return;
         };
-        if !self.marked.contains(&row.path) {
+        if !self.marked.contains(&row.location) {
             self.marked.clear();
         }
         self.set_cursor(ix);
@@ -33,9 +51,9 @@ impl Folder {
         let Some(entry) = self.current().filter(|e| !e.is_parent) else {
             return;
         };
-        let path = entry.path.clone();
-        if !self.marked.remove(&path) {
-            self.marked.insert(path);
+        let location = entry.location.clone();
+        if !self.marked.remove(&location) {
+            self.marked.insert(location);
         }
         self.set_cursor(self.cursor + 1);
     }
@@ -44,26 +62,26 @@ impl Folder {
         self.marked.clear();
     }
 
-    /// Paths of the shown entries that can be marked (not "..").
-    pub fn markable(&self) -> impl Iterator<Item = &PathBuf> {
+    /// Identities of the shown entries that can be marked (not "..").
+    pub fn markable(&self) -> impl Iterator<Item = &Location> {
         self.entries
             .iter()
             .filter(|e| !e.is_parent)
-            .map(|e| &e.path)
+            .map(|e| &e.location)
     }
 
     /// Marks every shown entry (the filter limits what is shown).
     pub fn mark_all(&mut self) {
-        let paths: Vec<_> = self.markable().cloned().collect();
-        self.marked.extend(paths);
+        let locations: Vec<_> = self.markable().cloned().collect();
+        self.marked.extend(locations);
     }
 
     /// Marks the unmarked shown entries and unmarks the marked ones.
     pub fn invert_marks(&mut self) {
-        let paths: Vec<_> = self.markable().cloned().collect();
-        for path in paths {
-            if !self.marked.remove(&path) {
-                self.marked.insert(path);
+        let locations: Vec<_> = self.markable().cloned().collect();
+        for location in locations {
+            if !self.marked.remove(&location) {
+                self.marked.insert(location);
             }
         }
     }
@@ -73,16 +91,16 @@ impl Folder {
     /// how many matched.
     pub fn mark_matching(&mut self, pattern: &str) -> Result<usize, String> {
         let matcher = crate::search::NameMatcher::new(pattern)?;
-        let paths: Vec<_> = self
+        let locations: Vec<_> = self
             .entries
             .iter()
             .filter(|e| !e.is_parent)
             // Search results show relative paths; match the file name.
             .filter(|e| matcher.matches(e.name.rsplit('/').next().unwrap_or(&e.name)))
-            .map(|e| e.path.clone())
+            .map(|e| e.location.clone())
             .collect();
-        let count = paths.len();
-        self.marked.extend(paths);
+        let count = locations.len();
+        self.marked.extend(locations);
         Ok(count)
     }
 }
@@ -90,17 +108,27 @@ impl Folder {
 #[cfg(test)]
 mod tests {
 
+    use crate::location::Location;
     use crate::model::Folder;
     use crate::model::test_support::{fixture, loaded};
     use std::fs;
     use std::path::PathBuf;
+
+    fn target_paths(folder: &Folder) -> Vec<PathBuf> {
+        folder
+            .target_locations()
+            .iter()
+            .map(Location::panel_path)
+            .collect()
+    }
+
     #[test]
     fn marks_and_targets() {
         let dir = fixture();
         let mut folder = loaded(&dir);
         folder.toggle_mark(); // ".." cannot be marked
         assert_eq!(folder.marked_count(), 0);
-        assert_eq!(folder.targets(), Vec::<PathBuf>::new());
+        assert_eq!(target_paths(&folder), Vec::<PathBuf>::new());
 
         folder.set_cursor(2);
         folder.toggle_mark();
@@ -108,17 +136,17 @@ mod tests {
         assert_eq!(folder.marked_count(), 2);
         assert_eq!(folder.current().unwrap().name, "b.txt"); // stays on last row
         assert_eq!(
-            folder.targets(),
+            target_paths(&folder),
             [dir.path().join("a.txt"), dir.path().join("b.txt")]
         );
 
         // Reload keeps marks that still exist.
         fs::remove_file(dir.path().join("a.txt")).unwrap();
         folder.load().unwrap();
-        assert_eq!(folder.targets(), [dir.path().join("b.txt")]);
+        assert_eq!(target_paths(&folder), [dir.path().join("b.txt")]);
 
         folder.clear_marks();
-        assert_eq!(folder.targets(), [dir.path().join("b.txt")]); // cursor entry
+        assert_eq!(target_paths(&folder), [dir.path().join("b.txt")]); // cursor entry
     }
 
     #[test]
@@ -132,20 +160,20 @@ mod tests {
 
         folder.select_context_row(2);
         assert_eq!(folder.current().unwrap().name, "a.txt");
-        assert_eq!(folder.targets(), marked);
+        assert_eq!(target_paths(&folder), marked);
         folder.select_context_row(usize::MAX);
         assert_eq!(folder.current().unwrap().name, "a.txt");
-        assert_eq!(folder.targets(), marked);
+        assert_eq!(target_paths(&folder), marked);
 
         folder.select_context_row(1);
         assert_eq!(folder.marked_count(), 0);
-        assert_eq!(folder.targets(), [dir.path().join("sub")]);
+        assert_eq!(target_paths(&folder), [dir.path().join("sub")]);
         folder.mark_all();
         folder.select_context_row(0); // Parent is never a file-operation target.
         assert_eq!(folder.marked_count(), 0);
-        assert!(folder.targets().is_empty());
+        assert!(folder.target_locations().is_empty());
         folder.select_context_row(3);
-        assert_eq!(folder.targets(), [dir.path().join("b.txt")]);
+        assert_eq!(target_paths(&folder), [dir.path().join("b.txt")]);
     }
 
     #[test]
@@ -156,7 +184,7 @@ mod tests {
             let mut names: Vec<_> = f
                 .entries()
                 .iter()
-                .filter(|e| f.is_marked(&e.path))
+                .filter(|e| f.is_marked(&e.location))
                 .map(|e| e.name.clone())
                 .collect();
             names.sort();

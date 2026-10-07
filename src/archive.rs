@@ -1,15 +1,17 @@
 //! Archives (zip, tar, tar.gz) as virtual directories, UI-independent.
 //!
 //! An [`Index`] lists an archive's entries as a tree of [`Node`]s; the
-//! folder model shows it like a directory. A location inside an archive is
-//! an ordinary-looking path, `<archive file>/<inner path>`, which
-//! [`locate`] splits again. Entries are read-only: the only way out is
-//! [`extract`], which never writes outside its destination.
+//! folder model shows it like a directory. [`crate::location::Location::Archive`]
+//! is the typed identity for an archive member; [`locate`] remains a compatibility
+//! helper for native path spellings used at input boundaries. Entries are
+//! read-only: the only way out is [`extract`], which never writes outside its
+//! destination.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, File};
-use std::io::{self, BufReader, Read, Write};
+use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -54,6 +56,7 @@ pub fn stem(file: &Path) -> String {
 }
 
 /// The path of `inner` inside `file`.
+#[cfg(test)]
 pub fn virtual_path(file: &Path, inner: &str) -> PathBuf {
     if inner.is_empty() {
         file.to_path_buf()
@@ -201,11 +204,18 @@ pub struct Index {
 
 impl Index {
     pub fn read(file: &Path) -> io::Result<Self> {
+        Self::read_inner(file, None)
+    }
+
+    fn read_inner(file: &Path, cancel: Option<&AtomicBool>) -> io::Result<Self> {
         let format = format_of(file).ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "not a supported archive")
         })?;
         let mut index = Self::default();
-        walk(file, format, &|_| false, &mut |raw, _| {
+        if cancel.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
+            return Err(cancelled());
+        }
+        walk(file, format, cancel, &|_| false, &mut |raw, _| {
             index.add(raw);
             Ok(true)
         })?;
@@ -218,6 +228,19 @@ impl Index {
     /// tar.gz means decompressing all of it, so listings, reloads and
     /// previews should go through here.
     pub fn cached(file: &Path) -> io::Result<Arc<Self>> {
+        Self::cached_inner(file, None)
+    }
+
+    /// Returns a cached archive index or reads one with cancellation checks.
+    /// A partial index is never inserted into the shared cache.
+    pub fn cached_cancellable(file: &Path, cancel: &AtomicBool) -> io::Result<Arc<Self>> {
+        Self::cached_inner(file, Some(cancel))
+    }
+
+    fn cached_inner(file: &Path, cancel: Option<&AtomicBool>) -> io::Result<Arc<Self>> {
+        if cancel.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
+            return Err(cancelled());
+        }
         let meta = fs::metadata(file)?;
         let (len, modified) = (meta.len(), meta.modified().ok());
         let mut cache = cache();
@@ -232,7 +255,10 @@ impl Index {
         }
         cache.retain(|(p, ..)| p != file);
         drop(cache);
-        let index = Arc::new(Self::read(file)?);
+        let index = Arc::new(match cancel {
+            Some(cancel) => Self::read_inner(file, Some(cancel))?,
+            None => Self::read(file)?,
+        });
         let mut cache = self::cache();
         cache.push((file.to_path_buf(), len, modified, index.clone()));
         if cache.len() > CACHE_KEPT {
@@ -242,6 +268,7 @@ impl Index {
     }
 
     /// Whether [`Index::cached`] would return `file` without reading it.
+    #[cfg(test)]
     pub fn is_cached(file: &Path) -> bool {
         let Ok(meta) = fs::metadata(file) else {
             return false;
@@ -397,10 +424,31 @@ fn zip_time(time: zip::DateTime) -> Option<SystemTime> {
 fn walk(
     file: &Path,
     format: Format,
+    cancel: Option<&AtomicBool>,
     wants: &dyn Fn(&str) -> bool,
     f: &mut dyn FnMut(Raw, &mut dyn Read) -> io::Result<bool>,
 ) -> io::Result<()> {
     let reader = BufReader::new(File::open(file)?);
+    match cancel {
+        Some(cancel) => walk_reader(
+            CancellableReader {
+                inner: reader,
+                cancel,
+            },
+            format,
+            wants,
+            f,
+        ),
+        None => walk_reader(reader, format, wants, f),
+    }
+}
+
+fn walk_reader<R: Read + Seek>(
+    reader: R,
+    format: Format,
+    wants: &dyn Fn(&str) -> bool,
+    f: &mut dyn FnMut(Raw, &mut dyn Read) -> io::Result<bool>,
+) -> io::Result<()> {
     match format {
         Format::Zip => walk_zip(reader, wants, f),
         Format::Tar => walk_tar(reader, f),
@@ -408,8 +456,8 @@ fn walk(
     }
 }
 
-fn walk_zip(
-    reader: BufReader<File>,
+fn walk_zip<R: Read + Seek>(
+    reader: R,
     wants: &dyn Fn(&str) -> bool,
     f: &mut dyn FnMut(Raw, &mut dyn Read) -> io::Result<bool>,
 ) -> io::Result<()> {
@@ -463,6 +511,33 @@ fn walk_zip(
     Ok(())
 }
 
+struct CancellableReader<'a> {
+    inner: BufReader<File>,
+    cancel: &'a AtomicBool,
+}
+
+impl Read for CancellableReader<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if self.cancel.load(Ordering::Relaxed) {
+            return Err(cancelled());
+        }
+        self.inner.read(buffer)
+    }
+}
+
+impl Seek for CancellableReader<'_> {
+    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+        if self.cancel.load(Ordering::Relaxed) {
+            return Err(cancelled());
+        }
+        self.inner.seek(position)
+    }
+}
+
+fn cancelled() -> io::Error {
+    io::Error::new(io::ErrorKind::Interrupted, "archive listing cancelled")
+}
+
 fn walk_tar(
     reader: impl Read,
     f: &mut dyn FnMut(Raw, &mut dyn Read) -> io::Result<bool>,
@@ -506,7 +581,7 @@ pub fn read_file(file: &Path, inner: &str, limit: u64, out: &mut dyn Write) -> i
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "not a supported archive"))?;
     let mut found = false;
     let is_wanted = |name: &str| clean(name) == Cleaned::Path(inner.to_string());
-    walk(file, format, &is_wanted, &mut |raw, data| {
+    walk(file, format, None, &is_wanted, &mut |raw, data| {
         if !is_wanted(&raw.name) || raw.kind != Kind::File {
             return Ok(true);
         }
@@ -533,23 +608,10 @@ pub fn read_file(file: &Path, inner: &str, limit: u64, out: &mut dyn Write) -> i
     }
 }
 
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct ExtractReport {
-    /// Files and links written.
-    pub files: usize,
-    /// Entries not extracted, with the reason.
-    pub skipped: Vec<String>,
-}
+mod extraction;
+pub use extraction::{ExtractReport, entry_of};
 
-/// Extracts the entries at or below each of `wanted` (inner paths; `""` is
-/// everything) into the directory `dest`, which must exist. Each wanted
-/// entry lands directly in `dest` under its own name; for `""` the entries
-/// land under `prefix` (or directly in `dest`). `step` is called with each
-/// written path and can abort by returning an error.
-///
-/// Nothing is ever written outside `dest`: names that are absolute or
-/// contain `..` are skipped, symbolic links must stay inside `dest`, and no
-/// path is written through a symbolic link.
+/// Extracts selected archive entries using the safe extraction implementation.
 pub fn extract(
     file: &Path,
     wanted: &[String],
@@ -557,265 +619,46 @@ pub fn extract(
     dest: &Path,
     step: &mut dyn FnMut(&str) -> io::Result<()>,
 ) -> io::Result<ExtractReport> {
-    let format = format_of(file)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "not a supported archive"))?;
-    let mut report = ExtractReport::default();
-    let is_wanted = |name: &str| match clean(name) {
-        Cleaned::Path(path) => wanted
-            .iter()
-            .any(|want| relative_to(&path, want, prefix).is_some()),
-        _ => false,
-    };
-    let mut links = Vec::new();
-    walk(file, format, &is_wanted, &mut |raw, data| {
-        let path = match clean(&raw.name) {
-            Cleaned::Root => return Ok(true),
-            Cleaned::Unsafe => {
-                report
-                    .skipped
-                    .push(format!("{}: unsafe path", raw.name.escape_debug()));
-                return Ok(true);
-            }
-            Cleaned::Path(path) => path,
-        };
-        for want in wanted {
-            let Some(rel) = relative_to(&path, want, prefix) else {
-                continue;
-            };
-            if let Some(problem) = &raw.problem {
-                report.skipped.push(format!("{rel}: {problem}"));
-                continue;
-            }
-            match write_entry(dest, &rel, &raw, data) {
-                Ok(Written::Done) => {
-                    if matches!(raw.kind, Kind::Symlink(_)) {
-                        links.push(rel.clone());
-                    }
-                    report.files += 1;
-                    step(&rel)?;
-                }
-                Ok(Written::Dir) => {}
-                Ok(Written::Skipped(why)) => report.skipped.push(format!("{rel}: {why}")),
-                Err(e) => return Err(io::Error::new(e.kind(), format!("{rel}: {e}"))),
-            }
-        }
-        Ok(true)
-    })?;
-    prune_escaping_links(dest, &links, &mut report);
-    Ok(report)
-}
-
-/// Removes created links that resolve outside `dest`. The lexical check at
-/// creation misses chains such as `l1 -> .` then `l2 -> l1/..`; once all
-/// entries are written the real targets can be resolved.
-fn prune_escaping_links(dest: &Path, links: &[String], report: &mut ExtractReport) {
-    let Ok(root) = fs::canonicalize(dest) else {
-        return;
-    };
-    for rel in links {
-        let path = dest.join(rel);
-        // A dangling link cannot be resolved; it leads nowhere.
-        let Ok(resolved) = fs::canonicalize(&path) else {
-            continue;
-        };
-        if !resolved.starts_with(&root) && fs::remove_file(&path).is_ok() {
-            report.files = report.files.saturating_sub(1);
-            report
-                .skipped
-                .push(format!("{rel}: link points outside the extraction folder"));
-        }
-    }
-}
-
-/// Where the entry `path` goes when `want` is extracted, relative to the
-/// destination; None if it is not at or below `want`.
-fn relative_to(path: &str, want: &str, prefix: Option<&str>) -> Option<String> {
-    let rel = if want.is_empty() {
-        path
-    } else {
-        let base = want.rsplit_once('/').map_or("", |(base, _)| base);
-        let below = path == want
-            || path
-                .strip_prefix(want)
-                .is_some_and(|rest| rest.starts_with('/'));
-        if !below {
-            return None;
-        }
-        path[base.len()..].trim_start_matches('/')
-    };
-    Some(match prefix {
-        Some(prefix) if !prefix.is_empty() => format!("{prefix}/{rel}"),
-        _ => rel.to_string(),
-    })
-}
-
-/// The inverse of [`extract`]'s layout: the inner path in the archive of
-/// the file that was written to `rel` (relative to the destination), given
-/// the same `wanted` and `prefix`. None if `rel` matches nothing wanted.
-pub fn entry_of(rel: &str, wanted: &[String], prefix: Option<&str>) -> Option<String> {
-    let rel = match prefix {
-        Some(prefix) if !prefix.is_empty() => rel.strip_prefix(prefix)?.strip_prefix('/')?,
-        _ => rel,
-    };
-    let first = rel.split('/').next().unwrap_or_default();
-    wanted.iter().find_map(|want| {
-        if want.is_empty() {
-            return Some(rel.to_string());
-        }
-        let (base, last) = want.rsplit_once('/').unwrap_or(("", want));
-        (last == first).then(|| {
-            if base.is_empty() {
-                rel.to_string()
-            } else {
-                format!("{base}/{rel}")
-            }
-        })
-    })
-}
-
-enum Written {
-    Done,
-    Dir,
-    Skipped(&'static str),
-}
-
-fn write_entry(dest: &Path, rel: &str, raw: &Raw, data: &mut dyn Read) -> io::Result<Written> {
-    let target = safe_join(dest, rel)?;
-    match &raw.kind {
-        Kind::Dir => {
-            fs::create_dir_all(&target)?;
-            set_mode(&target, raw.mode.map(|m| m | 0o700));
-            Ok(Written::Dir)
-        }
-        Kind::File => {
-            prepare_parent(&target)?;
-            remove_existing(&target)?;
-            let mut out = fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&target)?;
-            io::copy(data, &mut out)?;
-            if let Some(time) = raw.modified {
-                let _ = out.set_modified(time);
-            }
-            drop(out);
-            set_mode(&target, raw.mode.map(|m| m | 0o600));
-            Ok(Written::Done)
-        }
-        Kind::Symlink(link) => {
-            if !link_stays_inside(rel, link) {
-                return Ok(Written::Skipped(
-                    "link points outside the extraction folder",
-                ));
-            }
-            prepare_parent(&target)?;
-            remove_existing(&target)?;
-            make_symlink(link, &target)
-        }
-        Kind::Other => Ok(Written::Skipped("unsupported entry type")),
-    }
-}
-
-#[cfg(unix)]
-fn make_symlink(link: &str, target: &Path) -> io::Result<Written> {
-    std::os::unix::fs::symlink(link, target)?;
-    Ok(Written::Done)
-}
-
-#[cfg(not(unix))]
-fn make_symlink(_: &str, _: &Path) -> io::Result<Written> {
-    Ok(Written::Skipped("links are not supported here"))
-}
-
-#[cfg(unix)]
-fn set_mode(path: &Path, mode: Option<u32>) {
-    use std::os::unix::fs::PermissionsExt;
-    if let Some(mode) = mode {
-        let _ = fs::set_permissions(path, fs::Permissions::from_mode(mode & 0o777));
-    }
-}
-
-#[cfg(not(unix))]
-fn set_mode(_: &Path, _: Option<u32>) {}
-
-/// `dest` joined with `rel`, which must consist of normal components only
-/// and not pass through an existing symbolic link.
-fn safe_join(dest: &Path, rel: &str) -> io::Result<PathBuf> {
-    let mut path = dest.to_path_buf();
-    for component in Path::new(rel).components() {
-        let Component::Normal(part) = component else {
-            return Err(io::Error::other("unsafe path"));
-        };
-        path.push(part);
-        // Every directory on the way must be a real one; the last
-        // component is checked by its writer.
-        if path != dest.join(rel)
-            && fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink())
-        {
-            return Err(io::Error::other("path leads through a symbolic link"));
-        }
-    }
-    Ok(path)
-}
-
-/// Creates the parent directories of `target`.
-fn prepare_parent(target: &Path) -> io::Result<()> {
-    match target.parent() {
-        Some(parent) => fs::create_dir_all(parent),
-        None => Ok(()),
-    }
-}
-
-/// Removes a file or link in the way (a repeated entry name); never a
-/// directory.
-fn remove_existing(target: &Path) -> io::Result<()> {
-    match fs::symlink_metadata(target) {
-        Ok(meta) if meta.is_dir() => Err(io::Error::other("a folder is in the way")),
-        Ok(_) => fs::remove_file(target),
-        Err(_) => Ok(()),
-    }
-}
-
-/// Whether a link at `rel` (relative to the destination) pointing to
-/// `target` stays inside the destination: relative, and never above it.
-fn link_stays_inside(rel: &str, target: &str) -> bool {
-    if target.is_empty()
-        || target.starts_with('/')
-        || target.starts_with('\\')
-        || target.contains('\0')
-        || target.as_bytes().get(1) == Some(&b':')
-    {
-        return false;
-    }
-    let mut depth = rel.split('/').count() as i64 - 1;
-    for part in target.split(['/', '\\']) {
-        match part {
-            "" | "." => {}
-            ".." => {
-                depth -= 1;
-                if depth < 0 {
-                    return false;
-                }
-            }
-            _ => depth += 1,
-        }
-    }
-    true
+    extraction::extract(file, wanted, prefix, dest, step)
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    #[test]
+    fn cancellable_archive_reader_stops_between_reads() {
+        use super::CancellableReader;
+        use std::fs::File;
+        use std::io::{BufReader, Read};
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("reader.bin");
+        fs::write(&file, b"archive data").unwrap();
+        let cancel = AtomicBool::new(false);
+        let mut reader = CancellableReader {
+            inner: BufReader::new(File::open(file).unwrap()),
+            cancel: &cancel,
+        };
+        let mut byte = [0; 1];
+        assert_eq!(reader.read(&mut byte).unwrap(), 1);
+        cancel.store(true, Ordering::Relaxed);
+        assert_eq!(
+            reader.read(&mut byte).unwrap_err().kind(),
+            io::ErrorKind::Interrupted
+        );
+    }
+
     /// An entry to put in a test archive.
-    enum Item<'a> {
+    pub(super) enum Item<'a> {
         File(&'a str, &'a str),
         Dir(&'a str),
         Link(&'a str, &'a str),
     }
 
-    fn make_zip(path: &Path, items: &[Item]) {
+    pub(super) fn make_zip(path: &Path, items: &[Item]) {
         let mut zip = zip::ZipWriter::new(File::create(path).unwrap());
         let opts = zip::write::SimpleFileOptions::default();
         for item in items {
@@ -833,7 +676,7 @@ mod tests {
 
     /// Writes a tar stream; names are set in the raw header so that unsafe
     /// ones (`..`, absolute) can be built.
-    fn tar_bytes(items: &[Item]) -> Vec<u8> {
+    pub(super) fn tar_bytes(items: &[Item]) -> Vec<u8> {
         let mut out = Vec::new();
         for item in items {
             let mut header = tar::Header::new_gnu();
@@ -864,7 +707,7 @@ mod tests {
         out
     }
 
-    fn make_tar(path: &Path, items: &[Item], gz: bool) {
+    pub(super) fn make_tar(path: &Path, items: &[Item], gz: bool) {
         let bytes = tar_bytes(items);
         if gz {
             let mut enc = flate2::write::GzEncoder::new(
@@ -878,14 +721,14 @@ mod tests {
         }
     }
 
-    const SAMPLE: &[Item] = &[
+    pub(super) const SAMPLE: &[Item] = &[
         Item::File("top.txt", "top"),
         Item::File("docs/readme.md", "# hi"),
         Item::File("docs/img/a.png", "png"),
         Item::Dir("empty/"),
     ];
 
-    fn all_formats(dir: &TempDir, items: &[Item]) -> Vec<PathBuf> {
+    pub(super) fn all_formats(dir: &TempDir, items: &[Item]) -> Vec<PathBuf> {
         let zip = dir.path().join("t.zip");
         let tar = dir.path().join("t.tar");
         let tgz = dir.path().join("t.tar.gz");
@@ -997,210 +840,6 @@ mod tests {
     }
 
     #[test]
-    fn extracts_selected_entries_by_name() {
-        let dir = TempDir::new().unwrap();
-        for (n, file) in all_formats(&dir, SAMPLE).into_iter().enumerate() {
-            let out = dir.path().join(format!("out{n}"));
-            fs::create_dir_all(&out).unwrap();
-            let mut seen = Vec::new();
-            let report = extract(
-                &file,
-                &["docs/img".to_string(), "top.txt".to_string()],
-                None,
-                &out,
-                &mut |p| {
-                    seen.push(p.to_string());
-                    Ok(())
-                },
-            )
-            .unwrap();
-            assert_eq!(report.files, 2);
-            assert!(report.skipped.is_empty());
-            assert_eq!(fs::read_to_string(out.join("img/a.png")).unwrap(), "png");
-            assert_eq!(fs::read_to_string(out.join("top.txt")).unwrap(), "top");
-            assert!(!out.join("docs").exists());
-            seen.sort();
-            assert_eq!(seen, ["img/a.png", "top.txt"]);
-        }
-    }
-
-    #[test]
-    fn extracts_everything_under_a_prefix() {
-        let dir = TempDir::new().unwrap();
-        let zip = dir.path().join("t.zip");
-        make_zip(&zip, SAMPLE);
-        let out = dir.path().join("out");
-        fs::create_dir_all(&out).unwrap();
-        let report = extract(&zip, &[String::new()], Some("t"), &out, &mut |_| Ok(())).unwrap();
-        assert_eq!(report.files, 3);
-        assert!(out.join("t/docs/readme.md").is_file());
-        assert!(out.join("t/empty").is_dir());
-    }
-
-    #[test]
-    fn extraction_can_be_aborted() {
-        let dir = TempDir::new().unwrap();
-        let zip = dir.path().join("t.zip");
-        make_zip(&zip, SAMPLE);
-        let out = dir.path().join("out");
-        fs::create_dir_all(&out).unwrap();
-        let result = extract(&zip, &[String::new()], None, &out, &mut |_| {
-            Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"))
-        });
-        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Interrupted);
-    }
-
-    #[test]
-    fn traversal_names_never_leave_the_destination() {
-        let dir = TempDir::new().unwrap();
-        let sandbox = dir.path().join("sandbox");
-        let out = sandbox.join("out");
-        fs::create_dir_all(&out).unwrap();
-        let tar = dir.path().join("evil.tar");
-        let elsewhere = TempDir::new().unwrap();
-        let absolute_path = elsewhere.path().join("absolute.txt");
-        let absolute = absolute_path.to_str().unwrap();
-        make_tar(
-            &tar,
-            &[
-                Item::File("../escaped.txt", "x"),
-                Item::File("a/../../escaped2.txt", "x"),
-                Item::File(absolute, "x"),
-                Item::File("fine.txt", "ok"),
-            ],
-            false,
-        );
-        let report = extract(&tar, &[String::new()], None, &out, &mut |_| Ok(())).unwrap();
-        assert_eq!(report.files, 1);
-        assert_eq!(report.skipped.len(), 3, "{:?}", report.skipped);
-        assert!(out.join("fine.txt").is_file());
-        assert!(!sandbox.join("escaped.txt").exists());
-        assert!(!dir.path().join("escaped.txt").exists());
-        assert!(!dir.path().join("escaped2.txt").exists());
-        assert!(!absolute_path.exists());
-        // Only the destination was touched.
-        let entries: Vec<_> = fs::read_dir(&sandbox).unwrap().flatten().collect();
-        assert_eq!(entries.len(), 1);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn links_must_stay_inside() {
-        let dir = TempDir::new().unwrap();
-        let sandbox = dir.path().join("sandbox");
-        let out = sandbox.join("out");
-        fs::create_dir_all(&out).unwrap();
-        fs::write(sandbox.join("secret"), "s").unwrap();
-        for (n, file) in [dir.path().join("l.tar"), dir.path().join("l.zip")]
-            .into_iter()
-            .enumerate()
-        {
-            let items = [
-                Item::File("data/real.txt", "real"),
-                Item::Link("good", "data/real.txt"),
-                Item::Link("data/up", "../data/real.txt"),
-                Item::Link("abs", "/etc/passwd"),
-                Item::Link("up", "../secret"),
-                Item::Link("data/deep", "../../secret"),
-            ];
-            if n == 0 {
-                make_tar(&file, &items, false);
-            } else {
-                make_zip(&file, &items);
-            }
-            let dest = out.join(n.to_string());
-            fs::create_dir_all(&dest).unwrap();
-            let report = extract(&file, &[String::new()], None, &dest, &mut |_| Ok(())).unwrap();
-            assert_eq!(report.skipped.len(), 3, "{:?}", report.skipped);
-            assert!(
-                fs::symlink_metadata(dest.join("good"))
-                    .unwrap()
-                    .file_type()
-                    .is_symlink()
-            );
-            assert_eq!(fs::read_to_string(dest.join("data/up")).unwrap(), "real");
-            for bad in ["abs", "up", "data/deep"] {
-                assert!(fs::symlink_metadata(dest.join(bad)).is_err(), "{bad}");
-            }
-        }
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn chained_links_cannot_escape() {
-        let dir = TempDir::new().unwrap();
-        let out = dir.path().join("sandbox/out");
-        fs::create_dir_all(&out).unwrap();
-        let tar = dir.path().join("c.tar");
-        make_tar(
-            &tar,
-            &[
-                Item::Link("l1", "."),
-                Item::Link("l2", "l1/.."),
-                Item::File("ok.txt", "ok"),
-            ],
-            false,
-        );
-        let report = extract(&tar, &[String::new()], None, &out, &mut |_| Ok(())).unwrap();
-        assert_eq!(report.files, 2, "{report:?}");
-        assert_eq!(report.skipped.len(), 1, "{:?}", report.skipped);
-        assert!(fs::symlink_metadata(out.join("l1")).is_ok());
-        assert!(fs::symlink_metadata(out.join("l2")).is_err());
-    }
-
-    #[test]
-    fn unreadable_zip_entry_does_not_break_the_rest() {
-        let dir = TempDir::new().unwrap();
-        let zip = dir.path().join("u.zip");
-        let opts = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Stored);
-        let mut writer = zip::ZipWriter::new(File::create(&zip).unwrap());
-        writer.start_file("bad.txt", opts).unwrap();
-        writer.write_all(b"bad").unwrap();
-        writer.start_file("good.txt", opts).unwrap();
-        writer.write_all(b"good").unwrap();
-        writer.finish().unwrap();
-        // Flag the first entry as bzip2, which is not built in.
-        let mut bytes = fs::read(&zip).unwrap();
-        let local = bytes.windows(4).position(|w| w == b"PK\x03\x04").unwrap();
-        let central = bytes.windows(4).position(|w| w == b"PK\x01\x02").unwrap();
-        bytes[local + 8] = 12;
-        bytes[central + 10] = 12;
-        fs::write(&zip, bytes).unwrap();
-
-        let mut out = Vec::new();
-        read_file(&zip, "good.txt", 100, &mut out).unwrap();
-        assert_eq!(out, b"good");
-        assert!(read_file(&zip, "bad.txt", 100, &mut Vec::new()).is_err());
-
-        let dest = dir.path().join("out");
-        fs::create_dir_all(&dest).unwrap();
-        let report = extract(&zip, &[String::new()], None, &dest, &mut |_| Ok(())).unwrap();
-        assert_eq!(report.files, 1);
-        assert_eq!(report.skipped.len(), 1, "{:?}", report.skipped);
-        assert_eq!(fs::read_to_string(dest.join("good.txt")).unwrap(), "good");
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn nothing_is_written_through_a_link() {
-        // A link to a directory inside the destination is allowed, but a
-        // later entry must not be written through it.
-        let dir = TempDir::new().unwrap();
-        let out = dir.path().join("out");
-        fs::create_dir_all(out.join("real")).unwrap();
-        let tar = dir.path().join("t.tar");
-        make_tar(
-            &tar,
-            &[Item::Link("l", "real"), Item::File("l/x.txt", "x")],
-            false,
-        );
-        let result = extract(&tar, &[String::new()], None, &out, &mut |_| Ok(()));
-        assert!(result.is_err());
-        assert!(!out.join("real/x.txt").exists());
-    }
-
-    #[test]
     fn cached_index_is_reused_until_the_file_changes() {
         let dir = TempDir::new().unwrap();
         let zip = dir.path().join("c.zip");
@@ -1219,43 +858,5 @@ mod tests {
         assert_eq!(stem(Path::new("b.ZIP")), "b");
         assert_eq!(stem(Path::new("c.v1.tgz")), "c.v1");
         assert_eq!(stem(Path::new(".zip")), ".zip");
-    }
-
-    #[test]
-    fn link_rules() {
-        assert!(link_stays_inside("a", "b"));
-        assert!(link_stays_inside("a/b", "../c"));
-        assert!(link_stays_inside("a/b", "./c/../d"));
-        assert!(!link_stays_inside("a", "../b"));
-        assert!(!link_stays_inside("a/b", "../../c"));
-        assert!(!link_stays_inside("a", "/etc"));
-        assert!(!link_stays_inside("a", ""));
-        assert!(!link_stays_inside("a", "C:\\x"));
-    }
-
-    #[test]
-    fn locations_and_extracted_entries_name_the_archive_path() {
-        assert_eq!(location(Path::new("/a/f.zip"), "x/y"), "/a/f.zip › x/y");
-        assert_eq!(location(Path::new("/a/f.zip"), ""), "/a/f.zip ›");
-        let wanted = ["d/x".to_string()];
-        assert_eq!(entry_of("x/f", &wanted, None).as_deref(), Some("d/x/f"));
-        assert_eq!(
-            entry_of("f/x/f", &wanted, Some("f")).as_deref(),
-            Some("d/x/f")
-        );
-        assert_eq!(entry_of("y", &wanted, None), None);
-        assert_eq!(
-            entry_of("a/b", &[String::new()], None).as_deref(),
-            Some("a/b")
-        );
-    }
-
-    #[test]
-    fn relative_destinations() {
-        assert_eq!(relative_to("a/b/c", "a/b", None), Some("b/c".into()));
-        assert_eq!(relative_to("a/b", "a/b", None), Some("b".into()));
-        assert_eq!(relative_to("a/bc", "a/b", None), None);
-        assert_eq!(relative_to("a/b", "", Some("z")), Some("z/a/b".into()));
-        assert_eq!(relative_to("a", "a", None), Some("a".into()));
     }
 }

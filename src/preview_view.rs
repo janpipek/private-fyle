@@ -24,9 +24,15 @@ enum State {
 /// How long the cursor must rest on an entry before its preview loads.
 const LOAD_DELAY: Duration = Duration::from_millis(60);
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PreviewTarget {
+    path: Option<PathBuf>,
+    identity: Option<crate::location::Location>,
+}
+
 pub struct PreviewPane {
     registry: Arc<Registry>,
-    target: Option<PathBuf>,
+    target: Option<PreviewTarget>,
     /// Line (1-based) to show in text content, e.g. a search hit's.
     line: Option<u64>,
     state: State,
@@ -55,16 +61,18 @@ impl PreviewPane {
         }
     }
 
-    /// Shows `path`, scrolled to `line` if it is text; a new target cancels
-    /// the previous load.
-    pub fn set_target(
+    /// Shows local bytes while retaining the typed item they represent.
+    pub fn set_location_target(
         &mut self,
         path: Option<PathBuf>,
+        identity: Option<crate::location::Location>,
         line: Option<u64>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if path == self.target {
+        let target =
+            (path.is_some() || identity.is_some()).then_some(PreviewTarget { path, identity });
+        if target == self.target {
             if line != self.line {
                 self.line = line;
                 self.reveal_line(window, cx);
@@ -72,8 +80,8 @@ impl PreviewPane {
             return;
         }
         self.line = line;
-        self.target = path.clone();
-        let Some(path) = path else {
+        self.target = target.clone();
+        let Some(path) = target.and_then(|target| target.path) else {
             self.state = State::Empty;
             self._load = Task::ready(());
             cx.notify();
@@ -96,7 +104,13 @@ impl PreviewPane {
     /// Loads the current target again (e.g. after it was edited).
     pub fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let target = self.target.take();
-        self.set_target(target, self.line, window, cx);
+        self.set_location_target(
+            target.as_ref().and_then(|target| target.path.clone()),
+            target.and_then(|target| target.identity),
+            self.line,
+            window,
+            cx,
+        );
     }
 
     /// Moves the text view to [`Self::line`] without taking focus. Again
@@ -271,7 +285,15 @@ impl PreviewPane {
                     .child(note(format!(
                         "{} rows{}",
                         rows.len(),
-                        if *truncated { " (more not shown)" } else { "" }
+                        if *truncated {
+                            if preview.kind == "Parquet" {
+                                " (sample truncated)"
+                            } else {
+                                " (more not shown)"
+                            }
+                        } else {
+                            ""
+                        }
                     )))
                     .into_any_element()
             }
@@ -330,7 +352,7 @@ impl Render for PreviewPane {
                     Content::Directory { .. } => p.kind.to_string(),
                     _ => format!("{} · {}", p.kind, fs_ops::format_size(p.size)),
                 },
-                p.link.tooltip(&p.path),
+                p.link.tooltip_with_resolved(p.resolved_link.as_deref()),
             ),
             State::Loading => ("Loading…".into(), String::new(), None),
             State::Failed(_) | State::Empty => ("Preview".into(), String::new(), None),
@@ -414,4 +436,41 @@ fn details(info: &[(String, String)], cx: &App) -> impl IntoElement {
                 )
                 .child(div().min_w_0().truncate().child(value.clone()))
         }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PreviewTarget;
+    use crate::location::Location as TypedLocation;
+    use crate::remote::Location as RemoteLocation;
+    use std::path::PathBuf;
+
+    #[test]
+    fn materialized_preview_identity_is_not_its_cache_path() {
+        let path = PathBuf::from("/cache/fyle/remote/gdrive/report.docx");
+        let first = PreviewTarget {
+            path: Some(path.clone()),
+            identity: Some(TypedLocation::Remote(
+                RemoteLocation::root("gdrive")
+                    .unwrap()
+                    .child("report")
+                    .unwrap(),
+            )),
+        };
+        let other = PreviewTarget {
+            path: Some(path),
+            identity: Some(TypedLocation::Remote(
+                RemoteLocation::root("onedrive")
+                    .unwrap()
+                    .child("report")
+                    .unwrap(),
+            )),
+        };
+        assert_ne!(first, other);
+        let unavailable = PreviewTarget {
+            path: None,
+            identity: first.identity.clone(),
+        };
+        assert_ne!(first, unavailable);
+    }
 }

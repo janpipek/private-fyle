@@ -1,58 +1,32 @@
 //! Sorting, tree expansion, the name filter and hidden files.
 
-use std::path::Path;
-
-use super::{Entry, Folder, Row, Sort};
-use crate::fs_ops;
+use super::{Folder, Sort};
+use crate::location::Location;
 
 impl Folder {
     /// Re-sorts, keeping the cursor on the same entry.
     pub fn set_sort(&mut self, sort: Sort) {
+        let selected = self.current().map(|row| row.location.clone());
         self.sort = sort;
-        if self.results.is_some() {
-            let selected = self.current().map(|e| e.path.clone());
-            let mut lines = std::collections::HashMap::new();
-            let mut entries: Vec<Entry> = self
-                .all
-                .drain(..)
-                .map(|r| {
-                    if let Some(line) = r.hit_line {
-                        lines.insert(r.entry.path.clone(), line);
-                    }
-                    r.entry
-                })
-                .collect();
-            fs_ops::sort_entries(&mut entries, sort.key, sort.descending);
-            self.all = entries
-                .into_iter()
-                .map(|entry| Row {
-                    hit_line: lines.remove(&entry.path),
-                    entry,
-                    depth: 0,
-                })
-                .collect();
-            self.apply_filter();
-            self.select_path(selected.as_deref());
-            return;
-        }
-        self.load_or_ancestor();
+        self.sort_cached();
+        self.select_location(selected.as_ref());
     }
 
     /// Switches between flat listing and tree, keeping the cursor entry.
     pub fn set_tree(&mut self, tree: bool) -> Option<String> {
         self.tree = tree;
-        self.load_or_ancestor()
+        None
     }
 
     /// Expands or collapses the directory at `path` (tree mode only).
-    pub fn toggle_expanded(&mut self, path: &Path) -> Option<String> {
+    pub fn toggle_expanded(&mut self, location: &Location) -> Option<String> {
         if !self.tree {
             return None;
         }
-        if !self.expanded.remove(path) {
-            self.expanded.insert(path.to_path_buf());
+        if !self.expanded.remove(location) {
+            self.expanded.insert(location.clone());
         }
-        self.load_or_ancestor()
+        None
     }
 
     /// Right arrow: expand the cursor directory, or step into its first child.
@@ -61,7 +35,7 @@ impl Folder {
         if !self.tree {
             return None;
         }
-        if self.expanded.contains(&row.path) {
+        if self.expanded.contains(&row.location) {
             let depth = row.depth;
             if self
                 .entries
@@ -72,20 +46,28 @@ impl Folder {
             }
             return None;
         }
-        let path = row.path.clone();
-        self.toggle_expanded(&path)
+        let location = row.location.clone();
+        self.toggle_expanded(&location)
     }
 
     /// Left arrow: collapse the cursor directory, or jump to its parent row.
     pub fn collapse(&mut self) -> Option<String> {
         let row = self.current().filter(|_| self.tree)?;
-        if self.expanded.contains(&row.path) {
-            let path = row.path.clone();
-            return self.toggle_expanded(&path);
+        if self.expanded.contains(&row.location) {
+            let location = row.location.clone();
+            return self.toggle_expanded(&location);
         }
-        if row.depth > 0 {
-            let parent = row.path.parent().map(Path::to_path_buf);
-            self.select_path(parent.as_deref());
+        if row.depth > 0
+            && let Some(parent) = self.all.iter().find(|candidate| {
+                candidate.depth + 1 == row.depth
+                    && row
+                        .location
+                        .as_local_path()
+                        .is_some_and(|path| path.parent() == candidate.location.as_local_path())
+            })
+        {
+            let location = parent.location.clone();
+            self.select_location(Some(&location));
         }
         None
     }
@@ -96,17 +78,33 @@ impl Folder {
 
     /// Number of rows before filtering (excluding "..").
     pub fn unfiltered_count(&self) -> usize {
-        self.all.iter().filter(|r| !r.is_parent).count()
+        let mut hidden_depth = None;
+        let mut count = 0;
+        for row in &self.all {
+            if row.is_parent {
+                continue;
+            }
+            if hidden_depth.is_some_and(|depth| row.depth > depth) {
+                continue;
+            }
+            hidden_depth = None;
+            if !self.show_hidden && row.name.starts_with('.') {
+                hidden_depth = Some(row.depth);
+            } else {
+                count += 1;
+            }
+        }
+        count
     }
 
     /// Shows only rows whose name contains `filter` (case-insensitive); ".."
     /// stays. Keeps the cursor on the same entry if it is still shown, else
     /// moves it to the first match.
     pub fn set_filter(&mut self, filter: &str) {
-        let selected = self.current().map(|e| e.path.clone());
+        let selected = self.current().map(|row| row.location.clone());
         self.filter = filter.to_string();
         self.apply_filter();
-        if !self.select_path(selected.as_deref()) {
+        if !self.select_location(selected.as_ref()) {
             let first = self.entries.iter().position(|r| !r.is_parent);
             self.cursor = first.unwrap_or(0);
         }
@@ -114,18 +112,33 @@ impl Folder {
 
     pub fn apply_filter(&mut self) {
         let needle = self.filter.to_lowercase();
-        self.entries = self
-            .all
-            .iter()
-            .filter(|r| r.is_parent || needle.is_empty() || r.name.to_lowercase().contains(&needle))
-            .cloned()
-            .collect();
+        let mut hidden_depth = None;
+        self.entries.clear();
+        for row in &self.all {
+            if row.is_parent {
+                self.entries.push(row.clone());
+                continue;
+            }
+            if hidden_depth.is_some_and(|depth| row.depth > depth) {
+                continue;
+            }
+            hidden_depth = None;
+            if !self.show_hidden && row.name.starts_with('.') {
+                hidden_depth = Some(row.depth);
+                continue;
+            }
+            if needle.is_empty() || row.name.to_lowercase().contains(&needle) {
+                self.entries.push(row.clone());
+            }
+        }
     }
 
     pub fn set_show_hidden(&mut self, show_hidden: bool) -> Option<String> {
-        self.end_archive_load(false);
+        let selected = self.current().map(|row| row.location.clone());
         self.show_hidden = show_hidden;
-        self.load_or_ancestor()
+        self.apply_filter();
+        self.select_location(selected.as_ref());
+        None
     }
 }
 
@@ -133,8 +146,9 @@ impl Folder {
 mod tests {
 
     use crate::fs_ops::SortKey;
+    use crate::location::Location;
     use crate::model::Sort;
-    use crate::model::test_support::{fixture, loaded, names};
+    use crate::model::test_support::{fixture, loaded, names, reload};
     use std::fs;
 
     #[test]
@@ -160,8 +174,10 @@ mod tests {
         assert_eq!(names(&folder), ["..", "sub", "a.txt", "b.txt"]); // flat: no-op
 
         folder.set_tree(true);
+        reload(&mut folder);
         assert_eq!(folder.current().unwrap().name, "sub");
         folder.expand();
+        reload(&mut folder);
         assert_eq!(names(&folder), ["..", "sub", "inner.txt", "a.txt", "b.txt"]);
         assert_eq!(folder.entries()[2].depth, 1);
         assert_eq!(folder.file_count(), 3);
@@ -171,13 +187,16 @@ mod tests {
         folder.collapse(); // on a child: jump to parent row
         assert_eq!(folder.current().unwrap().name, "sub");
         folder.collapse();
+        reload(&mut folder);
         assert_eq!(names(&folder), ["..", "sub", "a.txt", "b.txt"]);
 
         // Expansion survives toggling tree mode off and on.
-        folder.toggle_expanded(&dir.path().join("sub"));
+        folder.toggle_expanded(&Location::local(dir.path().join("sub")).unwrap());
         folder.set_tree(false);
+        reload(&mut folder);
         assert_eq!(folder.entries().len(), 4);
         folder.set_tree(true);
+        reload(&mut folder);
         assert_eq!(folder.entries().len(), 5);
     }
 
@@ -205,5 +224,26 @@ mod tests {
         assert_eq!(names(&folder), [".."]);
         folder.set_filter("");
         assert_eq!(names(&folder), ["..", "sub", "a.txt", "b.txt"]);
+    }
+
+    #[test]
+    fn hidden_filter_hides_and_restores_cached_tree_subtrees() {
+        let dir = fixture();
+        let hidden = dir.path().join(".secret");
+        fs::create_dir(&hidden).unwrap();
+        fs::write(hidden.join("inside.txt"), "").unwrap();
+        let mut folder = loaded(&dir);
+        folder.set_tree(true);
+        folder.set_show_hidden(true);
+        reload(&mut folder);
+        folder.toggle_expanded(&Location::local(hidden).unwrap());
+        reload(&mut folder);
+        assert!(names(&folder).contains(&"inside.txt"));
+
+        folder.set_show_hidden(false);
+        assert!(!names(&folder).contains(&".secret"));
+        assert!(!names(&folder).contains(&"inside.txt"));
+        folder.set_show_hidden(true);
+        assert!(names(&folder).contains(&"inside.txt"));
     }
 }

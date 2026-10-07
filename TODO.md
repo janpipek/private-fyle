@@ -3,7 +3,98 @@
 - [ ] Menus and selection, remaining parts: output/history in Tools; a
       "Clear selection" command (Esc already clears marks). Implement
       missing actions as separate features.
+- [ ] Swap Panels command: exchange the two panels' content, cursor, marks,
+      navigation history and view state. Register it in `Cmd`, menus, the
+      palette and F1 help; decide its shortcut and focus behavior. Handle
+      pending loads and the preview/editor pane explicitly, with model tests
+      for swaps across local, remote, archive and search modes.
+- [ ] Go to Other Panel's Folder command: navigate the active panel to the
+      other panel's folder, preserving its typed local, remote or archive
+      location. For search results, use the search root; explain availability
+      when the other panel shows Places. Register it in `Cmd`, menus, the
+      palette and F1 help. Decide its shortcut; cover navigation and pending
+      loads with model tests.
+- [ ] Toggle bookmark: make Ctrl-D add or remove the current folder's
+      bookmark. Add a small star in the location bar that reflects the
+      bookmark state and toggles it on click. Use the same `Cmd` for the
+      shortcut, star, menus, palette and F1 help, with model tests for adding
+      and removing bookmarks. Keep availability consistent with supported
+      bookmark locations.
+- [ ] Keymap editor and presets: build on existing `[[keymap]]` overrides
+      and unbinding, with selectable fyle, Krusader, Midnight Commander and
+      Finder-style presets beneath user overrides. Keep stable command IDs,
+      detect conflicts across overlapping panel/global/editor contexts,
+      support reset, and update menu, palette, F1 and tooltip shortcuts.
+      Save edits with `toml_edit`, preserving comments and other settings.
+      Decide the editor presentation and preset coverage; map only supported
+      commands, with Finder's Command-key conventions tied to later macOS
+      support. References: official Krusader/MC keymaps and Apple shortcuts.
+- [ ] Investigate missing parent navigation in Proton Drive: check the `..`
+      row and Go Up in subfolders and at the drive root; add model/provider
+      regression tests for the intended destinations.
+- [ ] Open With: use the OS/desktop's configured file-type associations,
+      available applications and default application, alongside fyle's
+      configured openers. Respect KDE/GNOME/XDG settings on Linux, Windows
+      associations when Windows work resumes, and macOS associations when
+      macOS support starts. Put platform discovery behind a common model,
+      load it in the background, handle unavailable applications, and test
+      with isolated fixtures. Decide how system and configured entries are
+      ordered and deduplicated, and how the default is indicated.
 - [ ] Archive follow-ups: nested archives; maybe write support.
+- [ ] File inspection: separate Properties and View as two perspectives.
+      Properties shows filesystem attributes and format metadata; View (F3)
+      shows file content when there is a useful representation. An image has
+      EXIF properties and an image view; a SQLite database can offer its
+      structure (tables, columns, indexes and relationships) as properties
+      without a content viewer. Parquet schema and row-group metadata also
+      belong in Properties. Reuse a UI-independent inspection model, load in
+      the background with cancellation and bounded reads, and allow either
+      perspective independently. Properties command placement/shortcut and
+      the presentation of structured metadata remain to be decided.
+- [ ] Workspace layout, open design: keep both directory panels visible and
+      usable for file operations while an independent inspector shows Preview,
+      Properties or another supported perspective. Consider three resizable
+      panes with the inspector docked to the right or bottom; evaluate a 2x2
+      layout for two inspectors (Preview plus Properties, or one per directory).
+      Base layout availability on usable space after UI scaling. Decide
+      minimum pane sizes, follow-selection versus pinned-file behavior, and
+      focus/shortcut rules that retain an explicit source and destination for
+      file commands. Model layout and inspector state independently and test
+      focus, resize and pending-load transitions. Decide before implementing.
+- [ ] Mouse interaction and drag-and-drop, open design: start with dragging
+      selected typed locations between directory panels through existing
+      transfer jobs, progress, cancellation and conflict handling. Show the
+      proposed Copy/Move operation and destination before dropping, respecting
+      provider capabilities and read-only archive content. Add conventional
+      pointer selection, modifier-click toggles and selection ranges using
+      the selection model and keymap conventions. Plan external application
+      drops separately, including native file/URI data, remote materialization,
+      archive extraction and permissions. Decide default drop actions and
+      modifiers before implementing; test source/destination identity through
+      focus changes, cancelled drags and pending loads.
+- [ ] More F3 file types, priorities: camera RAW images (image or embedded
+      preview), spreadsheets (XLS/XLSX), Word
+      documents (DOC/DOCX), and OpenDocument text (ODT). Keep schema, EXIF and
+      other format metadata in the Properties perspective above. Decoding
+      libraries versus optional external converters, document fidelity, and
+      sheet/page navigation remain to be decided; implement formats as
+      separate features and keep tests independent of optional programs.
+- [ ] Read-only Jupyter/IPython notebook view (IPYNB): parse notebook JSON
+      in Rust and render Markdown cells, highlighted code cells, and saved
+      text/error/image outputs in F3. Reuse existing Markdown, editor and
+      image views; a basic viewer needs no Python runtime or kernel. Put
+      kernel/language and cell counts in Properties. Bound file/output sizes
+      and render cells lazily; unsupported output types need a clear fallback.
+      HTML/SVG outputs, math, attachments and interactive widgets need separate
+      decisions; executing or editing notebooks is outside this viewer's scope.
+      Format reference: https://nbformat.readthedocs.io/en/latest/format_description.html
+- [ ] Tabular conversions in the Tools Convert group: extend the existing
+      CSV conversions to cover CSV, Parquet and Excel (XLS/XLSX) in both
+      directions. Reuse format readers with inspection where practical;
+      decide sheet selection, column types, headers/delimiters, formula
+      handling and supported Excel output formats. Choose conversion
+      backends before implementation and implement each conversion as a
+      separate feature with the usual output conflict handling.
 - [ ] Remote locations, follow-ups (the UI works: Locations, address bar,
       breadcrumbs, background listing, F5/F6/F7/F8, Shift-F6, open and quick
       view of downloaded copies; see README): SMB (needs libsmbclient);
@@ -12,8 +103,7 @@
       and remote (copy then remove); bulk rename and per-byte progress; uploading
       edited cache copies back; search, tools, thumbnails and folder sizes on
       remotes; remote bookmarks; automatic refresh when a remote changes;
-      sizes of native Google Docs show as 0 (the size column cannot say
-      "unknown"); a web view for WebDAV and a check of the Proton share-ID
+      a web view for WebDAV and a check of the Proton share-ID
       address; per-remote "Shared with me" is read-only on purpose.
 - [ ] Embedded terminal (idea, undecided): alacritty_terminal + PTY rendered
       in gpui as Zed does, vs. libghostty. Recommendation so far: none for
@@ -37,6 +127,31 @@
 
 ## Done
 
+- [x] F3 preview for Parquet files: native table samples (500 rows, 40 columns,
+      1,024 characters per cell; 8 MiB metadata and a 64 MiB selected column
+      chunk decoding budget), with common codecs; repeated/list/map columns report an
+      unsupported-format message.
+- [x] Make Ctrl-wheel zoom consistently over table rows, headers, blank
+      space and the icon grid; keep ordinary wheel input scrolling.
+- [x] Split safe archive extraction helpers and their tests into
+      `archive/extraction.rs`, keeping the public API available from `archive`.
+- [x] Load owner, EXIF, extended-attribute and SELinux table values, plus
+      resolved symlink tooltip paths, asynchronously for visible local rows;
+      bound and invalidate metadata work by listing generation.
+- [x] Persist typed locations losslessly in frequent-directory history and
+      local bookmarks; keep legacy history rows and path-string bookmarks
+      readable, write history through a unique synced temporary file, and
+      serialize background saves while coalescing pending snapshots.
+- [x] Preserve unknown file sizes from providers; show unknown values distinctly,
+      keep size sorting deterministic, count marked totals as lower bounds, and
+      refuse remote quick-view downloads when the size is unknown.
+- [x] Keep a typed source location with materialized remote copies, separate
+      from the cache path passed to native readers and openers.
+- [x] Introduce typed local, remote and archive addresses for panel folders,
+      rows, marks, history, activation and remote transfer selections; model
+      Directory, Search and Places panel content explicitly; key remote listing
+      caches by remote identity. Keep panel path spellings at UI and native
+      operation boundaries.
 - [x] Remote start paths on the command line, remote folders in Frequent,
       SFTP host aliases from `~/.ssh/config`, Open in Browser, Google Drive
       duplicates and Shared with me (see README, Remote locations).

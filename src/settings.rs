@@ -219,7 +219,25 @@ impl Settings {
         let mut settings: Self = toml::from_str(text).map_err(|e| e.message().to_string())?;
         settings.panels.left = settings.panels.left.map(expand_home);
         settings.panels.right = settings.panels.right.map(expand_home);
-        settings.bookmarks = settings.bookmarks.into_iter().map(expand_home).collect();
+        settings.bookmarks = settings
+            .bookmarks
+            .into_iter()
+            .map(|path| {
+                let Some(value) = path.to_str() else {
+                    return Ok(path);
+                };
+                if value.starts_with(crate::location_codec::PREFIX) {
+                    let location = crate::location_codec::decode(value)
+                        .map_err(|error| format!("invalid bookmark: {error}"))?;
+                    location
+                        .as_local_path()
+                        .map(Path::to_path_buf)
+                        .ok_or_else(|| "bookmarks must name local paths".to_owned())
+                } else {
+                    Ok(expand_home(path))
+                }
+            })
+            .collect::<Result<_, String>>()?;
         Ok(settings)
     }
 }
@@ -378,13 +396,26 @@ pub fn add_bookmark_to(path: &Path, dir: &Path) -> Result<(), String> {
         Err(e) => return Err(error(&e)),
     };
     let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| error(&e))?;
-    let value = dir.display().to_string();
+    let location = crate::location::Location::local(dir.to_path_buf())
+        .map_err(|error| format!("{}: {error}", dir.display()))?;
+    let value = crate::location_codec::encode(&location)
+        .map_err(|error| format!("{}: {error}", dir.display()))?;
     let list = doc
         .entry("bookmarks")
         .or_insert_with(|| toml_edit::value(toml_edit::Array::new()))
         .as_array_mut()
         .ok_or_else(|| error(&"`bookmarks` is not a list"))?;
-    if !list.iter().any(|v| v.as_str() == Some(&value)) {
+    let already_present = list.iter().any(|item| {
+        let Some(stored) = item.as_str() else {
+            return false;
+        };
+        if stored.starts_with(crate::location_codec::PREFIX) {
+            crate::location_codec::decode(stored).is_ok_and(|stored| stored == location)
+        } else {
+            Path::new(stored) == dir
+        }
+    });
+    if !already_present {
         list.push(value);
     }
     if let Some(dir) = path.parent() {
@@ -607,6 +638,41 @@ mod tests {
             [PathBuf::from("/srv/a"), "/srv/b".into()]
         );
         assert_eq!(settings.theme, "dark");
+    }
+
+    #[test]
+    fn encoded_bookmarks_preserve_native_bytes_and_legacy_entries() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+        std::fs::write(&path, "# keep this comment\nbookmarks = [\"/legacy\"]\n").unwrap();
+        #[cfg(unix)]
+        let unusual = {
+            use std::ffi::OsString;
+            use std::os::unix::ffi::OsStringExt;
+            PathBuf::from("/tmp").join(OsString::from_vec(vec![b'a', 0xff, b'\t', b'\n']))
+        };
+        #[cfg(windows)]
+        let unusual = PathBuf::from("C:\\tmp\\a\tb\nc");
+
+        add_bookmark_to(&path, &unusual).unwrap();
+        add_bookmark_to(&path, &unusual).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# keep this comment"));
+        assert!(text.contains(crate::location_codec::PREFIX));
+        assert_eq!(
+            Settings::parse(&text).unwrap().bookmarks,
+            [PathBuf::from("/legacy"), unusual]
+        );
+    }
+
+    #[test]
+    fn bookmark_codec_rejects_remote_and_malformed_markers() {
+        let remote =
+            crate::location::Location::Remote(crate::remote::Location::root("nas").unwrap());
+        let encoded = crate::location_codec::encode(&remote).unwrap();
+        let value = toml_edit::value(encoded);
+        assert!(Settings::parse(&format!("bookmarks = [{value}]")).is_err());
+        assert!(Settings::parse("bookmarks = [\"fyle-location:v1:{\"]").is_err());
     }
 
     #[test]

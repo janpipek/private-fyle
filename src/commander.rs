@@ -2,7 +2,6 @@
 //! commands that act on them.
 
 mod appearance;
-mod archives;
 mod files;
 mod jobs;
 mod keys;
@@ -41,7 +40,7 @@ use crate::jobs::Yank;
 use crate::menu_bar::MenuBar;
 use crate::menus::Cmd;
 use crate::model::Folder;
-use crate::panel::{Activate, FolderView, HeaderEvent};
+use crate::panel::{Activate, FolderView, HeaderEvent, TreeExpansionChanged};
 use crate::places::History;
 use crate::preview::Registry as PreviewRegistry;
 use crate::preview_view::PreviewPane;
@@ -62,6 +61,9 @@ pub struct Commander {
     _tool_task: Task<()>,
     /// Saves the zoomed font size once zooming pauses.
     _zoom_save: Task<()>,
+    /// The current history save and its coalesced latest snapshot.
+    history_saves: crate::places::history_save::Queue<(PathBuf, History)>,
+    _history_save_task: Task<()>,
     openers: Vec<crate::openers::Opener>,
     /// Entries waiting to be pasted.
     yank: Option<Yank>,
@@ -79,14 +81,13 @@ pub struct Commander {
     _locations_task: Task<()>,
     /// Configured remotes, discovered in the background.
     remotes: Arc<remote::Registry>,
+    /// Per-panel bounded remote directory listings, shared by workers.
+    listing_caches: [Arc<crate::listing::RemoteListingCache>; 2],
     remotes_generation: u64,
     remotes_pending: bool,
     /// The discovery problems last shown, so each is reported once.
     remote_errors: String,
     _remotes_task: Task<()>,
-    /// Warnings of the remote listing just shown, kept for the status line
-    /// over the "Opened" message that follows it.
-    listing_warning: Option<String>,
     /// Remote paths given at startup, opened once the remotes are known;
     /// the panel shows a local folder meanwhile.
     start_remote: [Option<PathBuf>; 2],
@@ -94,18 +95,21 @@ pub struct Commander {
     remote_cancel: [Option<Arc<AtomicBool>>; 2],
     /// Per panel: refreshing a remote listing in place.
     reload_generation: [u64; 2],
+    reload_cancel: [Option<Arc<AtomicBool>>; 2],
     reload_tasks: [Task<()>; 2],
     /// Checking a transfer's destination for existing names.
     remote_check: Option<remotes::RemoteCheck>,
     /// A quick change on a remote (new folder, rename).
     _remote_op: Task<()>,
     remote_preview: remotes::RemotePreview,
+    /// Last remote copy opened by a native opener; its source stays typed.
+    remote_open_copy: Option<crate::remote::jobs::LocalCopy>,
     locations_generation: u64,
     locations_pending: bool,
     bookmarks: Vec<PathBuf>,
     history: History,
     /// Last directory recorded in the history.
-    last_visited: Option<PathBuf>,
+    last_visited: Option<crate::location::Location>,
     jobs: Vec<RunningJob>,
     next_job_id: usize,
     jobs_ticking: bool,
@@ -155,7 +159,9 @@ impl Commander {
         let panels = &settings.panels;
         let mut ix = 0;
         let mut start_remote: [Option<PathBuf>; 2] = [None, None];
-        let fallback = std::env::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+        let fallback = std::env::home_dir()
+            .filter(|path| path.is_absolute())
+            .unwrap_or_else(|| PathBuf::from("/"));
         let folders = [left, right].map(|path| {
             // Remote folders are listed in the background; see `init`.
             let path = if crate::remote::is_remote(&path) {
@@ -167,11 +173,11 @@ impl Commander {
             // Tree mode does not apply to the icon grid: load once, without it.
             let tree = panels.tree && panels.view(ix) == ViewMode::List;
             ix += 1;
-            let mut folder =
-                Folder::new(path).with_options(settings.show_hidden, tree, panels.sort());
-            if let Some(e) = folder.load_or_ancestor() {
-                status = e.into();
-            }
+            let mut folder = Folder::new(path.clone()).unwrap_or_else(|error| {
+                status = format!("{}: {error}", path.display()).into();
+                Folder::new(fallback.clone()).expect("fallback home or root is absolute")
+            });
+            folder = folder.with_options(settings.show_hidden, tree, panels.sort());
             cx.new(|_| folder)
         });
         let columns = crate::columns::normalize(&settings.panels.columns);
@@ -215,10 +221,27 @@ impl Commander {
             subscriptions.push(cx.subscribe_in(
                 view,
                 window,
+                move |this, _, _: &TreeExpansionChanged, window, cx| {
+                    let target = this.folders[ix].read(cx).target();
+                    this.load_panel_listing(
+                        ix,
+                        target,
+                        crate::commander::location::ListingCommit::Options,
+                        false,
+                        window,
+                        cx,
+                    );
+                },
+            ));
+            subscriptions.push(cx.subscribe_in(
+                view,
+                window,
                 move |_, _, event: &HeaderEvent, window, cx| {
                     let event = event.clone();
                     cx.defer_in(window, move |this, window, cx| match event {
-                        HeaderEvent::Navigate(path) => this.navigate_panel(ix, path, window, cx),
+                        HeaderEvent::Navigate(target) => {
+                            this.navigate_panel(ix, target, window, cx)
+                        }
                         HeaderEvent::Locations => this.open_locations(ix, true, window, cx),
                         HeaderEvent::SearchLocations => this.open_locations(ix, false, window, cx),
                         HeaderEvent::Edit => {
@@ -230,6 +253,9 @@ impl Commander {
                             cx.write_to_clipboard(ClipboardItem::new_string(path.clone()));
                             this.status = format!("Copied {path}").into();
                             cx.notify();
+                        }
+                        HeaderEvent::Zoom(steps) => {
+                            this.zoom(cx, |size| zoom::step(size, steps));
                         }
                         HeaderEvent::Error(error) => {
                             this.status = error.into();
@@ -253,6 +279,8 @@ impl Commander {
             programs: Arc::new(Programs::from_env()),
             _tool_task: Task::ready(()),
             _zoom_save: Task::ready(()),
+            history_saves: Default::default(),
+            _history_save_task: Task::ready(()),
             yank: None,
             yank_generation: 0,
             menu_bar: MenuBar::new(cx),
@@ -264,18 +292,20 @@ impl Commander {
             navigation_pending: [false, false],
             _locations_task: Task::ready(()),
             remotes: Arc::default(),
+            listing_caches: [Arc::default(), Arc::default()],
             remotes_generation: 0,
             remotes_pending: false,
             remote_errors: String::new(),
             _remotes_task: Task::ready(()),
-            listing_warning: None,
             start_remote,
             remote_cancel: [None, None],
             reload_generation: [0, 0],
+            reload_cancel: [None, None],
             reload_tasks: [Task::ready(()), Task::ready(())],
             remote_check: None,
             _remote_op: Task::ready(()),
             remote_preview: Default::default(),
+            remote_open_copy: None,
             locations_generation: 0,
             locations_pending: false,
             openers: settings.openers.clone(),
@@ -335,6 +365,19 @@ impl Commander {
             });
         }
         self.update_preview(window, cx);
+        for panel in 0..2 {
+            if self.start_remote[panel].is_none() {
+                let target = self.folders[panel].read(cx).target();
+                self.load_panel_listing(
+                    panel,
+                    target,
+                    location::ListingCommit::Startup,
+                    true,
+                    window,
+                    cx,
+                );
+            }
+        }
         self.discover_remotes(window, cx);
     }
 
@@ -369,20 +412,17 @@ impl Commander {
         }
     }
 
-    fn reload_all(&mut self, cx: &mut Context<Self>) {
+    fn reload_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         for ix in 0..2 {
-            // Remote folders are listed again in the background.
-            if self.folders[ix].read(cx).is_remote() {
-                self.reload_remote(ix, cx);
-                continue;
-            }
-            let folder = &self.folders[ix];
-            if let Some(e) = folder.update(cx, |folder, cx| {
-                cx.notify();
-                folder.load_or_ancestor()
-            }) {
-                self.status = e.into();
-            }
+            let target = self.folders[ix].read(cx).target();
+            self.load_panel_listing(
+                ix,
+                target,
+                location::ListingCommit::Refresh,
+                true,
+                window,
+                cx,
+            );
         }
     }
 
@@ -485,8 +525,7 @@ impl Render for Commander {
                         ScrollDelta::Pixels(p) => f32::from(p.y),
                         ScrollDelta::Lines(l) => l.y,
                     };
-                    if dy != 0.0 {
-                        let steps = if dy > 0.0 { 1 } else { -1 };
+                    if let Some(steps) = zoom::wheel_steps(dy) {
                         this.zoom(cx, |size| zoom::step(size, steps));
                     }
                 }

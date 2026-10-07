@@ -2,9 +2,12 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{Entry, Folder, Row};
+#[cfg(test)]
+use super::Entry;
+use super::{Folder, Row};
 use crate::dirsize::DirSize;
 use crate::fs_ops::{self, SortKey};
+use crate::location::Location;
 
 /// What [`Folder::marked_total`] knows about the marked entries.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -12,23 +15,47 @@ pub struct MarkedTotal {
     pub bytes: u64,
     /// Marked directories without a computed size (not counted in `bytes`).
     pub unknown_dirs: usize,
+    /// Marked files whose provider did not report a size.
+    pub unknown_files: usize,
     /// Some computed size is a lower bound (running, cancelled or errors).
     pub inexact: bool,
 }
 
 impl MarkedTotal {
-    /// For the footer, e.g. "1.2 G" or "≥ 1.2 G (2 folders not measured)".
+    /// For the footer, marking partial totals when any size is unknown.
     pub fn label(&self) -> String {
         let size = fs_ops::format_size(self.bytes);
-        let bound = if self.inexact || self.unknown_dirs > 0 {
+        let bound = if self.inexact || self.unknown_dirs > 0 || self.unknown_files > 0 {
             "≥ "
         } else {
             ""
         };
-        match self.unknown_dirs {
-            0 => format!("{bound}{size}"),
-            1 => format!("{bound}{size} (1 folder not measured)"),
-            n => format!("{bound}{size} ({n} folders not measured)"),
+        let folder_note = match self.unknown_dirs {
+            0 => String::new(),
+            1 => "1 folder not measured".to_string(),
+            n => format!("{n} folders not measured"),
+        };
+        let file_note = match self.unknown_files {
+            0 => String::new(),
+            1 => "1 file size unknown".to_string(),
+            n => format!("{n} file sizes unknown"),
+        };
+        let note = [folder_note, file_note]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(", ");
+        if note.is_empty() {
+            format!("{bound}{size}")
+        } else {
+            format!("{bound}{size} ({note})")
+        }
+    }
+
+    fn include_file(&mut self, size: Option<u64>) {
+        match size {
+            Some(bytes) => self.bytes += bytes,
+            None => self.unknown_files += 1,
         }
     }
 }
@@ -44,7 +71,12 @@ impl Folder {
                 .collect::<Vec<_>>()
         };
         if !self.marked.is_empty() {
-            return dirs(&mut self.all.iter().filter(|r| self.marked.contains(&r.path)));
+            return dirs(
+                &mut self
+                    .all
+                    .iter()
+                    .filter(|r| self.marked.contains(&r.location)),
+            );
         }
         match self.current() {
             Some(row) if row.is_dir && !row.is_parent => vec![row.path.clone()],
@@ -85,7 +117,7 @@ impl Folder {
         self.sizes.insert(path.to_path_buf(), size);
         for row in self.all.iter_mut().chain(self.entries.iter_mut()) {
             if row.path == path {
-                row.entry.size = size.bytes;
+                row.entry.size = Some(size.bytes);
             }
         }
     }
@@ -106,13 +138,14 @@ impl Folder {
 
     /// Replaces the size of listed directories by their computed size, so
     /// that sorting by size uses it.
+    #[cfg(test)]
     pub fn apply_sizes(&self, entries: &mut [Entry]) {
         if self.sizes.is_empty() {
             return;
         }
         for entry in entries.iter_mut().filter(|e| e.is_dir && !e.is_parent) {
             if let Some(size) = self.sizes.get(&entry.path) {
-                entry.size = size.bytes;
+                entry.size = Some(size.bytes);
             }
         }
     }
@@ -123,16 +156,22 @@ impl Folder {
         // In tree mode a marked row may lie inside a marked, measured
         // directory whose size already includes it.
         let covered = |path: &Path| {
-            path.ancestors()
-                .skip(1)
-                .any(|a| self.marked.contains(a) && self.sizes.contains_key(a))
+            path.ancestors().skip(1).any(|a| {
+                Location::local(a.to_path_buf())
+                    .is_ok_and(|location| self.marked.contains(&location))
+                    && self.sizes.contains_key(a)
+            })
         };
-        for row in self.all.iter().filter(|r| self.marked.contains(&r.path)) {
+        for row in self
+            .all
+            .iter()
+            .filter(|r| self.marked.contains(&r.location))
+        {
             if covered(&row.path) {
                 continue;
             }
             if !row.is_dir {
-                total.bytes += row.size;
+                total.include_file(row.size);
             } else if let Some(size) = self.sizes.get(&row.path) {
                 total.bytes += size.bytes;
                 total.inexact |= !size.is_exact();
@@ -149,7 +188,7 @@ mod tests {
     use super::*;
     use crate::fs_ops::SortKey;
     use crate::model::Sort;
-    use crate::model::test_support::{fixture, loaded, names};
+    use crate::model::test_support::{fixture, loaded, names, reload};
 
     use std::fs;
 
@@ -229,13 +268,26 @@ mod tests {
     }
 
     #[test]
+    fn unknown_marked_files_make_the_total_a_lower_bound() {
+        let mut total = MarkedTotal::default();
+        total.include_file(Some(0));
+        total.include_file(Some(12));
+        total.include_file(None);
+        assert_eq!(total.bytes, 12);
+        assert_eq!(total.unknown_files, 1);
+        assert_eq!(total.label(), "≥ 12 B (1 file size unknown)");
+    }
+
+    #[test]
     fn marked_total_skips_rows_inside_measured_marked_dirs() {
         let dir = fixture();
         let sub = dir.path().join("sub");
         fs::write(sub.join("inner.txt"), "12345").unwrap();
         let mut folder = loaded(&dir);
         folder.set_tree(true);
-        folder.toggle_expanded(&sub);
+        reload(&mut folder);
+        folder.toggle_expanded(&Location::local(sub.clone()).unwrap());
+        reload(&mut folder);
         assert!(names(&folder).contains(&"inner.txt"));
         folder.mark_all();
         let total = folder.marked_total();

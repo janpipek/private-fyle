@@ -265,8 +265,7 @@ fn remove_args(path: String, is_dir: bool) -> Vec<OsString> {
 #[serde(rename_all = "PascalCase")]
 struct Listed {
     name: String,
-    #[serde(default)]
-    size: i64,
+    size: Option<i64>,
     mod_time: Option<String>,
     #[serde(default)]
     is_dir: bool,
@@ -274,7 +273,7 @@ struct Listed {
 
 /// Decodes `rclone lsjson` output. Drive allows several items with one name;
 /// only the first is shown, with a warning. Sizes rclone does not know (-1,
-/// as for native Google Docs) show as 0.
+/// as for native Google Docs) remain unknown.
 fn parse_listing(dir: &Location, bytes: &[u8]) -> io::Result<Listing> {
     let listed: Vec<Listed> =
         serde_json::from_slice(bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
@@ -283,7 +282,7 @@ fn parse_listing(dir: &Location, bytes: &[u8]) -> io::Result<Listing> {
         .map(|item| Item {
             name: item.name,
             is_dir: item.is_dir,
-            size: u64::try_from(item.size).unwrap_or(0),
+            size: item.size.and_then(|size| u64::try_from(size).ok()),
             modified: timestamp(item.mod_time.as_deref()),
             created: None,
         })
@@ -469,16 +468,20 @@ mod tests {
             &dir,
             br#"[
             {"Path":"Docs","Name":"Docs","Size":-1,"MimeType":"inode/directory","ModTime":"2026-10-06T12:00:00.123456789Z","IsDir":true},
-            {"Path":"a b.txt","Name":"a b.txt","Size":42,"ModTime":"2026-10-06T12:00:00+02:00","IsDir":false}
+            {"Path":"a b.txt","Name":"a b.txt","Size":42,"ModTime":"2026-10-06T12:00:00+02:00","IsDir":false},
+            {"Path":"empty.txt","Name":"empty.txt","Size":0,"IsDir":false},
+            {"Path":"missing.txt","Name":"missing.txt","IsDir":false}
         ]"#,
         )
         .unwrap()
         .entries;
         assert!(entries[0].is_dir);
-        assert_eq!(entries[0].size, 0);
+        assert_eq!(entries[0].size, None);
         assert!(entries[0].modified.is_some());
-        assert_eq!(entries[1].size, 42);
+        assert_eq!(entries[1].size, Some(42));
         assert_eq!(entries[1].path, Path::new("gdrive:/a b.txt"));
+        assert_eq!(entries[2].size, Some(0));
+        assert_eq!(entries[3].size, None);
     }
 
     #[test]
@@ -494,7 +497,7 @@ mod tests {
             .iter()
             .map(|e| (e.name.as_str(), e.size))
             .collect();
-        assert_eq!(names, [("a", 1), ("b", 3)]);
+        assert_eq!(names, [("a", Some(1)), ("b", Some(3))]);
         assert_eq!(listing.warnings.len(), 2);
         assert!(listing.warnings[0].ends_with("hidden; run rclone dedupe"));
         assert!(parse_listing(&dir, br#"[{"Name":"a","#).is_err());

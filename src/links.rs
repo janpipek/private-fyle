@@ -79,7 +79,7 @@ impl LinkState {
     }
 
     /// Absolute path after following every link, for a working link at
-    /// `path` (touches the disk; call it for a tooltip, not per listed row).
+    /// `path`. This touches the disk, so resolve it in a background worker.
     pub fn resolved(&self, path: &Path) -> Option<PathBuf> {
         match self {
             Self::Link { .. } => fs::canonicalize(path).ok(),
@@ -89,15 +89,25 @@ impl LinkState {
 
     /// Tooltip text for the entry at `path`: `→ target`, plus the resolved
     /// path when it differs; `Broken link → target` with the reason for
-    /// broken ones.
+    /// broken ones. A working link's resolved path is read from disk.
     pub fn tooltip(&self, path: &Path) -> Option<String> {
+        let resolved = match self {
+            Self::Link { .. } => self.resolved(path),
+            _ => None,
+        };
+        self.tooltip_with_resolved(resolved.as_deref())
+    }
+
+    /// Tooltip text with an optional result from an asynchronous resolution.
+    /// This method is safe to call while rendering because it does no I/O.
+    pub fn tooltip_with_resolved(&self, resolved: Option<&Path>) -> Option<String> {
         match self {
             Self::NotLink => None,
             Self::Link { target } if target.as_os_str().is_empty() => Some("Symbolic link".into()),
             Self::Link { target } => {
                 let mut text = format!("→ {}", target.display());
-                if let Some(resolved) = self.resolved(path)
-                    && resolved != *target
+                if let Some(resolved) = resolved
+                    && resolved != target
                 {
                     text.push_str(&format!("\n{}", resolved.display()));
                 }
@@ -149,6 +159,25 @@ mod tests {
             LinkState::NotLink
         );
         assert_eq!(LinkState::NotLink.tooltip(dir.path()), None);
+    }
+
+    #[test]
+    fn tooltip_with_cached_resolution_is_pure_and_keeps_broken_reason() {
+        let link = LinkState::Link {
+            target: PathBuf::from("../real/file"),
+        };
+        assert_eq!(
+            link.tooltip_with_resolved(Some(Path::new("/tmp/real/file"))),
+            Some("→ ../real/file\n/tmp/real/file".into())
+        );
+        let broken = LinkState::Broken {
+            target: PathBuf::from("missing"),
+            reason: Broken::Dangling,
+        };
+        assert_eq!(
+            broken.tooltip_with_resolved(None),
+            Some("Broken link (target missing) → missing".into())
+        );
     }
 
     #[test]

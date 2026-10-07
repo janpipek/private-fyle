@@ -19,6 +19,9 @@ mod icons;
 mod jobs;
 mod link_badge;
 mod links;
+mod listing;
+mod location;
+mod location_codec;
 mod location_view;
 mod menu_bar;
 mod menus;
@@ -68,15 +71,21 @@ fn main() {
         .next()
         .or_else(|| settings.panels.right.clone())
         .or_else(std::env::home_dir)
-        .unwrap_or(cwd);
+        .unwrap_or_else(|| cwd.clone());
     // Breadcrumbs, history and Go to need absolute paths ("fyle src" → /…/src).
+    // `absolute` preserves the user's symlink and `..` spelling; canonicalize
+    // here would change the location identity before the panel lists it.
     let [left, right] = [left, right].map(|path| {
         if remote::is_remote(&path) {
             return path;
         }
-        path.canonicalize()
-            .or_else(|_| std::path::absolute(&path))
-            .unwrap_or(path)
+        std::path::absolute(&path).unwrap_or_else(|_| {
+            if path.is_absolute() {
+                path
+            } else {
+                cwd.join(path)
+            }
+        })
     });
 
     gpui_kit::application()

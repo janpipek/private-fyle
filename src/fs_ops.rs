@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::time::SystemTime;
 
 use crate::links::LinkState;
@@ -12,7 +13,7 @@ pub struct Entry {
     pub path: PathBuf,
     pub is_dir: bool,
     pub is_parent: bool,
-    pub size: u64,
+    pub size: Option<u64>,
     pub modified: Option<SystemTime>,
     pub attrs: Attrs,
     /// Symlink state; the other fields describe the link's target.
@@ -140,25 +141,38 @@ pub enum SortKey {
 
 /// Sorts with ".." first and directories before files, regardless of order.
 pub fn sort_entries(entries: &mut [Entry], key: SortKey, descending: bool) {
-    entries.sort_by(|a, b| {
-        b.is_parent
-            .cmp(&a.is_parent)
-            .then_with(|| b.is_dir.cmp(&a.is_dir))
-            .then_with(|| {
-                let by_name = || natural_cmp(&a.name, &b.name);
-                let ord = match key {
-                    SortKey::Name => by_name(),
-                    SortKey::Ext => a
-                        .ext()
-                        .to_lowercase()
-                        .cmp(&b.ext().to_lowercase())
-                        .then_with(by_name),
-                    SortKey::Size => a.size.cmp(&b.size).then_with(by_name),
-                    SortKey::Modified => a.modified.cmp(&b.modified).then_with(by_name),
-                };
-                if descending { ord.reverse() } else { ord }
-            })
-    });
+    entries.sort_by(|a, b| compare_entries(a, b, key, descending));
+}
+
+/// Compares two rows using the same ordering as [`sort_entries`].
+pub fn compare_entries(a: &Entry, b: &Entry, key: SortKey, descending: bool) -> Ordering {
+    b.is_parent
+        .cmp(&a.is_parent)
+        .then_with(|| b.is_dir.cmp(&a.is_dir))
+        .then_with(|| {
+            let by_name = || natural_cmp(&a.name, &b.name);
+            let ord = match key {
+                SortKey::Name => by_name(),
+                SortKey::Ext => a
+                    .ext()
+                    .to_lowercase()
+                    .cmp(&b.ext().to_lowercase())
+                    .then_with(by_name),
+                SortKey::Size => size_order(a.size, b.size).then_with(by_name),
+                SortKey::Modified => a.modified.cmp(&b.modified).then_with(by_name),
+            };
+            if descending { ord.reverse() } else { ord }
+        })
+}
+
+/// Orders known sizes numerically, with unknown sizes last in ascending order.
+pub fn size_order(a: Option<u64>, b: Option<u64>) -> Ordering {
+    match (a, b) {
+        (Some(a), Some(b)) => a.cmp(&b),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    }
 }
 
 /// Case-insensitive "natural" order: runs of digits compare by numeric
@@ -218,7 +232,37 @@ pub fn display_path(dir: &Path) -> String {
 }
 
 /// Lists `dir` (unsorted), with a ".." entry when there is a parent.
+#[cfg(test)]
 pub fn read_dir(dir: &Path, show_hidden: bool) -> io::Result<Vec<Entry>> {
+    read_dir_cancellable(dir, show_hidden, None)
+}
+
+/// Lists a directory while checking cancellation between entries and before
+/// metadata probes. Returns `Interrupted` when the worker has been cancelled.
+pub fn read_dir_cancellable(
+    dir: &Path,
+    show_hidden: bool,
+    cancel: Option<&AtomicBool>,
+) -> io::Result<Vec<Entry>> {
+    let mut check_cancel = || {
+        if cancel.is_some_and(|flag| flag.load(AtomicOrdering::Relaxed)) {
+            Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "listing cancelled",
+            ))
+        } else {
+            Ok(())
+        }
+    };
+    read_dir_with_check(dir, show_hidden, &mut check_cancel)
+}
+
+fn read_dir_with_check(
+    dir: &Path,
+    show_hidden: bool,
+    check_cancel: &mut dyn FnMut() -> io::Result<()>,
+) -> io::Result<Vec<Entry>> {
+    check_cancel()?;
     if dir.as_os_str().is_empty() {
         return Ok(drives());
     }
@@ -229,16 +273,18 @@ pub fn read_dir(dir: &Path, show_hidden: bool) -> io::Result<Vec<Entry>> {
             path: parent,
             is_dir: true,
             is_parent: true,
-            size: 0,
+            size: Some(0),
             modified: None,
             attrs: Attrs::default(),
             link: Default::default(),
         });
     }
     for item in fs::read_dir(dir)? {
+        check_cancel()?;
         let Ok(item) = item else { continue };
         let name = item.file_name().to_string_lossy().into_owned();
         let path = item.path();
+        check_cancel()?;
         // Follow symlinks so linked directories can be entered.
         let followed = fs::metadata(&path);
         let meta = followed
@@ -260,7 +306,7 @@ pub fn read_dir(dir: &Path, show_hidden: bool) -> io::Result<Vec<Entry>> {
             path,
             is_dir: meta.as_ref().is_some_and(|m| m.is_dir()),
             is_parent: false,
-            size: meta.as_ref().map_or(0, |m| m.len()),
+            size: meta.as_ref().map(|m| m.len()),
             attrs: meta.as_ref().map(Attrs::from_meta).unwrap_or_default(),
             link,
             modified: meta.and_then(|m| m.modified().ok()),
@@ -293,7 +339,7 @@ fn drives() -> Vec<Entry> {
                 path: root,
                 is_dir: true,
                 is_parent: false,
-                size: 0,
+                size: Some(0),
                 modified: None,
                 attrs: Default::default(),
                 link: Default::default(),
@@ -423,6 +469,27 @@ pub fn format_time(time: SystemTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
+    use tempfile::TempDir;
+
+    #[test]
+    fn cancellation_is_checked_between_entries_and_metadata() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("entry"), "data").unwrap();
+        let checks = Cell::new(0);
+        let mut check = || {
+            let count = checks.get() + 1;
+            checks.set(count);
+            if count == 3 {
+                Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"))
+            } else {
+                Ok(())
+            }
+        };
+        let error = read_dir_with_check(dir.path(), false, &mut check).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+        assert_eq!(checks.get(), 3);
+    }
 
     #[test]
     fn splits_extension_off_the_last_component() {
@@ -431,7 +498,7 @@ mod tests {
             path: PathBuf::from(name),
             is_dir,
             is_parent: false,
-            size: 0,
+            size: Some(0),
             modified: None,
             attrs: Attrs::default(),
             link: Default::default(),
@@ -460,11 +527,32 @@ mod tests {
             path: PathBuf::from(name),
             is_dir,
             is_parent: name == "..",
-            size,
+            size: Some(size),
             modified: None,
             attrs: Default::default(),
             link: Default::default(),
         }
+    }
+
+    #[test]
+    fn size_order_keeps_unknown_sizes_distinct_and_deterministic() {
+        let mut rows = vec![
+            entry("unknown", false, 0),
+            entry("zero", false, 0),
+            entry("large", false, 9),
+        ];
+        rows[0].size = None;
+        sort_entries(&mut rows, SortKey::Size, false);
+        assert_eq!(
+            rows.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+            ["zero", "large", "unknown"]
+        );
+        sort_entries(&mut rows, SortKey::Size, true);
+        assert_eq!(
+            rows.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+            ["unknown", "large", "zero"]
+        );
+        assert_eq!(rows[2].size, Some(0));
     }
 
     #[test]

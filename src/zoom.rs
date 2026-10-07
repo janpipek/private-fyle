@@ -21,6 +21,17 @@ pub fn step(size: f32, steps: i32) -> f32 {
     (size + STEP * steps as f32).clamp(MIN, MAX)
 }
 
+/// Converts a vertical wheel delta to one zoom step, if it is nonzero.
+pub fn wheel_steps(delta_y: f32) -> Option<i32> {
+    if delta_y > 0.0 {
+        Some(1)
+    } else if delta_y < 0.0 {
+        Some(-1)
+    } else {
+        None
+    }
+}
+
 /// The monospace size that keeps the default ratio to the UI size.
 pub fn mono(size: f32) -> f32 {
     size * DEFAULT_MONO / DEFAULT
@@ -50,5 +61,12 @@ mod tests {
     fn mono_keeps_default_ratio() {
         assert_eq!(mono(DEFAULT), DEFAULT_MONO);
         assert_eq!(mono(32.0), 26.0);
+    }
+
+    #[test]
+    fn wheel_delta_maps_to_a_single_zoom_step() {
+        assert_eq!(wheel_steps(12.0), Some(1));
+        assert_eq!(wheel_steps(-12.0), Some(-1));
+        assert_eq!(wheel_steps(0.0), None);
     }
 }

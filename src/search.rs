@@ -146,7 +146,7 @@ pub fn run(
                 path: path.to_path_buf(),
                 is_dir,
                 is_parent: false,
-                size: meta.as_ref().map_or(0, |m| m.len()),
+                size: meta.as_ref().map(|m| m.len()),
                 attrs: meta
                     .as_ref()
                     .map(crate::fs_ops::Attrs::from_meta)

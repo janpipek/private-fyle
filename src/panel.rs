@@ -2,8 +2,8 @@
 //! renders the model and forwards cursor moves, sorting and activation.
 
 use std::cell::Cell;
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::collections::HashSet;
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -27,21 +27,32 @@ use crate::glyphs::glyph;
 use crate::grid::ViewMode;
 use crate::icon_view::{GridEvent, IconGrid};
 use crate::icons;
+use crate::location::PanelTarget;
 use crate::model::{Folder, Sort};
 use gpui_kit::assets::IconName as Lucide;
 
+pub mod metadata;
+pub mod wheel_view;
+
+use wheel_view::ControlWheelCapture;
+
 /// Emitted when the user activates the cursor entry with the mouse.
 pub struct Activate;
+
+/// Emitted when a tree chevron changes which folders should be listed.
+pub struct TreeExpansionChanged;
 
 /// Requests from a panel header, carrying enough data for Commander to keep
 /// the originating panel when the other panel was active.
 #[derive(Clone, Debug)]
 pub enum HeaderEvent {
-    Navigate(PathBuf),
+    Navigate(PanelTarget),
     Locations,
     SearchLocations,
     Edit,
     CopyPath(String),
+    /// Request a global font zoom step from the Commander.
+    Zoom(i32),
     Error(String),
 }
 
@@ -78,12 +89,14 @@ pub struct FolderView {
     _locations_menu_dismiss: Option<Subscription>,
     /// Listing generation the Git column was last computed for.
     git_generation: Option<u64>,
+    expanded_snapshot: HashSet<crate::location::Location>,
     _git_task: Task<()>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl EventEmitter<Activate> for FolderView {}
 impl EventEmitter<HeaderEvent> for FolderView {}
+impl EventEmitter<TreeExpansionChanged> for FolderView {}
 
 impl FolderView {
     pub fn new(
@@ -94,12 +107,11 @@ impl FolderView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let metadata = cx.new(|_| metadata::MetadataState::new());
         let delegate = FileTable {
             folder: folder.clone(),
             columns,
-            extra: HashMap::new(),
-            exif: HashMap::new(),
-            extra_generation: 0,
+            metadata: metadata.clone(),
             git: None,
             context_menu: None,
             focus: None,
@@ -113,7 +125,8 @@ impl FolderView {
                 .loop_selection(false)
         });
         let focus = table.focus_handle(cx);
-        let grid = cx.new(|cx| IconGrid::new(folder.clone(), focus, icon_size, cx));
+        let grid =
+            cx.new(|cx| IconGrid::new(folder.clone(), focus, metadata.clone(), icon_size, cx));
         let subscriptions = vec![
             cx.subscribe(&grid, |this, _, event: &GridEvent, cx| match event {
                 GridEvent::Select(ix) => this.set_cursor(*ix, cx),
@@ -122,9 +135,17 @@ impl FolderView {
                     cx.emit(Activate);
                 }
             }),
-            cx.observe(&folder, |this, _, cx| {
+            cx.observe(&folder, |this, folder, cx| {
+                let expanded = folder.read(cx).expanded_locations();
+                if expanded != this.expanded_snapshot {
+                    this.expanded_snapshot = expanded;
+                    cx.emit(TreeExpansionChanged);
+                }
                 this.sync_cursor(cx);
                 this.refresh_git(cx);
+            }),
+            cx.observe(&metadata, |this, _, cx| {
+                this.table.update(cx, |table, cx| table.refresh(cx));
             }),
             cx.subscribe(&table, |this, _, event: &TableEvent, cx| match event {
                 TableEvent::SelectRow(row) => this.set_cursor(*row, cx),
@@ -135,6 +156,7 @@ impl FolderView {
                 _ => {}
             }),
         ];
+        let expanded_snapshot = folder.read(cx).expanded_locations();
         let mut this = Self {
             folder,
             table,
@@ -149,6 +171,7 @@ impl FolderView {
             locations_menu: None,
             _locations_menu_dismiss: None,
             git_generation: None,
+            expanded_snapshot,
             _git_task: Task::ready(()),
             _subscriptions: subscriptions,
         };
@@ -170,7 +193,9 @@ impl FolderView {
         let menu = crate::location_view::locations_menu(
             groups,
             move |path, _, cx| {
-                let _ = pick.update(cx, |_, cx| cx.emit(HeaderEvent::Navigate(path)));
+                if let Ok(target) = PanelTarget::from_panel_path(&path, None) {
+                    let _ = pick.update(cx, |_, cx| cx.emit(HeaderEvent::Navigate(target)));
+                }
             },
             move |_, cx| {
                 let _ = search.update(cx, |_, cx| cx.emit(HeaderEvent::SearchLocations));
@@ -326,36 +351,38 @@ impl FolderView {
         }
         let value = {
             let folder = self.folder.read(cx);
-            crate::breadcrumbs::editable_path(folder.path())
+            crate::breadcrumbs::editable_path(&folder.path())
         };
         let input = cx.new(|cx| InputState::new(window, cx).default_value(value));
-        self._location_subscription =
-            Some(
-                cx.subscribe_in(&input, window, |this, input, event: &InputEvent, _, cx| {
-                    if let InputEvent::PressEnter { .. } = event {
-                        let text = input.read(cx).value().to_string();
-                        let (current, archive) = {
-                            let folder = this.folder.read(cx);
-                            (
-                                folder.path().to_path_buf(),
-                                folder.archive().map(Path::to_path_buf),
-                            )
-                        };
-                        match crate::breadcrumbs::parse_location(
-                            &text,
-                            &current,
-                            dirs::home_dir().as_deref(),
-                            archive.as_deref(),
-                        ) {
-                            Ok(path) => {
-                                cx.emit(HeaderEvent::Navigate(path));
-                            }
+        self._location_subscription = Some(cx.subscribe_in(
+            &input,
+            window,
+            |this, input, event: &InputEvent, _, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    let text = input.read(cx).value().to_string();
+                    let (current, archive) = {
+                        let folder = this.folder.read(cx);
+                        (
+                            folder.path().to_path_buf(),
+                            folder.archive().map(Path::to_path_buf),
+                        )
+                    };
+                    match crate::breadcrumbs::parse_location(
+                        &text,
+                        &current,
+                        dirs::home_dir().as_deref(),
+                        archive.as_deref(),
+                    ) {
+                        Ok(path) => match PanelTarget::from_panel_path(&path, archive.as_deref()) {
+                            Ok(target) => cx.emit(HeaderEvent::Navigate(target)),
                             Err(error) => cx.emit(HeaderEvent::Error(format!("{text}: {error}"))),
-                        }
-                        cx.notify();
+                        },
+                        Err(error) => cx.emit(HeaderEvent::Error(format!("{text}: {error}"))),
                     }
-                }),
-            );
+                    cx.notify();
+                }
+            },
+        ));
         input.update(cx, |input, cx| input.focus(window, cx));
         let focus = input.focus_handle(cx);
         self.location_input = Some(input);
@@ -452,14 +479,15 @@ impl Render for FolderView {
             theme.foreground
         };
         let folder = self.folder.read(cx);
-        let path_text = crate::breadcrumbs::editable_path(folder.path());
+        let path_text = crate::breadcrumbs::editable_path(&folder.path());
         let header_text = folder.header();
         let segments = crate::breadcrumbs::segments(
-            folder.path(),
+            &folder.path(),
             folder.archive(),
             folder.inner_path().as_deref(),
-            crate::remote_labels::label_of(folder.path(), cx).as_deref(),
+            crate::remote_labels::label_of(&folder.path(), cx).as_deref(),
         );
+        let archive_source = folder.archive().map(Path::to_path_buf);
         let mut footer = format!("{} dirs, {} files", folder.dir_count(), folder.file_count());
         if folder.is_loading() {
             footer = if folder.is_remote() {
@@ -494,6 +522,7 @@ impl Render for FolderView {
         let segment_count = segments.len();
         for (index, segment) in segments.into_iter().enumerate() {
             let path = segment.path;
+            let archive_source = archive_source.clone();
             let label = match segment.kind {
                 crate::breadcrumbs::Kind::Archive => format!("{} [archive]", segment.label),
                 crate::breadcrumbs::Kind::ArchiveInner => format!("↳ {}", segment.label),
@@ -512,8 +541,11 @@ impl Render for FolderView {
                     .text_color(header_foreground)
                     .accessibility_label(format!("Open {}", path.display()))
                     .on_click(move |_, _, cx| {
-                        if let Some(view) = view.upgrade() {
-                            view.update(cx, |_, cx| cx.emit(HeaderEvent::Navigate(path.clone())));
+                        if let Some(view) = view.upgrade()
+                            && let Ok(target) =
+                                PanelTarget::from_panel_path(&path, archive_source.as_deref())
+                        {
+                            view.update(cx, |_, cx| cx.emit(HeaderEvent::Navigate(target)));
                         }
                     })
                     .into_any_element(),
@@ -648,12 +680,15 @@ impl Render for FolderView {
                     }),
             )
             .child(
-                div().flex_1().min_h_0().child(match self.mode {
-                    ViewMode::List => DataTable::new(&self.table)
-                        .with_size(theme.font_size * 1.85)
-                        .into_any_element(),
-                    ViewMode::Icons => self.grid.clone().into_any_element(),
-                }),
+                div().flex_1().min_h_0().child(ControlWheelCapture::new(
+                    div().size_full().child(match self.mode {
+                        ViewMode::List => DataTable::new(&self.table)
+                            .with_size(theme.font_size * 1.85)
+                            .into_any_element(),
+                        ViewMode::Icons => self.grid.clone().into_any_element(),
+                    }),
+                    cx.entity().downgrade(),
+                )),
             )
             .when_some(self.filter_input.clone(), |d, input| {
                 d.child(
@@ -685,57 +720,11 @@ impl Render for FolderView {
 pub struct FileTable {
     folder: Entity<Folder>,
     columns: Vec<ColumnKind>,
-    /// Cells that need extra system calls or file reads (xattrs, EXIF),
-    /// read lazily for the rows shown and kept until the listing is read
-    /// again.
-    extra: HashMap<(PathBuf, ColumnKind), SharedString>,
-    /// All EXIF columns of a file, read once for all of them.
-    exif: HashMap<PathBuf, HashMap<&'static str, String>>,
-    extra_generation: u64,
+    metadata: Entity<metadata::MetadataState>,
     git: Option<Arc<git_status::Status>>,
     context_menu: Option<ContextMenuBuilder>,
     focus: Option<FocusHandle>,
     context_row: Rc<Cell<Option<usize>>>,
-}
-
-impl FileTable {
-    fn extra(
-        &mut self,
-        path: &Path,
-        is_dir: bool,
-        kind: ColumnKind,
-        generation: u64,
-    ) -> SharedString {
-        // Remote paths are not files: no xattr or EXIF reads for them.
-        if crate::remote::is_remote(path) {
-            return SharedString::default();
-        }
-        if self.extra_generation != generation {
-            self.extra.clear();
-            self.exif.clear();
-            self.extra_generation = generation;
-        }
-        if let Some(text) = self.extra.get(&(path.to_path_buf(), kind)) {
-            return text.clone();
-        }
-        let text: SharedString = match kind {
-            ColumnKind::Xattrs => crate::xattr::names(path).join(", ").into(),
-            ColumnKind::Selinux => crate::xattr::selinux_context(path)
-                .unwrap_or_default()
-                .into(),
-            ColumnKind::Exif(field) if !is_dir => self
-                .exif
-                .entry(path.to_path_buf())
-                .or_insert_with(|| crate::preview::exif_fields(path))
-                .get(field.key())
-                .cloned()
-                .unwrap_or_default()
-                .into(),
-            _ => SharedString::default(),
-        };
-        self.extra.insert((path.to_path_buf(), kind), text.clone());
-        text
-    }
 }
 
 impl TableDelegate for FileTable {
@@ -842,14 +831,37 @@ impl TableDelegate for FileTable {
         let kind = self.columns[col_ix];
         if matches!(
             kind,
-            ColumnKind::Xattrs | ColumnKind::Selinux | ColumnKind::Exif(_)
+            ColumnKind::Owner | ColumnKind::Xattrs | ColumnKind::Selinux | ColumnKind::Exif(_)
         ) {
-            let folder = self.folder.read(cx);
-            let Some(row) = folder.entries().get(row_ix).filter(|r| !r.is_parent) else {
+            let (location, is_dir, is_parent, generation, uid, link) = {
+                let folder = self.folder.read(cx);
+                let Some(row) = folder.entries().get(row_ix) else {
+                    return div().into_any_element();
+                };
+                (
+                    row.location.clone(),
+                    row.is_dir,
+                    row.is_parent,
+                    folder.generation(),
+                    row.entry.attrs.uid,
+                    row.entry.link.clone(),
+                )
+            };
+            let Some(path) = location.as_local_path().filter(|_| !is_parent) else {
                 return div().into_any_element();
             };
-            let (path, is_dir, generation) = (row.path.clone(), row.is_dir, folder.generation());
-            let text = self.extra(&path, is_dir, kind, generation);
+            let path = path.to_path_buf();
+            let fields = metadata::fields_for_row(&self.columns, is_dir, uid);
+            let text = self
+                .metadata
+                .read(cx)
+                .get(&path, generation)
+                .and_then(|values| values.column(kind))
+                .unwrap_or_default()
+                .to_owned();
+            self.metadata.update(cx, |metadata, cx| {
+                metadata.request(location, generation, &fields, uid, link, cx);
+            });
             let theme = cx.theme();
             return div()
                 .truncate()
@@ -861,13 +873,40 @@ impl TableDelegate for FileTable {
                 .child(text)
                 .into_any_element();
         }
+        if kind == ColumnKind::Name {
+            let request = {
+                let folder = self.folder.read(cx);
+                folder.entries().get(row_ix).and_then(|row| {
+                    row.location.as_local_path()?;
+                    matches!(row.entry.link, crate::links::LinkState::Link { .. }).then(|| {
+                        (
+                            row.location.clone(),
+                            folder.generation(),
+                            row.entry.link.clone(),
+                        )
+                    })
+                })
+            };
+            if let Some((location, generation, link)) = request {
+                self.metadata.update(cx, |metadata, cx| {
+                    metadata.request(
+                        location,
+                        generation,
+                        &[metadata::Field::ResolvedLink],
+                        None,
+                        link,
+                        cx,
+                    );
+                });
+            }
+        }
         let folder = self.folder.read(cx);
         let Some(row) = folder.entries().get(row_ix) else {
             return div().into_any_element();
         };
         let entry = &row.entry;
         let theme = cx.theme();
-        let color = if folder.is_marked(&entry.path) {
+        let color = if folder.is_marked(&row.location) {
             theme.danger
         } else if entry.link.is_broken() {
             theme.muted_foreground
@@ -878,7 +917,7 @@ impl TableDelegate for FileTable {
         };
         match self.columns[col_ix] {
             ColumnKind::Name => {
-                let expanded = folder.is_expanded(&entry.path);
+                let expanded = folder.is_expanded(&row.location);
                 let icon = glyph(icons::icon_for(
                     &entry.name,
                     entry.is_dir,
@@ -888,7 +927,7 @@ impl TableDelegate for FileTable {
                 // Tree mode: indentation plus a clickable expand chevron.
                 let chevron = folder.is_tree().then(|| {
                     let toggle = (entry.is_dir && !entry.is_parent).then(|| {
-                        let (folder, path) = (self.folder.clone(), entry.path.clone());
+                        let (folder, location) = (self.folder.clone(), row.location.clone());
                         div()
                             .child(if expanded {
                                 IconName::ChevronDown
@@ -897,14 +936,20 @@ impl TableDelegate for FileTable {
                             })
                             .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                                 folder.update(cx, |folder, cx| {
-                                    folder.toggle_expanded(&path);
+                                    folder.toggle_expanded(&location);
                                     cx.notify();
                                 });
                             })
                     });
                     div().w(px(14.)).flex_none().children(toggle)
                 });
-                let tip = entry.link.tooltip(&entry.path);
+                let resolved = row
+                    .location
+                    .as_local_path()
+                    .and_then(|path| self.metadata.read(cx).get(path, folder.generation()))
+                    .and_then(metadata::MetadataValues::resolved_link)
+                    .flatten();
+                let tip = entry.link.tooltip_with_resolved(resolved);
                 h_flex()
                     .id(("name", row_ix))
                     .items_center()
@@ -953,7 +998,7 @@ impl TableDelegate for FileTable {
                         .dir_size(&entry.path)
                         .map_or_else(|| "<DIR>".to_string(), |size| size.label())
                 } else {
-                    fs_ops::format_size(entry.size)
+                    entry.size.map_or_else(|| "—".into(), fs_ops::format_size)
                 })
                 .into_any_element(),
             ColumnKind::Modified => div()
@@ -968,10 +1013,7 @@ impl TableDelegate for FileTable {
                     d.child(entry.attrs.permissions(entry.is_dir))
                 })
                 .into_any_element(),
-            ColumnKind::Owner => div()
-                .text_color(theme.muted_foreground)
-                .when(!entry.is_parent, |d| d.child(entry.attrs.owner()))
-                .into_any_element(),
+            ColumnKind::Owner => div().into_any_element(),
             ColumnKind::Created => div()
                 .text_color(theme.muted_foreground)
                 .when_some(entry.attrs.created.filter(|_| !entry.is_parent), |d, t| {

@@ -46,6 +46,17 @@ pub fn summarize(verb: &str, unit: &str, done: usize, errors: &[String]) -> Stri
 }
 
 impl Commander {
+    fn local_targets(&mut self, cx: &mut Context<Self>) -> Option<Vec<PathBuf>> {
+        match self.folders[self.active].read(cx).local_targets() {
+            Ok(targets) => Some(targets),
+            Err(error) => {
+                self.status = error.to_string().into();
+                cx.notify();
+                None
+            }
+        }
+    }
+
     pub fn yank_files(&mut self, _: &YankFiles, _: &mut Window, cx: &mut Context<Self>) {
         self.set_yank(false, cx);
     }
@@ -60,7 +71,9 @@ impl Commander {
         if self.refuse_in_archive(cx) || self.refuse_on_remote(cx) {
             return;
         }
-        let paths = self.folders[self.active].read(cx).targets();
+        let Some(paths) = self.local_targets(cx) else {
+            return;
+        };
         if paths.is_empty() {
             return;
         }
@@ -88,7 +101,13 @@ impl Commander {
             cx.notify();
             return;
         };
-        let dest = self.folders[self.active].read(cx).path().to_path_buf();
+        let Some(dest) = self.folders[self.active]
+            .read(cx)
+            .local_directory()
+            .map(PathBuf::from)
+        else {
+            return;
+        };
         match yank.paste_into(&dest) {
             Ok(kind) => {
                 let restore = yank.cut.then(|| {
@@ -115,7 +134,10 @@ impl Commander {
         if self.refuse_in_archive(cx) {
             return;
         }
-        let sources = Rc::new(self.folders[self.active].read(cx).targets());
+        let Some(sources) = self.local_targets(cx) else {
+            return;
+        };
+        let sources = Rc::new(sources);
         if sources.is_empty() {
             return;
         }
@@ -173,7 +195,7 @@ impl Commander {
                             Ok(renames) => {
                                 let (done, errors) = rename::apply(&renames);
                                 this.update_folder(cx, Folder::clear_marks);
-                                this.reload_all(cx);
+                                this.reload_all(window, cx);
                                 if let [only] = renames.as_slice() {
                                     let to = only.to.clone();
                                     this.update_folder(cx, |f| f.select_path(Some(&to)));
@@ -219,7 +241,10 @@ impl Commander {
         if entry.is_dir {
             return;
         }
-        self.open_in_editor(entry.path.clone(), Document::open(&entry.path), window, cx);
+        let Some(path) = entry.location.as_local_path().map(PathBuf::from) else {
+            return;
+        };
+        self.open_in_editor(path.clone(), Document::open(&path), window, cx);
     }
 
     /// Shift-F4: asks for a name, creates an empty file and edits it.
@@ -227,10 +252,13 @@ impl Commander {
         if self.refuse_in_archive(cx) || self.refuse_on_remote(cx) {
             return;
         }
-        let dir = self.folders[self.active].read(cx).path().to_path_buf();
-        if dir.as_os_str().is_empty() {
+        let Some(dir) = self.folders[self.active]
+            .read(cx)
+            .local_directory()
+            .map(PathBuf::from)
+        else {
             return;
-        }
+        };
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("File name"));
         let this = cx.entity().downgrade();
         let dialog_input = input.clone();
@@ -249,7 +277,7 @@ impl Commander {
                     let path = dir.join(&name);
                     let _ = this.update(cx, |this, cx| {
                         let doc = crate::editor::create(&path);
-                        this.reload_all(cx);
+                        this.reload_all(window, cx);
                         this.update_folder(cx, |f| f.select_path(Some(&path)));
                         this.open_in_editor(path, doc, window, cx);
                     });
@@ -296,7 +324,7 @@ impl Commander {
                 match event {
                     EditorEvent::Saved(message) => {
                         this.status = message.clone().into();
-                        this.reload_all(cx);
+                        this.reload_all(window, cx);
                         this.preview.update(cx, |p, cx| p.reload(window, cx));
                     }
                     EditorEvent::Failed(error) => this.status = error.clone().into(),
@@ -369,8 +397,17 @@ impl Commander {
             }
             return;
         }
-        let sources = Rc::new(self.folders[self.active].read(cx).targets());
-        let dest = self.folders[1 - self.active].read(cx).path().to_path_buf();
+        let Some(sources) = self.local_targets(cx) else {
+            return;
+        };
+        let sources = Rc::new(sources);
+        let Some(dest) = self.folders[1 - self.active]
+            .read(cx)
+            .local_directory()
+            .map(PathBuf::from)
+        else {
+            return;
+        };
         if sources.is_empty() || dest.as_os_str().is_empty() {
             return;
         }
@@ -405,7 +442,13 @@ impl Commander {
         let Some((file, wanted)) = self.folders[self.active].read(cx).archive_targets() else {
             return;
         };
-        let dest = self.folders[1 - self.active].read(cx).path().to_path_buf();
+        let Some(dest) = self.folders[1 - self.active]
+            .read(cx)
+            .local_directory()
+            .map(PathBuf::from)
+        else {
+            return;
+        };
         if wanted.is_empty() || dest.as_os_str().is_empty() {
             return;
         }
@@ -435,15 +478,23 @@ impl Commander {
                 folder.archive().is_none()
                     && !e.is_dir
                     && !e.is_parent
-                    && archive::format_of(&e.path).is_some()
+                    && e.location
+                        .as_local_path()
+                        .is_some_and(|path| archive::format_of(path).is_some())
             })
-            .map(|e| e.path.clone());
+            .and_then(|e| e.location.as_local_path().map(PathBuf::from));
         let Some(file) = file else {
             self.status = "Select an archive file to extract".into();
             cx.notify();
             return;
         };
-        let dest = self.folders[1 - self.active].read(cx).path().to_path_buf();
+        let Some(dest) = self.folders[1 - self.active]
+            .read(cx)
+            .local_directory()
+            .map(PathBuf::from)
+        else {
+            return;
+        };
         if self.folders[1 - self.active].read(cx).archive().is_some() {
             self.status = "The other panel shows an archive, which is read-only".into();
             cx.notify();
@@ -467,11 +518,6 @@ impl Commander {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if crate::remote::is_remote(&dest) {
-            self.status = "Extracting into a remote folder is not supported yet".into();
-            cx.notify();
-            return;
-        }
         let what = match extraction.wanted.as_slice() {
             [one] if one.is_empty() => format!(
                 "\"{}\" to a folder",
@@ -532,7 +578,10 @@ impl Commander {
         if self.refuse_in_archive(cx) {
             return;
         }
-        let targets = Rc::new(self.folders[self.active].read(cx).targets());
+        let Some(targets) = self.local_targets(cx) else {
+            return;
+        };
+        let targets = Rc::new(targets);
         if targets.is_empty() {
             return;
         }
@@ -584,9 +633,8 @@ impl Commander {
         }
         if self.folders[self.active]
             .read(cx)
-            .path()
-            .as_os_str()
-            .is_empty()
+            .local_directory()
+            .is_none()
         {
             return;
         }
@@ -600,7 +648,7 @@ impl Commander {
             |this, input, event: &InputEvent, window, cx| {
                 if let InputEvent::PressEnter { .. } = event {
                     let name = input.read(cx).value();
-                    this.create_dir(&name, cx);
+                    this.create_dir(&name, window, cx);
                     window.close_dialog(cx);
                     this.focus_active(window, cx);
                 }
@@ -618,7 +666,7 @@ impl Commander {
                 .on_ok(move |_, window, cx| {
                     let name = input.read(cx).value();
                     let _ = this.update(cx, |this, cx| {
-                        this.create_dir(&name, cx);
+                        this.create_dir(&name, window, cx);
                         this.focus_active(window, cx);
                     });
                     true
@@ -627,7 +675,7 @@ impl Commander {
         input.update(cx, |input, cx| input.focus(window, cx));
     }
 
-    pub fn create_dir(&mut self, name: &str, cx: &mut Context<Self>) {
+    pub fn create_dir(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
         let name = name.trim();
         if name.is_empty() {
             return;
@@ -636,15 +684,46 @@ impl Commander {
             self.create_remote_dir(name, cx);
             return;
         }
-        let path = self.folders[self.active].read(cx).path().join(name);
-        match std::fs::create_dir_all(&path) {
-            Ok(()) => {
-                self.status = format!("Created {}", path.display()).into();
-                self.reload_all(cx);
-                self.update_folder(cx, |f| f.select_path(Some(&path)));
-            }
-            Err(e) => self.status = format!("{}: {e}", path.display()).into(),
-        }
+        let (Some(dir), target) = ({
+            let folder = self.folders[self.active].read(cx);
+            (folder.local_directory().map(PathBuf::from), folder.target())
+        }) else {
+            return;
+        };
+        let path = dir.join(name);
+        let display = path.display().to_string();
+        let selected = crate::location::Location::local(path.clone());
+        let panel = self.active;
+        self.status = format!("Creating {display}…").into();
         cx.notify();
+        cx.spawn_in(window, async move |this_entity, cx| {
+            let result = cx
+                .background_spawn(async move { std::fs::create_dir_all(&path) })
+                .await;
+            let _ = this_entity.update_in(cx, |this, window, cx| {
+                match result {
+                    Ok(()) => match selected {
+                        Ok(selected) => {
+                            let unchanged = this.folders[panel].read(cx).target() == target;
+                            if unchanged {
+                                this.load_panel_listing(
+                                    panel,
+                                    target,
+                                    super::location::ListingCommit::RefreshSelect(selected),
+                                    false,
+                                    window,
+                                    cx,
+                                );
+                            }
+                            this.status = format!("Created {display}").into();
+                        }
+                        Err(error) => this.status = format!("{display}: {error}").into(),
+                    },
+                    Err(error) => this.status = format!("{display}: {error}").into(),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 }
