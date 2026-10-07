@@ -19,6 +19,7 @@ mod icons;
 mod jobs;
 mod link_badge;
 mod links;
+mod location;
 mod location_view;
 mod menu_bar;
 mod menus;

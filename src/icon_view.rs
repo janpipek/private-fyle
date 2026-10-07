@@ -356,7 +356,7 @@ impl IconGrid {
         };
         let entry = &row.entry;
         let theme = cx.theme();
-        let marked = folder.is_marked(&entry.path);
+        let marked = folder.is_marked(&row.location);
         let at_cursor = folder.cursor() == ix;
         let color = if marked {
             theme.danger

@@ -2,7 +2,7 @@
 //! translate input into calls on it; all navigation, cursor, marking,
 //! sorting and tree expansion rules live here.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
@@ -23,6 +23,7 @@ use history::Visit;
 use crate::archive;
 use crate::dirsize::DirSize;
 use crate::fs_ops::{self, Entry, SortKey};
+use crate::location::Location;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Sort {
@@ -51,6 +52,8 @@ pub enum Activation {
 #[derive(Clone, Debug)]
 pub struct Row {
     pub entry: Entry,
+    /// Typed identity of this row; `entry.path` is a UI compatibility spelling.
+    pub location: Location,
     pub depth: usize,
     /// For a content search hit: the first matching line (1-based) and its text.
     pub hit_line: Option<(u64, String)>,
@@ -66,12 +69,14 @@ impl Deref for Row {
 
 #[derive(Clone)]
 pub struct Folder {
+    /// Authoritative current address. `path` is its UI compatibility spelling.
+    location: Location,
     path: PathBuf,
     /// Remote listings loaded in the background; remote rows are built from
     /// them, never from I/O.
     remote_listings: remote::ListingCache,
-    /// Local folder the panel came from, where ".." at a remote root returns.
-    remote_origin: Option<PathBuf>,
+    /// Address the panel came from, where ".." at a remote root returns.
+    remote_origin: Option<Location>,
     /// Rows shown: `all` narrowed by `filter`.
     entries: Vec<Row>,
     /// Everything listed, before filtering.
@@ -85,7 +90,7 @@ pub struct Folder {
     /// file joined with the inner path.
     mount: Option<Mount>,
     cursor: usize,
-    marked: BTreeSet<PathBuf>,
+    marked: HashSet<Location>,
     sort: Sort,
     show_hidden: bool,
     tree: bool,
@@ -109,8 +114,10 @@ pub struct Folder {
 
 impl Folder {
     /// Creates an unloaded folder; call [`Folder::load_or_ancestor`] next.
-    pub fn new(path: PathBuf) -> Self {
-        Self {
+    pub fn new(path: PathBuf) -> io::Result<Self> {
+        let location = Location::from_panel_path(&path, None)?;
+        Ok(Self {
+            location,
             path,
             remote_listings: Default::default(),
             remote_origin: None,
@@ -120,7 +127,7 @@ impl Folder {
             results: None,
             mount: None,
             cursor: 0,
-            marked: BTreeSet::new(),
+            marked: HashSet::new(),
             sort: Sort::default(),
             show_hidden: false,
             tree: false,
@@ -131,7 +138,7 @@ impl Folder {
             back: Vec::new(),
             forward: Vec::new(),
             loading: None,
-        }
+        })
     }
 
     /// Initial options, applied by the first load.
@@ -142,8 +149,15 @@ impl Folder {
         self
     }
 
+    /// The existing panel spelling for UI callers. Virtual paths must not
+    /// be passed to native filesystem operations.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// The typed identity of the folder currently shown.
+    pub fn location(&self) -> &Location {
+        &self.location
     }
 
     pub fn entries(&self) -> &[Row] {
@@ -175,8 +189,8 @@ impl Folder {
         self.tree && self.mount.is_none() && self.expanded.contains(path)
     }
 
-    pub fn is_marked(&self, path: &Path) -> bool {
-        self.marked.contains(path)
+    pub fn is_marked(&self, location: &Location) -> bool {
+        self.marked.contains(location)
     }
 
     pub fn marked_count(&self) -> usize {
@@ -213,7 +227,8 @@ impl Folder {
             self.generation += 1;
             let selected = self.current().map(|e| e.path.clone());
             self.all.retain(|r| r.is_parent || r.path.exists());
-            self.marked.retain(|p| p.exists());
+            self.marked
+                .retain(|location| location.as_local_path().is_some_and(Path::exists));
             self.apply_filter();
             if !self.select_path(selected.as_deref()) {
                 self.set_cursor(self.cursor);
@@ -240,8 +255,19 @@ impl Folder {
             if self.is_remote() {
                 break;
             }
-            match fs_ops::parent_of(&self.path) {
-                Some(parent) => self.path = parent,
+            let parent = match &self.location {
+                Location::Local(local) => fs_ops::parent_of(local.as_path()),
+                Location::Archive { source, .. } => {
+                    source.as_local_path().and_then(fs_ops::parent_of)
+                }
+                Location::Remote(_) | Location::Drives => None,
+            };
+            match parent {
+                Some(parent) => {
+                    self.location = Location::local(parent.clone())
+                        .expect("parent of an absolute path remains absolute");
+                    self.path = parent;
+                }
                 None => break,
             }
         }
@@ -302,23 +328,55 @@ impl Folder {
     }
 
     fn replace_untracked(&mut self, path: PathBuf, select: Option<PathBuf>) -> Result<(), String> {
+        let location = Location::from_panel_path(&path, self.archive())
+            .map_err(|e| format!("{}: {e}", fs_ops::display_path(&path)))?;
+        let selected = select
+            .map(|path| {
+                Location::from_panel_path(&path, self.archive())
+                    .map_err(|e| format!("{}: {e}", fs_ops::display_path(&path)))
+            })
+            .transpose()?;
+        self.replace_untracked_location(location, selected)
+    }
+
+    /// Loads a typed address, preserving its kind during history travel.
+    fn replace_untracked_location(
+        &mut self,
+        requested: Location,
+        selected: Option<Location>,
+    ) -> Result<(), String> {
+        let path = requested.panel_path();
         let mut entries = Vec::new();
         let error = |e: &dyn std::fmt::Display| format!("{}: {e}", fs_ops::display_path(&path));
-        let mount = if crate::remote::is_remote(&path) {
+        let mount = if matches!(requested, Location::Remote(_) | Location::Drives) {
             None
         } else {
             self.mount_for(&path).map_err(|e| error(&e))?
         };
-        if crate::remote::is_remote(&path) {
-            self.list_remote(&path, &mut entries)
-                .map_err(|e| error(&e))?;
-        } else {
-            match &mount {
-                Some((mount, inner)) => self
-                    .list_archive(mount, inner, &mut entries)
-                    .map_err(|e| error(&e))?,
-                None => self.list(&path, 0, &mut entries).map_err(|e| error(&e))?,
+        let location = match (&requested, &mount) {
+            (Location::Archive { .. }, None) => {
+                return Err(error(&"archive is no longer available"));
             }
+            (Location::Local(_), Some((mount, inner))) => Location::archive(
+                Location::local(mount.file.clone()).map_err(|e| error(&e))?,
+                inner,
+            )
+            .map_err(|e| error(&e))?,
+            _ => requested,
+        };
+        match &location {
+            Location::Remote(remote) => self
+                .list_remote(remote, &mut entries)
+                .map_err(|e| error(&e))?,
+            Location::Archive { .. } => {
+                let (mount, inner) = mount.as_ref().expect("archive location has a mount");
+                self.list_archive(mount, inner, &mut entries)
+                    .map_err(|e| error(&e))?;
+            }
+            Location::Local(local) => self
+                .list(local.as_path(), 0, &mut entries)
+                .map_err(|e| error(&e))?,
+            Location::Drives => self.list(&path, 0, &mut entries).map_err(|e| error(&e))?,
         }
         if path != self.path || self.results.is_some() {
             self.marked.clear();
@@ -327,13 +385,15 @@ impl Folder {
         }
         self.results = None;
         self.mount = mount.map(|(mount, _)| mount);
+        self.location = location;
         self.path = path;
         self.all = entries;
         self.generation += 1;
         self.marked
-            .retain(|p| self.all.iter().any(|e| &e.path == p));
+            .retain(|location| self.all.iter().any(|row| &row.location == location));
         self.apply_filter();
-        if !self.select_path(select.as_deref()) {
+        let selected_path = selected.as_ref().map(Location::panel_path);
+        if !self.select_path(selected_path.as_deref()) {
             self.set_cursor(self.cursor);
         }
         Ok(())
@@ -352,6 +412,8 @@ impl Folder {
             let descend = self.tree && !entry.is_parent && self.expanded.contains(&entry.path);
             let path = entry.path.clone();
             out.push(Row {
+                location: Location::from_panel_path(&entry.path, None)
+                    .expect("native listing returns absolute paths or a drive overview"),
                 entry,
                 depth,
                 hit_line: None,
@@ -412,8 +474,15 @@ mod tests {
     #[test]
     fn missing_directory_falls_back_to_ancestor() {
         let dir = fixture();
-        let mut folder = Folder::new(dir.path().join("gone").join("deeper"));
+        let mut folder = Folder::new(dir.path().join("gone").join("deeper")).unwrap();
         assert!(folder.load_or_ancestor().is_some());
         assert_eq!(folder.path(), dir.path());
+    }
+
+    #[test]
+    fn rejects_invalid_start_addresses_without_a_panic() {
+        assert!(Folder::new("relative".into()).is_err());
+        assert!(Folder::new("nas:relative".into()).is_err());
+        assert!(Folder::new(PathBuf::new()).is_ok());
     }
 }

@@ -9,11 +9,13 @@ use super::{Entry, Folder, Row};
 use crate::archive;
 use crate::fs_ops;
 use crate::links::LinkState;
+use crate::location::Location;
 
 /// An archive shown as a directory tree.
 #[derive(Clone)]
 pub struct Mount {
-    file: PathBuf,
+    /// The local archive file whose index is mounted.
+    pub file: PathBuf,
     index: Arc<archive::Index>,
 }
 
@@ -83,6 +85,19 @@ impl Folder {
             index: Arc::default(),
         });
         self.path = target;
+        self.location = Location::archive(
+            Location::local(
+                self.mount
+                    .as_ref()
+                    .expect("loading has a mount")
+                    .file
+                    .clone(),
+            )
+            .expect("archive file has an absolute path"),
+            &archive::inner_of(self.archive().expect("loading has an archive"), &self.path)
+                .expect("target is within the archive"),
+        )
+        .expect("archive target has a valid member path");
         self.generation += 1;
         self.loading = Some(saved);
     }
@@ -188,10 +203,14 @@ impl Folder {
                 }),
         );
         fs_ops::sort_entries(&mut entries, self.sort.key, self.sort.descending);
-        out.extend(entries.into_iter().map(|entry| Row {
-            entry,
-            depth: 0,
-            hit_line: None,
+        out.extend(entries.into_iter().map(|entry| {
+            Row {
+                location: Location::from_panel_path(&entry.path, Some(&mount.file))
+                    .expect("archive listing contains validated paths"),
+                entry,
+                depth: 0,
+                hit_line: None,
+            }
         }));
         Ok(())
     }
@@ -201,6 +220,7 @@ impl Folder {
 mod tests {
     use super::*;
     use crate::fs_ops::SortKey;
+    use crate::location::Location;
     use crate::model::test_support::{fixture, loaded, names};
     use crate::model::{Activation, Folder, Sort};
     use std::fs;
@@ -231,6 +251,11 @@ mod tests {
         folder.select_path(Some(&zip));
         assert_eq!(folder.activate(), Ok(Activation::Entered));
         assert_eq!(folder.archive(), Some(zip.as_path()));
+        assert!(matches!(folder.location(), Location::Archive { .. }));
+        assert!(matches!(
+            folder.entries()[1].location,
+            Location::Archive { .. }
+        ));
         assert_eq!(folder.inner_path().as_deref(), Some(""));
         assert_eq!(names(&folder), ["..", "docs", "top.txt"]);
         assert_eq!(folder.header(), format!("{} ›", zip.display()));
@@ -262,6 +287,7 @@ mod tests {
         // Up again leaves the archive, cursor on it.
         folder.go_up().unwrap();
         assert_eq!(folder.archive(), None);
+        assert!(matches!(folder.location(), Location::Local(_)));
         assert_eq!(folder.path(), dir.path());
         assert_eq!(folder.current().unwrap().path, zip);
     }
@@ -337,8 +363,15 @@ mod tests {
         // Back re-enters the archive.
         assert_eq!(folder.go_back(), Ok(true));
         assert_eq!(folder.archive(), Some(zip.as_path()));
+        assert!(matches!(folder.location(), Location::Archive { .. }));
         assert_eq!(folder.go_back(), Ok(true));
         assert_eq!(folder.inner_path().as_deref(), Some("docs"));
+        assert!(matches!(folder.location(), Location::Archive { .. }));
+        assert_eq!(folder.go_forward(), Ok(true));
+        assert_eq!(folder.inner_path().as_deref(), Some(""));
+        assert_eq!(folder.go_forward(), Ok(true));
+        assert_eq!(folder.archive(), None);
+        assert!(matches!(folder.location(), Location::Local(_)));
     }
 
     #[test]
@@ -355,7 +388,7 @@ mod tests {
             }
             z.finish().unwrap();
         }
-        let mut folder = Folder::new(zip.clone());
+        let mut folder = Folder::new(zip.clone()).unwrap();
         assert_eq!(folder.load_or_ancestor(), None);
         assert_eq!(folder.archive(), Some(zip.as_path()));
         assert_eq!(names(&folder), ["..", "a.txt", "b.txt"]);

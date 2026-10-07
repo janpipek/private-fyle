@@ -301,12 +301,18 @@ dev container.
 
 ## Architecture
 
-Model first: `src/model.rs` holds each panel's state (`Folder`: path, rows,
+Model first: `src/model.rs` holds each panel's state (`Folder`: typed location, rows,
 cursor, marks, sort, hidden files, tree expansion) with no UI code and its own unit tests.
 `src/panel.rs` is a `DataTable` view on top of a `Folder`; it only renders the
 model and forwards cursor moves, sorting and double-clicks to it.
 `src/commander.rs` owns the two models and their views and implements the
 commands. `src/fs_ops.rs` contains the file system operations.
+`src/location.rs` identifies local paths, configured remote paths and archive
+members without a live connection. Local paths retain native bytes and symlink
+spelling; archive members are validated. `Folder` rows, marks and history carry these
+identities, and remote listing cache keys use typed remote paths. The existing
+`Folder::path()` and `Entry::path` are compatibility spellings for panel and
+command code; virtual spellings must not be passed to native filesystem calls.
 `src/tools/` is the model for context-dependent tools (run ruff on Python
 files, uv commands in uv projects, convert images, …); see
 [`docs/tools.md`](docs/tools.md). F2 opens them; your own go in
@@ -352,7 +358,7 @@ Where things live (`src/`):
 | `main.rs` | Startup, settings, start directories, window |
 | `commander.rs`, `commander/` | Main window: the two panels, actions, dialogs, jobs bar, tools orchestration. Split by area into `commander/` (keys, navigation, search, files, jobs, view, archives, remotes, tools, menus, appearance); new logic goes into its own module, only wiring here. |
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
-| `model.rs` | `Folder`: entries, cursor, marks, filter, sort, tree, search results, archive mount, directory size cache |
+| `model.rs`, `location.rs` | `Folder`: typed location, entries, cursor, marks, filter, sort, tree, search results, archive mount, directory size cache; `Location` native, remote and archive addresses |
 | `panel.rs` | `FolderView` (DataTable delegate `FileTable`), header with breadcrumbs, filter bar; shows the list or the icon grid |
 | `thumbnails.rs`, `thumb_queue.rs` | Icon view thumbnails: the freedesktop cache (URI and MD5 names, validity by `Thumb::MTime`, atomic writes, failure records) and the load scheduler with its LRU, both UI-independent and tested |
 | `grid.rs`, `icon_view.rs`, `glyphs.rs`, `context_menu.rs` | Icon view: `ViewMode`, icon sizes, `Layout` (columns for a width) and cursor moves (UI-independent, tested); the lazy `IconGrid` view; the `FileIcon` → glyph table and the right-click menu shared with the list |

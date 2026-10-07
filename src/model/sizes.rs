@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use super::{Entry, Folder, Row};
 use crate::dirsize::DirSize;
 use crate::fs_ops::{self, SortKey};
+use crate::location::Location;
 
 /// What [`Folder::marked_total`] knows about the marked entries.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -44,7 +45,12 @@ impl Folder {
                 .collect::<Vec<_>>()
         };
         if !self.marked.is_empty() {
-            return dirs(&mut self.all.iter().filter(|r| self.marked.contains(&r.path)));
+            return dirs(
+                &mut self
+                    .all
+                    .iter()
+                    .filter(|r| self.marked.contains(&r.location)),
+            );
         }
         match self.current() {
             Some(row) if row.is_dir && !row.is_parent => vec![row.path.clone()],
@@ -123,11 +129,17 @@ impl Folder {
         // In tree mode a marked row may lie inside a marked, measured
         // directory whose size already includes it.
         let covered = |path: &Path| {
-            path.ancestors()
-                .skip(1)
-                .any(|a| self.marked.contains(a) && self.sizes.contains_key(a))
+            path.ancestors().skip(1).any(|a| {
+                Location::local(a.to_path_buf())
+                    .is_ok_and(|location| self.marked.contains(&location))
+                    && self.sizes.contains_key(a)
+            })
         };
-        for row in self.all.iter().filter(|r| self.marked.contains(&r.path)) {
+        for row in self
+            .all
+            .iter()
+            .filter(|r| self.marked.contains(&r.location))
+        {
             if covered(&row.path) {
                 continue;
             }

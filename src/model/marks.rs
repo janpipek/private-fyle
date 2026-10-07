@@ -3,12 +3,15 @@
 use std::path::PathBuf;
 
 use super::Folder;
+use crate::location::Location;
 
 impl Folder {
     /// Marked entries, or the entry under the cursor when nothing is marked.
     pub fn targets(&self) -> Vec<PathBuf> {
         if !self.marked.is_empty() {
-            return self.marked.iter().cloned().collect();
+            let mut targets: Vec<_> = self.marked.iter().map(Location::panel_path).collect();
+            targets.sort();
+            return targets;
         }
         self.current()
             .filter(|e| !e.is_parent)
@@ -22,7 +25,7 @@ impl Folder {
         let Some(row) = self.entries.get(ix) else {
             return;
         };
-        if !self.marked.contains(&row.path) {
+        if !self.marked.contains(&row.location) {
             self.marked.clear();
         }
         self.set_cursor(ix);
@@ -33,9 +36,9 @@ impl Folder {
         let Some(entry) = self.current().filter(|e| !e.is_parent) else {
             return;
         };
-        let path = entry.path.clone();
-        if !self.marked.remove(&path) {
-            self.marked.insert(path);
+        let location = entry.location.clone();
+        if !self.marked.remove(&location) {
+            self.marked.insert(location);
         }
         self.set_cursor(self.cursor + 1);
     }
@@ -44,26 +47,26 @@ impl Folder {
         self.marked.clear();
     }
 
-    /// Paths of the shown entries that can be marked (not "..").
-    pub fn markable(&self) -> impl Iterator<Item = &PathBuf> {
+    /// Identities of the shown entries that can be marked (not "..").
+    pub fn markable(&self) -> impl Iterator<Item = &Location> {
         self.entries
             .iter()
             .filter(|e| !e.is_parent)
-            .map(|e| &e.path)
+            .map(|e| &e.location)
     }
 
     /// Marks every shown entry (the filter limits what is shown).
     pub fn mark_all(&mut self) {
-        let paths: Vec<_> = self.markable().cloned().collect();
-        self.marked.extend(paths);
+        let locations: Vec<_> = self.markable().cloned().collect();
+        self.marked.extend(locations);
     }
 
     /// Marks the unmarked shown entries and unmarks the marked ones.
     pub fn invert_marks(&mut self) {
-        let paths: Vec<_> = self.markable().cloned().collect();
-        for path in paths {
-            if !self.marked.remove(&path) {
-                self.marked.insert(path);
+        let locations: Vec<_> = self.markable().cloned().collect();
+        for location in locations {
+            if !self.marked.remove(&location) {
+                self.marked.insert(location);
             }
         }
     }
@@ -73,16 +76,16 @@ impl Folder {
     /// how many matched.
     pub fn mark_matching(&mut self, pattern: &str) -> Result<usize, String> {
         let matcher = crate::search::NameMatcher::new(pattern)?;
-        let paths: Vec<_> = self
+        let locations: Vec<_> = self
             .entries
             .iter()
             .filter(|e| !e.is_parent)
             // Search results show relative paths; match the file name.
             .filter(|e| matcher.matches(e.name.rsplit('/').next().unwrap_or(&e.name)))
-            .map(|e| e.path.clone())
+            .map(|e| e.location.clone())
             .collect();
-        let count = paths.len();
-        self.marked.extend(paths);
+        let count = locations.len();
+        self.marked.extend(locations);
         Ok(count)
     }
 }
@@ -156,7 +159,7 @@ mod tests {
             let mut names: Vec<_> = f
                 .entries()
                 .iter()
-                .filter(|e| f.is_marked(&e.path))
+                .filter(|e| f.is_marked(&e.location))
                 .map(|e| e.name.clone())
                 .collect();
             names.sort();

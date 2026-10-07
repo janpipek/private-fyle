@@ -20,7 +20,7 @@ pub fn names(folder: &Folder) -> Vec<&str> {
 }
 
 pub fn loaded(dir: &TempDir) -> Folder {
-    let mut folder = Folder::new(dir.path().to_path_buf());
+    let mut folder = Folder::new(dir.path().to_path_buf()).unwrap();
     assert_eq!(folder.load_or_ancestor(), None);
     folder
 }

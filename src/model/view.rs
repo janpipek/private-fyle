@@ -4,6 +4,7 @@ use std::path::Path;
 
 use super::{Entry, Folder, Row, Sort};
 use crate::fs_ops;
+use crate::location::Location;
 
 impl Folder {
     /// Re-sorts, keeping the cursor on the same entry.
@@ -26,6 +27,8 @@ impl Folder {
             self.all = entries
                 .into_iter()
                 .map(|entry| Row {
+                    location: Location::local(entry.path.clone())
+                        .expect("search entries have absolute paths"),
                     hit_line: lines.remove(&entry.path),
                     entry,
                     depth: 0,

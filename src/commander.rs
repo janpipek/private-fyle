@@ -155,7 +155,9 @@ impl Commander {
         let panels = &settings.panels;
         let mut ix = 0;
         let mut start_remote: [Option<PathBuf>; 2] = [None, None];
-        let fallback = std::env::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+        let fallback = std::env::home_dir()
+            .filter(|path| path.is_absolute())
+            .unwrap_or_else(|| PathBuf::from("/"));
         let folders = [left, right].map(|path| {
             // Remote folders are listed in the background; see `init`.
             let path = if crate::remote::is_remote(&path) {
@@ -167,8 +169,11 @@ impl Commander {
             // Tree mode does not apply to the icon grid: load once, without it.
             let tree = panels.tree && panels.view(ix) == ViewMode::List;
             ix += 1;
-            let mut folder =
-                Folder::new(path).with_options(settings.show_hidden, tree, panels.sort());
+            let mut folder = Folder::new(path.clone()).unwrap_or_else(|error| {
+                status = format!("{}: {error}", path.display()).into();
+                Folder::new(fallback.clone()).expect("fallback home or root is absolute")
+            });
+            folder = folder.with_options(settings.show_hidden, tree, panels.sort());
             if let Some(e) = folder.load_or_ancestor() {
                 status = e.into();
             }

@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::{Entry, Folder, Row};
+use crate::location::Location;
 use crate::{fs_ops, remote};
 
 /// Folders whose listings a panel keeps, so Back, Forward and Up are instant.
@@ -15,20 +16,25 @@ const LISTING_CAP: usize = 32;
 /// Clones share the listings, because panels are cloned for background work.
 #[derive(Clone, Default)]
 pub struct ListingCache {
-    listings: HashMap<PathBuf, Arc<Vec<Entry>>>,
+    listings: HashMap<remote::Location, Arc<Vec<Entry>>>,
     /// Paths from least to most recently stored.
-    order: Vec<PathBuf>,
+    order: Vec<remote::Location>,
 }
 
 impl ListingCache {
     /// Stores (or replaces) a listing; beyond the cap the oldest other than
     /// `keep` (the folder on show) is dropped.
-    pub fn insert(&mut self, path: PathBuf, entries: Vec<Entry>, keep: &Path) {
+    pub fn insert(
+        &mut self,
+        path: remote::Location,
+        entries: Vec<Entry>,
+        keep: Option<&remote::Location>,
+    ) {
         self.order.retain(|p| p != &path);
         self.order.push(path.clone());
         self.listings.insert(path, Arc::new(entries));
         while self.order.len() > LISTING_CAP {
-            let Some(ix) = self.order.iter().position(|p| p != keep) else {
+            let Some(ix) = self.order.iter().position(|p| Some(p) != keep) else {
                 break;
             };
             let old = self.order.remove(ix);
@@ -36,33 +42,43 @@ impl ListingCache {
         }
     }
 
-    pub fn get(&self, path: &Path) -> Option<&Arc<Vec<Entry>>> {
+    pub fn get(&self, path: &remote::Location) -> Option<&Arc<Vec<Entry>>> {
         self.listings.get(path)
     }
 
-    pub fn contains(&self, path: &Path) -> bool {
-        self.listings.contains_key(path)
+    pub fn contains(&self, path: &remote::Location) -> bool {
+        self.get(path).is_some()
     }
 }
 
 impl Folder {
     /// Whether this panel displays a remote folder.
     pub fn is_remote(&self) -> bool {
-        remote::is_remote(self.path())
+        matches!(self.location(), Location::Remote(_))
     }
 
     /// Installs a background result before navigation or history traversal.
     pub fn cache_remote(&mut self, path: PathBuf, entries: Vec<Entry>) {
         if !self.is_remote() {
-            self.remote_origin = Some(self.path.clone());
+            self.remote_origin = Some(self.location.clone());
         }
-        self.remote_listings.insert(path, entries, &self.path);
+        let path = remote::Location::parse(&path)
+            .expect("background result has a validated address")
+            .expect("background result names a remote");
+        let keep = match &self.location {
+            Location::Remote(current) => Some(current),
+            _ => None,
+        };
+        self.remote_listings.insert(path, entries, keep);
     }
 
     /// Whether showing `path` needs a background listing first: it is
     /// remote and not cached.
     pub fn remote_needed(&self, path: &Path) -> bool {
-        remote::is_remote(path) && !self.remote_listings.contains(path)
+        remote::Location::parse(path)
+            .ok()
+            .flatten()
+            .is_some_and(|location| !self.remote_listings.contains(&location))
     }
 
     /// Shows an empty listing of the remote folder `target` while it is
@@ -79,18 +95,22 @@ impl Folder {
         self.cursor = 0;
         self.mount = None;
         self.path = target;
+        self.location = Location::from_panel_path(&self.path, None)
+            .expect("remote load receives a valid address");
         self.generation += 1;
         self.loading = Some(saved);
     }
 
     /// Parent of the current folder, including the return location at remote root.
     pub fn parent_location(&self) -> Option<PathBuf> {
-        match remote::Location::parse(self.path()).ok().flatten() {
-            Some(location) => location
+        match &self.location {
+            Location::Remote(location) => location
                 .parent()
                 .map(|p| p.panel_path())
-                .or_else(|| self.remote_origin.clone()),
-            None => fs_ops::parent_of(self.path()),
+                .or_else(|| self.remote_origin.as_ref().map(Location::panel_path)),
+            Location::Local(path) => fs_ops::parent_of(path.as_path()),
+            Location::Archive { .. } => fs_ops::parent_of(self.path()),
+            Location::Drives => None,
         }
     }
 
@@ -101,31 +121,31 @@ impl Folder {
         paths
             .iter()
             .filter_map(|path| {
-                let location = remote::Location::parse(path).ok().flatten()?;
                 let row = self.all.iter().find(|row| &row.path == path)?;
+                let Location::Remote(location) = &row.location else {
+                    return None;
+                };
                 Some(remote::jobs::RemoteItem {
-                    location,
+                    location: location.clone(),
                     is_dir: row.is_dir,
                 })
             })
             .collect()
     }
 
-    /// Lists the cached remote folder `path` with a ".." row; fails with
+    /// Lists the cached remote folder `location` with a ".." row; fails with
     /// `WouldBlock` when it was not loaded in the background first.
-    pub fn list_remote(&self, path: &Path, out: &mut Vec<Row>) -> io::Result<()> {
-        let cached = self.remote_listings.get(path).ok_or_else(|| {
+    pub fn list_remote(&self, location: &remote::Location, out: &mut Vec<Row>) -> io::Result<()> {
+        let cached = self.remote_listings.get(location).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::WouldBlock,
                 "remote folder must be loaded in the background",
             )
         })?;
-        let location =
-            remote::Location::parse(path)?.expect("cached remote path is validated before listing");
         let parent = location
             .parent()
             .map(|p| p.panel_path())
-            .or_else(|| self.remote_origin.clone());
+            .or_else(|| self.remote_origin.as_ref().map(Location::panel_path));
         let mut entries: Vec<Entry> = parent
             .into_iter()
             .map(|path| Entry {
@@ -146,10 +166,14 @@ impl Folder {
                 .cloned(),
         );
         fs_ops::sort_entries(&mut entries, self.sort.key, self.sort.descending);
-        out.extend(entries.into_iter().map(|entry| Row {
-            entry,
-            depth: 0,
-            hit_line: None,
+        out.extend(entries.into_iter().map(|entry| {
+            Row {
+                location: Location::from_panel_path(&entry.path, None)
+                    .expect("remote listing contains validated addresses"),
+                entry,
+                depth: 0,
+                hit_line: None,
+            }
         }));
         Ok(())
     }
@@ -158,6 +182,7 @@ impl Folder {
 #[cfg(test)]
 mod tests {
     use super::{Folder, remote};
+    use crate::location::Location as PanelLocation;
     use crate::model::Sort;
     use crate::remote::{Item, Location};
 
@@ -179,11 +204,16 @@ mod tests {
     #[test]
     fn remote_navigation_sort_and_history_use_supplied_listings() {
         let dir = tempfile::TempDir::new().unwrap();
-        let mut folder = Folder::new(dir.path().into());
+        let mut folder = Folder::new(dir.path().into()).unwrap();
         folder.load().unwrap();
         folder.cache_remote(root().panel_path(), listing());
         folder.navigate(root().panel_path()).unwrap();
         assert!(folder.is_remote());
+        assert!(matches!(folder.location(), PanelLocation::Remote(_)));
+        assert!(matches!(
+            folder.entries()[1].location,
+            PanelLocation::Remote(_)
+        ));
         assert_eq!(folder.parent_location().as_deref(), Some(dir.path()));
         assert_eq!(folder.entries().len(), 2);
         folder.set_cursor(1);
@@ -192,6 +222,7 @@ mod tests {
         assert_eq!(folder.marked_count(), 1);
         assert!(folder.go_back().unwrap());
         assert!(!folder.is_remote());
+        assert!(matches!(folder.location(), PanelLocation::Local(_)));
         assert!(folder.go_forward().unwrap());
         assert!(folder.is_remote());
     }
@@ -199,26 +230,29 @@ mod tests {
     #[test]
     fn listing_cache_keeps_the_newest_and_the_folder_on_show() {
         use super::{LISTING_CAP, ListingCache};
-        use std::path::{Path, PathBuf};
         let mut cache = ListingCache::default();
-        let shown = Path::new("proton:/shown");
-        cache.insert(shown.into(), listing(), shown);
+        let shown = root().child("shown").unwrap();
+        cache.insert(shown.clone(), listing(), Some(&shown));
         for n in 0..LISTING_CAP + 5 {
-            cache.insert(PathBuf::from(format!("proton:/{n}")), listing(), shown);
+            cache.insert(
+                root().child(&n.to_string()).unwrap(),
+                listing(),
+                Some(&shown),
+            );
         }
         assert_eq!(cache.listings.len(), LISTING_CAP);
-        assert!(cache.contains(shown));
-        assert!(!cache.contains(Path::new("proton:/0")));
-        assert!(cache.contains(Path::new(&format!("proton:/{}", LISTING_CAP + 4))));
+        assert!(cache.contains(&shown));
+        assert!(!cache.contains(&root().child("0").unwrap()));
+        assert!(cache.contains(&root().child(&(LISTING_CAP + 4).to_string()).unwrap()));
         // Replacing a listing does not grow the cache.
-        cache.insert(shown.into(), Vec::new(), shown);
+        cache.insert(shown.clone(), Vec::new(), Some(&shown));
         assert_eq!(cache.listings.len(), LISTING_CAP);
-        assert!(cache.get(shown).unwrap().is_empty());
+        assert!(cache.get(&shown).unwrap().is_empty());
     }
 
     #[test]
     fn remote_items_know_which_targets_are_folders() {
-        let mut folder = Folder::new(root().panel_path());
+        let mut folder = Folder::new(root().panel_path()).unwrap();
         let items = vec![
             Item {
                 name: "d".into(),
@@ -250,7 +284,7 @@ mod tests {
     #[test]
     fn remote_load_placeholder_restores_the_previous_folder() {
         let dir = tempfile::TempDir::new().unwrap();
-        let mut folder = Folder::new(dir.path().into());
+        let mut folder = Folder::new(dir.path().into()).unwrap();
         folder.load().unwrap();
         assert!(!folder.remote_needed(dir.path()));
         assert!(folder.remote_needed(&root().panel_path()));
@@ -266,7 +300,7 @@ mod tests {
 
     #[test]
     fn unloaded_remote_does_not_fall_back_to_local_paths() {
-        let mut folder = Folder::new(root().panel_path());
+        let mut folder = Folder::new(root().panel_path()).unwrap();
         assert!(folder.load_or_ancestor().is_some());
         assert_eq!(folder.path(), root().panel_path());
     }

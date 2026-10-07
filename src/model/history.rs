@@ -3,12 +3,13 @@
 use std::path::PathBuf;
 
 use super::Folder;
+use crate::location::Location;
 
 /// A directory in the Back/Forward history and its cursor entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Visit {
-    path: PathBuf,
-    selected: Option<PathBuf>,
+    path: Location,
+    selected: Option<Location>,
 }
 
 /// History entries kept per direction.
@@ -27,14 +28,14 @@ impl Folder {
     /// Where Back (or Forward) would go.
     pub fn history_target(&self, back: bool) -> Option<PathBuf> {
         let list = if back { &self.back } else { &self.forward };
-        list.last().map(|v| v.path.clone())
+        list.last().map(|v| v.path.panel_path())
     }
 
     /// Shows `path`, recording the directory left in the Back history.
     pub fn replace(&mut self, path: PathBuf, select: Option<PathBuf>) -> Result<(), String> {
         let left = self.visit();
         self.replace_untracked(path, select)?;
-        if let Some(visit) = left.filter(|v| v.path != self.path) {
+        if let Some(visit) = left.filter(|v| v.path != self.location) {
             push_capped(&mut self.back, visit);
             self.forward.clear();
         }
@@ -44,8 +45,8 @@ impl Folder {
     /// The directory shown now as a history entry (none for search results).
     pub fn visit(&self) -> Option<Visit> {
         (self.results.is_none()).then(|| Visit {
-            path: self.path.clone(),
-            selected: self.current().map(|e| e.path.clone()),
+            path: self.location.clone(),
+            selected: self.current().map(|e| e.location.clone()),
         })
     }
 
@@ -79,7 +80,7 @@ impl Folder {
             return Ok(false);
         };
         let here = self.visit();
-        self.replace_untracked(target.path, target.selected)?;
+        self.replace_untracked_location(target.path, target.selected)?;
         if let Some(here) = here {
             push_capped(
                 if back {

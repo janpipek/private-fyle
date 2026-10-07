@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use super::{Entry, Folder, Row};
+use crate::location::Location;
 use crate::search::Hit;
 
 impl Folder {
@@ -16,6 +17,7 @@ impl Folder {
     pub fn show_results(&mut self, root: PathBuf, title: String) {
         self.clear_sizes();
         self.all = vec![Row {
+            location: Location::local(root.clone()).expect("search root is absolute"),
             entry: Entry {
                 name: "..".into(),
                 path: root.clone(),
@@ -30,6 +32,7 @@ impl Folder {
             hit_line: None,
         }];
         self.path = root;
+        self.location = Location::local(self.path.clone()).expect("search root is absolute");
         self.mount = None;
         self.results = Some(title);
         self.generation += 1;
@@ -43,6 +46,8 @@ impl Folder {
     pub fn add_results(&mut self, hits: Vec<Hit>) {
         let selected = self.current().map(|e| e.path.clone());
         self.all.extend(hits.into_iter().map(|hit| Row {
+            location:
+                Location::local(hit.entry.path.clone()).expect("search hits have absolute paths"),
             entry: hit.entry,
             depth: 0,
             hit_line: hit.line,

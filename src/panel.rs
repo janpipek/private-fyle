@@ -867,7 +867,7 @@ impl TableDelegate for FileTable {
         };
         let entry = &row.entry;
         let theme = cx.theme();
-        let color = if folder.is_marked(&entry.path) {
+        let color = if folder.is_marked(&row.location) {
             theme.danger
         } else if entry.link.is_broken() {
             theme.muted_foreground
