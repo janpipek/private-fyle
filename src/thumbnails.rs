@@ -65,9 +65,8 @@ impl SizeClass {
 /// `file://` URI of an absolute path as GLib writes it: everything except
 /// unreserved characters and `!$&'()*+,;=:@/` is percent-encoded (UTF-8).
 pub fn file_uri(path: &Path) -> String {
-    use std::os::unix::ffi::OsStrExt as _;
     let mut uri = String::from("file://");
-    for &byte in path.as_os_str().as_bytes() {
+    for &byte in uri_path(path).as_ref() {
         if byte.is_ascii_alphanumeric() || b"-_.~!$&'()*+,;=:@/".contains(&byte) {
             uri.push(byte as char);
         } else {
@@ -75,6 +74,33 @@ pub fn file_uri(path: &Path) -> String {
         }
     }
     uri
+}
+
+/// The bytes of `path` that follow `file://`: the raw path on Unix.
+#[cfg(unix)]
+fn uri_path(path: &Path) -> std::borrow::Cow<'_, [u8]> {
+    use std::os::unix::ffi::OsStrExt as _;
+    path.as_os_str().as_bytes().into()
+}
+
+/// The bytes of `path` that follow `file://`, as GLib writes them on
+/// Windows: `/C:/dir/file` for drive paths, `server/share/file` for UNC.
+#[cfg(not(unix))]
+fn uri_path(path: &Path) -> std::borrow::Cow<'_, [u8]> {
+    let path = path.to_string_lossy().replace('\\', "/");
+    let path = match path.strip_prefix("//?/") {
+        Some(verbatim) => match verbatim.strip_prefix("UNC/") {
+            Some(unc) => format!("//{unc}"),
+            None => verbatim.to_string(),
+        },
+        None => path,
+    };
+    let path = match path.strip_prefix("//") {
+        Some(unc) => unc.to_string(),
+        None if path.starts_with('/') => path,
+        None => format!("/{path}"),
+    };
+    path.into_bytes().into()
 }
 
 /// File name of the thumbnail of `uri`: lowercase hex MD5 plus `.png`.
@@ -210,12 +236,12 @@ fn write_png(
     mtime: i64,
     class: Option<SizeClass>,
 ) -> io::Result<()> {
-    use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
     let dir = path.parent().ok_or(io::ErrorKind::InvalidInput)?;
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(dir)?;
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(dir)?;
     // Unique per call: several threads write thumbnails at once.
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let tmp = dir.join(format!(
@@ -224,12 +250,11 @@ fn write_png(
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
     let result = (|| {
-        let file = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&tmp)?;
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        let file = options.open(&tmp)?;
         let mut encoder = png::Encoder::new(BufWriter::new(file), image.width(), image.height());
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
@@ -286,6 +311,26 @@ mod tests {
             .expect("set mtime");
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn windows_uri_encoding() {
+        use std::path::Path;
+        assert_eq!(file_uri(Path::new(r"C:\a b\c.png")), "file:///C:/a%20b/c.png");
+        assert_eq!(
+            file_uri(Path::new(r"\\?\C:\a\c.png")),
+            "file:///C:/a/c.png"
+        );
+        assert_eq!(
+            file_uri(Path::new(r"\\server\share\c.png")),
+            "file://server/share/c.png"
+        );
+        assert_eq!(
+            file_uri(Path::new(r"\\?\UNC\server\share\c.png")),
+            "file://server/share/c.png"
+        );
+    }
+
+    #[cfg(unix)]
     #[test]
     fn uri_encoding() {
         use std::path::Path;
@@ -333,12 +378,15 @@ mod tests {
         let (uri, mtime) = read_texts(&stored).expect("png");
         assert_eq!(uri.as_deref(), Some(file_uri(&file).as_str()));
         assert_eq!(mtime.as_deref(), Some("1700000000"));
-        use std::os::unix::fs::PermissionsExt as _;
-        let mode = |path: &std::path::Path| {
-            std::fs::metadata(path).expect("meta").permissions().mode() & 0o777
-        };
-        assert_eq!(mode(&stored), 0o600);
-        assert_eq!(mode(&root.join("normal")), 0o700);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mode = |path: &std::path::Path| {
+                std::fs::metadata(path).expect("meta").permissions().mode() & 0o777
+            };
+            assert_eq!(mode(&stored), 0o600);
+            assert_eq!(mode(&root.join("normal")), 0o700);
+        }
     }
 
     #[test]
@@ -410,6 +458,7 @@ mod tests {
         assert!(thumbnail(&root, &file, SizeClass::Normal).is_ok());
     }
 
+    #[cfg(unix)]
     #[test]
     fn unreadable_files_leave_no_failure_record() {
         use std::os::unix::fs::PermissionsExt;
