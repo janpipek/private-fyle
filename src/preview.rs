@@ -20,6 +20,7 @@ mod markdown;
 mod media;
 mod parquet;
 mod pdf;
+mod raw;
 mod table;
 pub mod text;
 
@@ -36,6 +37,7 @@ pub use markdown::MarkdownPreviewer;
 pub use media::MediaPreviewer;
 pub use parquet::ParquetPreviewer;
 pub use pdf::PdfPreviewer;
+pub use raw::RawPreviewer;
 pub use table::TablePreviewer;
 pub use text::TextPreviewer;
 
@@ -187,6 +189,7 @@ impl Registry {
     pub fn with_defaults() -> Self {
         let mut registry = Self::default();
         registry.register(DirectoryPreviewer);
+        registry.register(RawPreviewer);
         registry.register(ImagePreviewer);
         registry.register(PdfPreviewer);
         registry.register(MediaPreviewer);

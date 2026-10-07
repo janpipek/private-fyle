@@ -15,6 +15,7 @@ use md5::{Digest, Md5};
 /// Formats the thumbnailer decodes (the image previewer's, without svg and
 /// ico, which the `image` features here do not cover).
 pub const EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff"];
+const RAW_EXTENSIONS: &[&str] = crate::raw_preview::EXTENSIONS;
 
 /// Larger files are not decoded for a thumbnail.
 pub const MAX_FILE_SIZE: u64 = 64 * 1024 * 1024;
@@ -107,7 +108,9 @@ pub fn eligible(path: &Path, size: u64, root: &Path) -> bool {
         .and_then(|ext| ext.to_str())
         .map(str::to_ascii_lowercase)
         .unwrap_or_default();
-    size <= MAX_FILE_SIZE && EXTENSIONS.contains(&ext.as_str()) && !path.starts_with(root)
+    ((size <= MAX_FILE_SIZE && EXTENSIONS.contains(&ext.as_str()))
+        || RAW_EXTENSIONS.contains(&ext.as_str()))
+        && !path.starts_with(root)
 }
 
 /// The thumbnail of `path` in `class`, from the cache when valid, else
@@ -134,10 +137,8 @@ pub fn thumbnail(root: &Path, path: &Path, class: SizeClass) -> Result<RgbaImage
             let _ = write_png(&cached, &image, &uri, mtime, Some(class));
             Ok(image)
         }
-        // Unreadable files are not decode failures: fixing the permissions
-        // does not change the mtime, so nothing is recorded for them.
-        Err(image::ImageError::IoError(_)) => Err(Skip::Io),
-        Err(_) => {
+        Err(Skip::Io) => Err(Skip::Io),
+        Err(Skip::Failed) | Err(Skip::Ineligible) => {
             let _ = write_png(&failed, &RgbaImage::new(1, 1), &uri, mtime, None);
             Err(Skip::Failed)
         }
@@ -154,8 +155,23 @@ fn mtime_secs(meta: &fs::Metadata) -> Option<i64> {
 }
 
 /// Decodes `path` and scales it to fit `class`, never enlarging.
-fn generate(path: &Path, class: SizeClass) -> image::ImageResult<RgbaImage> {
-    let image = image::open(path)?;
+fn generate(path: &Path, class: SizeClass) -> Result<RgbaImage, Skip> {
+    let raw = crate::raw_preview::supported(path);
+    let source = if raw {
+        crate::raw_preview::extract(path).map_err(|error| {
+            if error.kind() == io::ErrorKind::InvalidData {
+                Skip::Failed
+            } else {
+                Skip::Io
+            }
+        })?
+    } else {
+        path.to_path_buf()
+    };
+    let image = image::open(source).map_err(|error| match error {
+        image::ImageError::IoError(_) => Skip::Io,
+        _ => Skip::Failed,
+    })?;
     let side = class.pixels();
     let image: DynamicImage = if image.width() > side || image.height() > side {
         image.resize(side, side, FilterType::Triangle)
@@ -261,9 +277,10 @@ fn write_png(
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
     use std::time::{Duration, SystemTime};
 
-    use image::Rgba;
+    use image::{ImageEncoder, Rgba};
     use tempfile::TempDir;
 
     use super::{
@@ -274,6 +291,17 @@ mod tests {
         image::RgbaImage::from_pixel(width, height, Rgba([200, 30, 30, 255]))
             .save(path)
             .expect("test image");
+    }
+
+    fn make_raw(path: &std::path::Path, width: u32, height: u32) {
+        let pixels = vec![180u8; (width * height * 3) as usize];
+        let mut encoded = Cursor::new(Vec::new());
+        image::codecs::jpeg::JpegEncoder::new(&mut encoded)
+            .write_image(&pixels, width, height, image::ExtendedColorType::Rgb8)
+            .expect("encode preview");
+        let mut raw = b"RAW wrapper".to_vec();
+        raw.extend(encoded.into_inner());
+        std::fs::write(path, raw).expect("write raw fixture");
     }
 
     fn set_mtime(path: &std::path::Path, secs: u64) {
@@ -348,6 +376,59 @@ mod tests {
         make_image(&file, 20, 10);
         let thumb = thumbnail(&dir.path().join("cache"), &file, SizeClass::Large).expect("thumb");
         assert_eq!((thumb.width(), thumb.height()), (20, 10));
+    }
+
+    #[test]
+    fn raw_thumbnail_keeps_original_identity_and_ignores_the_image_size_cap() {
+        let dir = TempDir::new().expect("tmp");
+        let root = dir.path().join("cache");
+        let file = dir.path().join("capture.NEF");
+        make_raw(&file, 300, 150);
+        std::fs::File::options()
+            .write(true)
+            .open(&file)
+            .expect("open RAW fixture")
+            .set_len(MAX_FILE_SIZE + 1)
+            .expect("extend sparse RAW fixture");
+        set_mtime(&file, 1_700_000_000);
+        assert!(eligible(
+            &file,
+            std::fs::metadata(&file).expect("metadata").len(),
+            &root
+        ));
+        let thumb = thumbnail(&root, &file, SizeClass::Normal).expect("RAW thumbnail");
+        assert_eq!((thumb.width(), thumb.height()), (128, 64));
+        let stored = root.join("normal").join(thumb_name(&file_uri(&file)));
+        let (uri, mtime) = read_texts(&stored).expect("cached thumbnail");
+        assert_eq!(uri.as_deref(), Some(file_uri(&file).as_str()));
+        assert_eq!(mtime.as_deref(), Some("1700000000"));
+        assert!(
+            !root
+                .join("fail/fyle")
+                .join(thumb_name(&file_uri(&file)))
+                .exists()
+        );
+    }
+
+    #[test]
+    fn raw_without_preview_records_failure_until_source_mtime_changes() {
+        let dir = TempDir::new().expect("tmp");
+        let root = dir.path().join("cache");
+        let file = dir.path().join("capture.dng");
+        std::fs::write(&file, b"no embedded JPEG").expect("write");
+        set_mtime(&file, 1_600_000_000);
+        assert_eq!(
+            thumbnail(&root, &file, SizeClass::Normal),
+            Err(Skip::Failed)
+        );
+        assert!(
+            root.join("fail/fyle")
+                .join(thumb_name(&file_uri(&file)))
+                .is_file()
+        );
+        make_raw(&file, 20, 10);
+        set_mtime(&file, 1_600_000_001);
+        assert!(thumbnail(&root, &file, SizeClass::Normal).is_ok());
     }
 
     #[test]

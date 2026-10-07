@@ -102,7 +102,8 @@ fn by_extension(ext: &str) -> Option<FileIcon> {
         "txt" | "md" | "markdown" | "rst" | "adoc" | "org" | "tex" | "log" | "pdf" | "doc"
         | "docx" | "odt" | "rtf" | "epub" => FileIcon::Text,
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" | "ico" | "tif" | "tiff"
-        | "heic" | "avif" | "psd" | "xcf" | "raw" | "cr2" | "nef" => FileIcon::Image,
+        | "heic" | "avif" | "psd" | "xcf" | "raw" | "cr2" | "cr3" | "nef" | "nrw" | "arw"
+        | "sr2" | "srf" | "raf" | "rw2" | "orf" | "pef" | "dng" => FileIcon::Image,
         "mp3" | "flac" | "ogg" | "opus" | "wav" | "m4a" | "aac" | "wma" | "aiff" => FileIcon::Audio,
         "mp4" | "mkv" | "webm" | "mov" | "avi" | "wmv" | "m4v" | "flv" => FileIcon::Video,
         "zip" | "tar" | "gz" | "tgz" | "bz2" | "xz" | "zst" | "7z" | "rar" | "jar" | "deb"
@@ -139,6 +140,7 @@ mod tests {
     fn files_by_name_then_extension() {
         assert_eq!(file("main.rs"), FileIcon::Code);
         assert_eq!(file("PHOTO.JPG"), FileIcon::Image);
+        assert_eq!(file("capture.CR3"), FileIcon::Image);
         assert_eq!(file("backup.tar.gz"), FileIcon::Archive);
         assert_eq!(file("Cargo.lock"), FileIcon::Lock);
         assert_eq!(file("Cargo.toml"), FileIcon::Data);

@@ -561,7 +561,7 @@ mod tests {
         let schema = Arc::new(parse_message_type(
             "message sample { REQUIRED GROUP values (LIST) { REPEATED GROUP list { REQUIRED INT32 element; } } }",
         ).unwrap());
-        let mut writer =
+        let writer =
             SerializedFileWriter::new(File::create(&path).unwrap(), schema, Default::default())
                 .unwrap();
         writer.close().unwrap();

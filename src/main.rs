@@ -33,6 +33,7 @@ mod panel;
 mod places;
 mod preview;
 mod preview_view;
+mod raw_preview;
 mod remote;
 mod remote_labels;
 mod rename;

@@ -83,6 +83,15 @@ budget. Uncompressed, Snappy, gzip, Brotli, LZ4 and Zstandard chunks are
 supported. Files with
 repeated, list or map columns show an unsupported-format message.
 
+F3 and icon view can use embedded JPEG previews from camera RAW files with
+extensions `.raw`, `.cr2`, `.cr3`, `.nef`, `.nrw`, `.arw`, `.sr2`, `.srf`,
+`.raf`, `.rw2`, `.orf`, `.pef` and `.dng`. This is best-effort JPEG extraction;
+files with only bitmap/JPEG XL previews or no embedded JPEG show the file icon
+or a preview error. Extraction scans at most 64 MiB and limits JPEG dimensions,
+decode memory and candidate count; it does not decode RAW sensor data. RAW
+thumbnails use the original file's URI and modification time in the shared
+thumbnail cache.
+
 In tree mode, clicking a folder's chevron also expands/collapses it; Enter
 still makes the folder the panel's root.
 
@@ -97,7 +106,8 @@ by visible rows, Home/End to the ends; click, double-click, right-click,
 Space and all other panel commands work as in the list. Tree mode only
 applies to the list (switching to icons turns it off). Larger / Smaller Icons
 step through 48, 64, 96, 128 and 160 px. Images (png, jpeg, gif, webp, bmp,
-tiff up to 64 MiB) show a thumbnail instead of the icon once it is loaded, in
+tiff up to 64 MiB, and supported RAW files using an embedded JPEG preview)
+show a thumbnail instead of the icon once it is loaded, in
 the background and for the visible cells only. Thumbnails live in the shared
 freedesktop cache (`$XDG_CACHE_HOME/thumbnails`, size `normal`/`large`/
 `x-large`/`xx-large` picked from the icon size and the display scale), so
@@ -393,20 +403,20 @@ Where things live (`src/`):
 | `model.rs`, `location.rs`, `location_codec.rs` | `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; `Location` native, remote and archive addresses; versioned lossless location persistence |
 | `listing.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; typed snapshots and bounded per-panel remote listing cache |
 | `panel.rs`, `panel/metadata.rs` | `FolderView` and table wiring; bounded metadata request/cache model shared by list and icon views, with local metadata reads in background workers |
-| `thumbnails.rs`, `thumb_queue.rs` | Icon view thumbnails: the freedesktop cache (URI and MD5 names, validity by `Thumb::MTime`, atomic writes, failure records) and the load scheduler with its LRU, both UI-independent and tested |
+| `thumbnails.rs`, `thumb_queue.rs`, `raw_preview.rs` | Icon view thumbnails: the freedesktop cache (URI and MD5 names, validity by `Thumb::MTime`, atomic writes, failure records), bounded JPEG preview extraction for common RAW extensions, and the load scheduler with its LRU, all UI-independent and tested |
 | `grid.rs`, `icon_view.rs`, `glyphs.rs`, `context_menu.rs` | Icon view: `ViewMode`, icon sizes, `Layout` (columns for a width) and cursor moves (UI-independent, tested); the lazy `IconGrid` view; the `FileIcon` → glyph table and the right-click menu shared with the list |
 | `columns.rs` | `ColumnKind` catalog, grouped, ids like `exif.iso`. A new column is a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |
 | `fs_ops.rs`, `transfer.rs`, `jobs.rs` | `Entry` and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
 | `remote.rs`, `remote/` | Remote providers: `Provider` trait, `Location` paths, Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `LocalCopy` keeps a typed source address separate from the cache path used at native I/O boundaries; `model/remote.rs` holds cached listings |
 | `archive.rs`, `archive/extraction.rs`, `dirsize.rs`, `links.rs` | Archive index; safe extraction; recursive sizes; symlink state |
-| `preview/`, `preview_view.rs` | `Previewer`s and their `Registry` (order: directory, image, pdf, media, archive, markdown, Parquet, table, text, binary); one render arm per `Content`; preview identity stays separate from materialized local bytes |
+| `preview/`, `preview_view.rs` | `Previewer`s and their `Registry` (order: directory, RAW image, image, pdf, media, archive, markdown, Parquet, table, text, binary); one render arm per `Content`; preview identity stays separate from materialized local bytes |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and the editor pane |
 | `tools/`, `tools_view.rs` | Tool, Action and Registry model; `defaults.toml`; built-ins; Lua plugins; `exec.rs` runs them |
 | `search.rs`, `places.rs`, `breadcrumbs.rs`, `remote_labels.rs`, `rename.rs`, `openers.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs`, `zoom.rs` | Further UI-independent models, each with tests |
 | `*_view.rs`, `menu_bar.rs`, `link_badge.rs`, `theme_picker.rs` | Thin views |
 
 Previews follow the same split. `src/preview/` is the model: a `Registry`
-of `Previewer`s (directory, image with EXIF, PDF via poppler, audio/video via ffmpeg, archive, Markdown,
+of `Previewer`s (directory, embedded-JPEG RAW images, image with EXIF, PDF via poppler, audio/video via ffmpeg, archive, Markdown,
 Parquet and CSV tables, text, binary fallback) turns a path into
 plain `Content` data; the first previewer whose `matches` accepts the file's
 `Probe` (name, extension, size, first 8 KiB) wins. `src/preview_view.rs` loads
