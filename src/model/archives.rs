@@ -124,7 +124,7 @@ impl Folder {
     /// The archive (and the inner path in it) that `path` is in, if it is
     /// not an ordinary directory. The archive is read again only when it
     /// changed on disk ([`archive::Index::cached`]).
-    pub(super) fn mount_for(&self, path: &Path) -> io::Result<Option<(Mount, String)>> {
+    pub fn mount_for(&self, path: &Path) -> io::Result<Option<(Mount, String)>> {
         if crate::remote::is_remote(path) || path.as_os_str().is_empty() || path.is_dir() {
             return Ok(None);
         }
@@ -138,12 +138,7 @@ impl Folder {
 
     /// Appends the sorted listing of the archive directory `inner`, with
     /// ".." leading to the parent (the containing directory at the root).
-    pub(super) fn list_archive(
-        &self,
-        mount: &Mount,
-        inner: &str,
-        out: &mut Vec<Row>,
-    ) -> io::Result<()> {
+    pub fn list_archive(&self, mount: &Mount, inner: &str, out: &mut Vec<Row>) -> io::Result<()> {
         if !mount.index.is_dir(inner) {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,

@@ -112,7 +112,7 @@ impl Folder {
         }
     }
 
-    pub(super) fn apply_filter(&mut self) {
+    pub fn apply_filter(&mut self) {
         let needle = self.filter.to_lowercase();
         self.entries = self
             .all

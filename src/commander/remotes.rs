@@ -124,7 +124,7 @@ impl Commander {
 
     /// The provider and location for a remote panel path, or the message
     /// for the status line.
-    pub(super) fn resolve_remote(&self, path: &std::path::Path) -> Result<Resolved, String> {
+    pub fn resolve_remote(&self, path: &std::path::Path) -> Result<Resolved, String> {
         let error = |e: &dyn std::fmt::Display| {
             let pending = if self.remotes_pending {
                 " (still looking for remotes)"
@@ -296,7 +296,7 @@ impl Commander {
     }
 
     /// Why `cmd` cannot run in the current state, as a status message.
-    pub(super) fn refuse_cmd(&mut self, cmd: Cmd, cx: &mut Context<Self>) -> bool {
+    pub fn refuse_cmd(&mut self, cmd: Cmd, cx: &mut Context<Self>) -> bool {
         match cmd.unavailable(&self.menu_state(cx)) {
             Some(reason) => {
                 self.status = reason.into();

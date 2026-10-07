@@ -31,7 +31,7 @@ impl Folder {
     }
 
     /// Shows `path`, recording the directory left in the Back history.
-    pub(super) fn replace(&mut self, path: PathBuf, select: Option<PathBuf>) -> Result<(), String> {
+    pub fn replace(&mut self, path: PathBuf, select: Option<PathBuf>) -> Result<(), String> {
         let left = self.visit();
         self.replace_untracked(path, select)?;
         if let Some(visit) = left.filter(|v| v.path != self.path) {
@@ -42,7 +42,7 @@ impl Folder {
     }
 
     /// The directory shown now as a history entry (none for search results).
-    pub(super) fn visit(&self) -> Option<Visit> {
+    pub fn visit(&self) -> Option<Visit> {
         (self.results.is_none()).then(|| Visit {
             path: self.path.clone(),
             selected: self.current().map(|e| e.path.clone()),
@@ -69,7 +69,7 @@ impl Folder {
 
     /// One step back (or forward): the current directory goes onto the
     /// other list. A directory that is gone is dropped from the history.
-    pub(super) fn travel(&mut self, back: bool) -> Result<bool, String> {
+    pub fn travel(&mut self, back: bool) -> Result<bool, String> {
         let from = if back {
             &mut self.back
         } else {

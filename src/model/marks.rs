@@ -45,7 +45,7 @@ impl Folder {
     }
 
     /// Paths of the shown entries that can be marked (not "..").
-    pub(super) fn markable(&self) -> impl Iterator<Item = &PathBuf> {
+    pub fn markable(&self) -> impl Iterator<Item = &PathBuf> {
         self.entries
             .iter()
             .filter(|e| !e.is_parent)

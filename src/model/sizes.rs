@@ -52,7 +52,7 @@ impl Folder {
         }
     }
 
-    pub(super) fn clear_sizes(&mut self) {
+    pub fn clear_sizes(&mut self) {
         self.sizes.clear();
         self.size_epoch += 1;
     }
@@ -106,7 +106,7 @@ impl Folder {
 
     /// Replaces the size of listed directories by their computed size, so
     /// that sorting by size uses it.
-    pub(super) fn apply_sizes(&self, entries: &mut [Entry]) {
+    pub fn apply_sizes(&self, entries: &mut [Entry]) {
         if self.sizes.is_empty() {
             return;
         }
