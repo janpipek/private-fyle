@@ -119,10 +119,11 @@
 
 - [x] Read-only Jupyter/IPython notebook view (IPYNB): parse bounded nbformat 4
       JSON in Rust and lazily render Markdown, highlighted code, saved text,
-      errors and bounded PNG/JPEG outputs in F3. HTML is an explicit
-      placeholder (including MIME bundles, Markdown HTML and raw-cell HTML);
+      errors and bounded PNG/JPEG outputs in F3. Raster MIME data is preferred
+      in mixed bundles; HTML-only bundles render a sole image with a base64 PNG
+      or JPEG data URI. Other HTML (including Markdown HTML and raw-cell HTML),
       SVG, math, attachments, widgets, remote Markdown images and unknown
-      outputs are also placeholders. No Python runtime, execution or editing.
+      outputs are placeholders. No Python runtime, execution or editing.
       Kernel/language and cell counts remain Properties work.
 - [x] F3 preview for Parquet files: native table samples (500 rows, 40 columns,
       1,024 characters per cell; 8 MiB metadata and a 64 MiB selected column

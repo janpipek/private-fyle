@@ -87,9 +87,11 @@ F3 previews `.ipynb` notebooks as a lazy, read-only list of Markdown and
 highlighted code cells with their saved text, error and PNG/JPEG outputs. The
 Rust nbformat 4 reader bounds notebooks to 16 MiB and 500 cells, text items to
 512 KiB, outputs to 100 per cell, images to 4 megapixels each and 64 MiB total.
-It never starts a kernel. HTML outputs (including mixed MIME bundles), HTML in Markdown
-or raw cells, SVG, math, attachments, widgets, remote Markdown images and
-unknown output types show explicit placeholders.
+It never starts a kernel. Raster data takes precedence in mixed MIME bundles;
+HTML-only outputs render only when the fragment is a single image with a
+base64 PNG or JPEG data URI. Other HTML outputs, HTML in Markdown or raw cells,
+SVG, math, attachments, widgets, remote Markdown images and unknown output
+types show explicit placeholders.
 
 F3 and icon view can use embedded JPEG previews from camera RAW files with
 extensions `.raw`, `.cr2`, `.cr3`, `.nef`, `.nrw`, `.arw`, `.sr2`, `.srf`,

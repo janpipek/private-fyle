@@ -6,7 +6,10 @@ use std::path::Path;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use html5ever::tendril::TendrilSink;
+use html5ever::{ParseOpts, QualName, local_name, namespace_url, ns, parse_fragment};
 use image::{ImageDecoder as _, ImageFormat, Limits};
+use markup5ever_rcdom::{Handle, NodeData, RcDom};
 use serde_json::Value;
 
 use super::{Content, Previewer, Probe};
@@ -235,10 +238,6 @@ fn parse_outputs(
                     continue;
                 };
                 let has_html = data.contains_key("text/html");
-                if has_html {
-                    parsed.push(Output::Placeholder("HTML output is not rendered".into()));
-                    continue;
-                }
                 let image_key = ["image/png", "image/jpeg"]
                     .into_iter()
                     .find(|key| data.contains_key(*key));
@@ -264,6 +263,41 @@ fn parse_outputs(
                             }
                             parsed.push(Output::Placeholder(message));
                         }
+                    }
+                } else if has_html {
+                    let image = data
+                        .get("text/html")
+                        .and_then(|value| field_text(Some(value)).ok())
+                        .as_deref()
+                        .and_then(html_data_image);
+                    if let Some((mime, encoded)) = image {
+                        match decode_image(
+                            &Value::String(encoded),
+                            mime,
+                            MAX_TOTAL_IMAGE_BYTES - *image_bytes,
+                        ) {
+                            Ok(Output::Image {
+                                width,
+                                height,
+                                rgba,
+                            }) => {
+                                *image_bytes += rgba.len();
+                                parsed.push(Output::Image {
+                                    width,
+                                    height,
+                                    rgba,
+                                });
+                            }
+                            Ok(other) => parsed.push(other),
+                            Err(message) => {
+                                if message.contains("64 MiB total") {
+                                    *truncated = true;
+                                }
+                                parsed.push(Output::Placeholder(message));
+                            }
+                        }
+                    } else {
+                        parsed.push(Output::Placeholder("HTML output is not rendered".into()));
                     }
                 } else if let Some(value) = data.get("text/plain") {
                     let text = bounded(field_text(Some(value))?, truncated);
@@ -341,6 +375,87 @@ fn decode_image(value: &Value, mime: &str, remaining_bytes: usize) -> Result<Out
         height,
         rgba: decoded.to_rgba8().into_raw(),
     })
+}
+
+/// Extracts a data URI from one image and inert image-only wrappers.
+fn html_data_image(html: &str) -> Option<(&'static str, String)> {
+    let context = QualName::new(None, ns!(html), local_name!("div"));
+    let dom = parse_fragment(RcDom::default(), ParseOpts::default(), context, Vec::new()).one(html);
+    fn visit(node: &Handle, image: &mut Option<(&'static str, String)>) -> bool {
+        match &node.data {
+            NodeData::Text { contents } => contents.borrow().trim().is_empty(),
+            NodeData::Element { name, attrs, .. } => {
+                let tag = name.local.as_ref();
+                if tag == "img" {
+                    if image.is_some() {
+                        return false;
+                    }
+                    let attrs = attrs.borrow();
+                    let Some(src) = attrs.iter().find(|attr| attr.name.local.as_ref() == "src")
+                    else {
+                        return false;
+                    };
+                    if attrs.iter().any(|attr| {
+                        !matches!(
+                            attr.name.local.as_ref(),
+                            "src" | "alt" | "width" | "height" | "class" | "style"
+                        )
+                    }) {
+                        return false;
+                    }
+                    let src = src.value.to_string();
+                    let (mime, base64) =
+                        if let Some(encoded) = src.strip_prefix("data:image/png;base64,") {
+                            ("image/png", encoded)
+                        } else if let Some(encoded) = src.strip_prefix("data:image/jpeg;base64,") {
+                            ("image/jpeg", encoded)
+                        } else {
+                            return false;
+                        };
+                    // Bound the encoded data before allocating a copy or decoding it.
+                    if base64.len() > (MAX_IMAGE_BYTES * 4).div_ceil(3) + 4 {
+                        return false;
+                    }
+                    *image = Some((mime, base64.to_owned()));
+                } else {
+                    let attrs = attrs.borrow();
+                    if !matches!(tag, "div" | "span" | "p" | "figure")
+                        || attrs.iter().any(|attr| {
+                            !matches!(attr.name.local.as_ref(), "class" | "style" | "id")
+                        })
+                    {
+                        return false;
+                    }
+                }
+                node.children
+                    .borrow()
+                    .iter()
+                    .all(|child| visit(child, image))
+            }
+            _ => false,
+        }
+    }
+
+    let mut image = None;
+    dom.document
+        .children
+        .borrow()
+        .iter()
+        .all(|child| match &child.data {
+            // html5ever places parsed fragments under this synthetic document root.
+            NodeData::Element { name, attrs, .. }
+                if name.local.as_ref() == "html" && attrs.borrow().is_empty() =>
+            {
+                child
+                    .children
+                    .borrow()
+                    .iter()
+                    .all(|nested| visit(nested, &mut image))
+            }
+            _ => visit(child, &mut image),
+        })
+        .then_some(image)
+        .flatten()
 }
 
 fn field_text(value: Option<&Value>) -> io::Result<String> {
@@ -531,7 +646,7 @@ mod tests {
     }
 
     #[test]
-    fn html_bundle_displays_only_its_placeholder() {
+    fn html_bundle_without_image_fragment_displays_only_its_placeholder() {
         let parsed = parse_notebook(&notebook(
             r#"{"cell_type":"code","source":"","outputs":[
           {"output_type":"display_data","data":{"text/html":"<b>hello</b>","text/plain":"hello"}}
@@ -546,6 +661,63 @@ mod tests {
             Output::Placeholder("HTML output is not rendered".into())
         );
         assert_eq!(outputs.len(), 1);
+    }
+
+    #[test]
+    fn html_bundle_prefers_explicit_sibling_raster_data() {
+        let png = test_png(1, 1, [4, 5, 6, 255]);
+        let encoded = base64::engine::general_purpose::STANDARD.encode(png);
+        let parsed = parse_notebook(&notebook(&format!(
+            r#"{{"cell_type":"code","source":"","outputs":[{{"output_type":"display_data","data":{{"text/html":"<script>bad()</script>","image/png":"{encoded}"}}}}]}}"#
+        )))
+        .unwrap();
+        let Cell::Code { outputs, .. } = &parsed.cells[0] else {
+            panic!("expected code")
+        };
+        assert!(
+            matches!(&outputs[0], Output::Image { width: 1, height: 1, rgba } if rgba == &[4, 5, 6, 255])
+        );
+    }
+
+    #[test]
+    fn html_image_only_data_uri_is_decoded_and_unsafe_fragments_are_placeholders() {
+        let png = base64::engine::general_purpose::STANDARD.encode(test_png(1, 1, [7, 8, 9, 255]));
+        let html = vec![
+            "<div class=\"output_subarea\"><img alt=\"plot\" width=\"1\" ".to_owned(),
+            format!("src=\"data:image/png;base64,{png}\"></div>"),
+        ];
+        let parsed = parse_notebook(&notebook(&format!(
+            r#"{{"cell_type":"code","source":"","outputs":[{{"output_type":"display_data","data":{{"text/html":{}}}}}]}}"#,
+            serde_json::to_string(&html).unwrap()
+        )))
+        .unwrap();
+        let Cell::Code { outputs, .. } = &parsed.cells[0] else {
+            panic!("expected code")
+        };
+        assert!(
+            matches!(&outputs[0], Output::Image { width: 1, height: 1, rgba } if rgba == &[7, 8, 9, 255])
+        );
+
+        for html in [
+            "<img src=\"https://example.test/image.png\">",
+            "<img src=\"data:image/png;base64,AA==\"><script>bad()</script>",
+            "<img src=\"data:image/png;base64,AA==\" onerror=\"bad()\">",
+            "<div><img src=\"data:image/png;base64,AA==\">caption</div>",
+            "<img src=\"data:image/svg+xml;base64,AA==\">",
+        ] {
+            let parsed = parse_notebook(&notebook(&format!(
+                r#"{{"cell_type":"code","source":"","outputs":[{{"output_type":"display_data","data":{{"text/html":{}}}}}]}}"#,
+                serde_json::to_string(html).unwrap()
+            )))
+            .unwrap();
+            let Cell::Code { outputs, .. } = &parsed.cells[0] else {
+                panic!("expected code")
+            };
+            assert_eq!(
+                outputs[0],
+                Output::Placeholder("HTML output is not rendered".into())
+            );
+        }
     }
 
     #[test]
@@ -650,10 +822,10 @@ mod tests {
             )
             .unwrap();
         let encoded = base64::engine::general_purpose::STANDARD.encode(png);
+        let html = format!("<img src=\"data:image/png;base64,{encoded}\">");
+        let html = serde_json::to_string(&html).unwrap();
         let outputs = (0..17)
-            .map(|_| {
-                format!(r#"{{"output_type":"display_data","data":{{"image/png":"{encoded}"}}}}"#)
-            })
+            .map(|_| format!(r#"{{"output_type":"display_data","data":{{"text/html":{html}}}}}"#))
             .collect::<Vec<_>>()
             .join(",");
         let parsed = parse_notebook(
@@ -670,6 +842,19 @@ mod tests {
             matches!(outputs.last(), Some(Output::Placeholder(text)) if text.contains("64 MiB"))
         );
         assert!(parsed.truncated);
+    }
+
+    fn test_png(width: u32, height: u32, color: [u8; 4]) -> Vec<u8> {
+        let mut png = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut png)
+            .write_image(
+                &RgbaImage::from_pixel(width, height, Rgba(color)).into_raw(),
+                width,
+                height,
+                image::ExtendedColorType::Rgba8,
+            )
+            .unwrap();
+        png
     }
 
     #[test]
