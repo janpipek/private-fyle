@@ -254,6 +254,9 @@ impl Commander {
                             this.status = format!("Copied {path}").into();
                             cx.notify();
                         }
+                        HeaderEvent::Zoom(steps) => {
+                            this.zoom(cx, |size| zoom::step(size, steps));
+                        }
                         HeaderEvent::Error(error) => {
                             this.status = error.into();
                             cx.notify();
@@ -522,8 +525,7 @@ impl Render for Commander {
                         ScrollDelta::Pixels(p) => f32::from(p.y),
                         ScrollDelta::Lines(l) => l.y,
                     };
-                    if dy != 0.0 {
-                        let steps = if dy > 0.0 { 1 } else { -1 };
+                    if let Some(steps) = zoom::wheel_steps(dy) {
                         this.zoom(cx, |size| zoom::step(size, steps));
                     }
                 }

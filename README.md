@@ -63,7 +63,7 @@ palette. The bottom area shows status messages and running jobs.
 | Alt-= / Alt--       | Larger / smaller icons in icon view (saved as `icon_size`) |
 | Ctrl-R              | Refresh (also forgets computed folder sizes) |
 | Ctrl-Shift-S        | Calculate Sizes (View menu, palette, right-click): recursive size of the marked folders, else the folder under the cursor, else (cursor on `..` or a file) of every folder listed. Runs in the background, shows in the Size column (`… 1.2 G` while running, `≥ 1.2 G` when incomplete: unreadable entries or stopped); Esc stops. Symlinks are not followed, hard-linked files count once, other filesystems are skipped; not available inside archives. Sorting by size uses the results; the footer sums marked entries (`≥` and "n folders not measured" when unknown). Never runs automatically |
-| Ctrl-+ / Ctrl-- / Ctrl-0 | Zoom in / out / reset (also Ctrl-wheel); saved as `font_size` in `config.toml` |
+| Ctrl-+ / Ctrl-- / Ctrl-0 | Zoom in / out / reset (also Ctrl-wheel throughout the panels, including table rows, headers and blank space); saved as `font_size` in `config.toml` |
 | Ctrl-Shift-C        | Cancel running copy/move/delete jobs (also a Cancel button per job) |
 | F10 / Ctrl-Q        | Quit                                      |
 

@@ -127,6 +127,8 @@
 
 ## Done
 
+- [x] Make Ctrl-wheel zoom consistently over table rows, headers, blank
+      space and the icon grid; keep ordinary wheel input scrolling.
 - [x] Split safe archive extraction helpers and their tests into
       `archive/extraction.rs`, keeping the public API available from `archive`.
 - [x] Load owner, EXIF, extended-attribute and SELinux table values, plus

@@ -32,6 +32,9 @@ use crate::model::{Folder, Sort};
 use gpui_kit::assets::IconName as Lucide;
 
 pub mod metadata;
+pub mod wheel_view;
+
+use wheel_view::ControlWheelCapture;
 
 /// Emitted when the user activates the cursor entry with the mouse.
 pub struct Activate;
@@ -48,6 +51,8 @@ pub enum HeaderEvent {
     SearchLocations,
     Edit,
     CopyPath(String),
+    /// Request a global font zoom step from the Commander.
+    Zoom(i32),
     Error(String),
 }
 
@@ -675,12 +680,15 @@ impl Render for FolderView {
                     }),
             )
             .child(
-                div().flex_1().min_h_0().child(match self.mode {
-                    ViewMode::List => DataTable::new(&self.table)
-                        .with_size(theme.font_size * 1.85)
-                        .into_any_element(),
-                    ViewMode::Icons => self.grid.clone().into_any_element(),
-                }),
+                div().flex_1().min_h_0().child(ControlWheelCapture::new(
+                    div().size_full().child(match self.mode {
+                        ViewMode::List => DataTable::new(&self.table)
+                            .with_size(theme.font_size * 1.85)
+                            .into_any_element(),
+                        ViewMode::Icons => self.grid.clone().into_any_element(),
+                    }),
+                    cx.entity().downgrade(),
+                )),
             )
             .when_some(self.filter_input.clone(), |d, input| {
                 d.child(
