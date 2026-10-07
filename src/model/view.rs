@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use super::{Entry, Folder, Row, Sort};
+use super::{Entry, Folder, PanelContent, Row, Sort};
 use crate::fs_ops;
 use crate::location::Location;
 
@@ -10,8 +10,8 @@ impl Folder {
     /// Re-sorts, keeping the cursor on the same entry.
     pub fn set_sort(&mut self, sort: Sort) {
         self.sort = sort;
-        if self.results.is_some() {
-            let selected = self.current().map(|e| e.path.clone());
+        if matches!(self.content(), PanelContent::Search { .. }) {
+            let selected = self.current().map(|row| row.location.clone());
             let mut lines = std::collections::HashMap::new();
             let mut entries: Vec<Entry> = self
                 .all
@@ -35,7 +35,7 @@ impl Folder {
                 })
                 .collect();
             self.apply_filter();
-            self.select_path(selected.as_deref());
+            self.select_location(selected.as_ref());
             return;
         }
         self.load_or_ancestor();
@@ -48,12 +48,12 @@ impl Folder {
     }
 
     /// Expands or collapses the directory at `path` (tree mode only).
-    pub fn toggle_expanded(&mut self, path: &Path) -> Option<String> {
+    pub fn toggle_expanded(&mut self, location: &Location) -> Option<String> {
         if !self.tree {
             return None;
         }
-        if !self.expanded.remove(path) {
-            self.expanded.insert(path.to_path_buf());
+        if !self.expanded.remove(location) {
+            self.expanded.insert(location.clone());
         }
         self.load_or_ancestor()
     }
@@ -64,7 +64,7 @@ impl Folder {
         if !self.tree {
             return None;
         }
-        if self.expanded.contains(&row.path) {
+        if self.expanded.contains(&row.location) {
             let depth = row.depth;
             if self
                 .entries
@@ -75,16 +75,16 @@ impl Folder {
             }
             return None;
         }
-        let path = row.path.clone();
-        self.toggle_expanded(&path)
+        let location = row.location.clone();
+        self.toggle_expanded(&location)
     }
 
     /// Left arrow: collapse the cursor directory, or jump to its parent row.
     pub fn collapse(&mut self) -> Option<String> {
         let row = self.current().filter(|_| self.tree)?;
-        if self.expanded.contains(&row.path) {
-            let path = row.path.clone();
-            return self.toggle_expanded(&path);
+        if self.expanded.contains(&row.location) {
+            let location = row.location.clone();
+            return self.toggle_expanded(&location);
         }
         if row.depth > 0 {
             let parent = row.path.parent().map(Path::to_path_buf);
@@ -106,10 +106,10 @@ impl Folder {
     /// stays. Keeps the cursor on the same entry if it is still shown, else
     /// moves it to the first match.
     pub fn set_filter(&mut self, filter: &str) {
-        let selected = self.current().map(|e| e.path.clone());
+        let selected = self.current().map(|row| row.location.clone());
         self.filter = filter.to_string();
         self.apply_filter();
-        if !self.select_path(selected.as_deref()) {
+        if !self.select_location(selected.as_ref()) {
             let first = self.entries.iter().position(|r| !r.is_parent);
             self.cursor = first.unwrap_or(0);
         }
@@ -136,6 +136,7 @@ impl Folder {
 mod tests {
 
     use crate::fs_ops::SortKey;
+    use crate::location::Location;
     use crate::model::Sort;
     use crate::model::test_support::{fixture, loaded, names};
     use std::fs;
@@ -177,7 +178,7 @@ mod tests {
         assert_eq!(names(&folder), ["..", "sub", "a.txt", "b.txt"]);
 
         // Expansion survives toggling tree mode off and on.
-        folder.toggle_expanded(&dir.path().join("sub"));
+        folder.toggle_expanded(&Location::local(dir.path().join("sub")).unwrap());
         folder.set_tree(false);
         assert_eq!(folder.entries().len(), 4);
         folder.set_tree(true);

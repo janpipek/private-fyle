@@ -25,16 +25,20 @@ impl Commander {
         let (remote_action, action) = (action.clone(), action.clone());
         if self.defer_remote_list(
             self.active,
-            target.clone(),
+            target.as_ref().map(|location| location.panel_path()),
             window,
             cx,
             move |this, window, cx| this.open(&remote_action, window, cx),
         ) {
             return;
         }
-        if self.defer_archive_read(self.active, target, window, cx, move |this, window, cx| {
-            this.open(&action, window, cx)
-        }) {
+        if self.defer_archive_read(
+            self.active,
+            target.map(|location| location.panel_path()),
+            window,
+            cx,
+            move |this, window, cx| this.open(&action, window, cx),
+        ) {
             return;
         }
         match self.update_folder(cx, Folder::activate) {
@@ -43,11 +47,13 @@ impl Commander {
             {
                 self.status = "Inside an archive: F3 previews, F5 extracts".into();
             }
-            Ok(Activation::OpenFile(path)) if crate::remote::is_remote(&path) => {
-                self.open_remote_file(path, window, cx);
+            Ok(Activation::OpenFile(crate::location::Location::Remote(location))) => {
+                self.open_remote_file(location.panel_path(), window, cx);
             }
-            Ok(Activation::OpenFile(path)) => {
-                self.open_local_file(&path);
+            Ok(Activation::OpenFile(location)) => {
+                if let Some(path) = location.as_local_path() {
+                    self.open_local_file(path);
+                }
             }
             Ok(_) => {}
             Err(e) => self.status = e.into(),
@@ -98,16 +104,20 @@ impl Commander {
         let (remote_action, action) = (action.clone(), action.clone());
         if self.defer_remote_list(
             self.active,
-            target.clone(),
+            target.as_ref().map(|location| location.panel_path()),
             window,
             cx,
             move |this, window, cx| this.go_back(&remote_action, window, cx),
         ) {
             return;
         }
-        if self.defer_archive_read(self.active, target, window, cx, move |this, window, cx| {
-            this.go_back(&action, window, cx)
-        }) {
+        if self.defer_archive_read(
+            self.active,
+            target.map(|location| location.panel_path()),
+            window,
+            cx,
+            move |this, window, cx| this.go_back(&action, window, cx),
+        ) {
             return;
         }
         let result = self.update_folder(cx, Folder::go_back);
@@ -119,16 +129,20 @@ impl Commander {
         let (remote_action, action) = (action.clone(), action.clone());
         if self.defer_remote_list(
             self.active,
-            target.clone(),
+            target.as_ref().map(|location| location.panel_path()),
             window,
             cx,
             move |this, window, cx| this.go_forward(&remote_action, window, cx),
         ) {
             return;
         }
-        if self.defer_archive_read(self.active, target, window, cx, move |this, window, cx| {
-            this.go_forward(&action, window, cx)
-        }) {
+        if self.defer_archive_read(
+            self.active,
+            target.map(|location| location.panel_path()),
+            window,
+            cx,
+            move |this, window, cx| this.go_forward(&action, window, cx),
+        ) {
             return;
         }
         let result = self.update_folder(cx, Folder::go_forward);
@@ -233,11 +247,11 @@ impl Commander {
             return;
         }
         let dir = folder.path();
-        if self.last_visited.as_deref() == Some(dir) {
+        if self.last_visited.as_deref() == Some(&dir) {
             return;
         }
         self.last_visited = Some(dir.to_path_buf());
-        self.history.visit(dir, places::now());
+        self.history.visit(&dir, places::now());
         if let Some(path) = History::path() {
             let _ = self.history.save(&path);
         }
@@ -306,7 +320,7 @@ impl Commander {
 
     /// Copies the active panel's full path.
     pub fn copy_location(&mut self, _: &CopyLocation, _: &mut Window, cx: &mut Context<Self>) {
-        let path = crate::breadcrumbs::editable_path(self.folders[self.active].read(cx).path());
+        let path = crate::breadcrumbs::editable_path(&self.folders[self.active].read(cx).path());
         cx.write_to_clipboard(ClipboardItem::new_string(path.clone()));
         self.status = format!("Copied {path}").into();
         cx.notify();

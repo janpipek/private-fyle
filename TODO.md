@@ -38,8 +38,10 @@
 ## Done
 
 - [x] Introduce typed local, remote and archive addresses for panel folders,
-      rows, marks and history; key remote listing caches by remote identity while
-      retaining panel path spellings for existing command and view code.
+      rows, marks, history, activation and remote transfer selections; model
+      Directory, Search and Places panel content explicitly; key remote listing
+      caches by remote identity. Keep panel path spellings at UI and native
+      operation boundaries.
 - [x] Remote start paths on the command line, remote folders in Frequent,
       SFTP host aliases from `~/.ssh/config`, Open in Browser, Google Drive
       duplicates and Shared with me (see README, Remote locations).

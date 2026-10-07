@@ -69,8 +69,50 @@ pub enum Location {
         source: Box<Location>,
         member: ArchiveMember,
     },
-    /// The existing Windows drive overview, represented by an empty panel path.
-    Drives,
+}
+
+/// A panel navigation destination, including the platform's places overview.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PanelTarget {
+    /// A local, remote, or archive address.
+    Location(Location),
+    /// The platform's top-level places view (currently Windows drives).
+    Places,
+}
+
+impl PanelTarget {
+    /// Adapts the target to the legacy panel path used by existing views.
+    pub fn panel_path(&self) -> PathBuf {
+        match self {
+            Self::Location(location) => location.panel_path(),
+            Self::Places => PathBuf::new(),
+        }
+    }
+
+    /// Returns the file address when this is a directory target.
+    pub fn location(&self) -> Option<&Location> {
+        match self {
+            Self::Location(location) => Some(location),
+            Self::Places => None,
+        }
+    }
+
+    /// Consumes the target and returns its file address, if it has one.
+    pub fn into_location(self) -> Option<Location> {
+        match self {
+            Self::Location(location) => Some(location),
+            Self::Places => None,
+        }
+    }
+
+    /// Parses a panel path while preserving the special places overview.
+    pub fn from_panel_path(path: &Path, archive_source: Option<&Path>) -> io::Result<Self> {
+        if path.as_os_str().is_empty() {
+            Ok(Self::Places)
+        } else {
+            Location::from_panel_path(path, archive_source).map(Self::Location)
+        }
+    }
 }
 
 impl Location {
@@ -102,7 +144,6 @@ impl Location {
             Self::Remote(path) => path.panel_path(),
             Self::Archive { source, member } if member.as_str().is_empty() => source.panel_path(),
             Self::Archive { source, member } => source.panel_path().join(member.as_str()),
-            Self::Drives => PathBuf::new(),
         }
     }
 
@@ -110,7 +151,10 @@ impl Location {
     /// ambiguity when a listed member has the same spelling as a local path.
     pub fn from_panel_path(path: &Path, archive_source: Option<&Path>) -> io::Result<Self> {
         if path.as_os_str().is_empty() {
-            return Ok(Self::Drives);
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "empty location",
+            ));
         }
         if let Some(remote) = remote::Location::parse(path)? {
             return Ok(Self::Remote(remote));
@@ -126,7 +170,7 @@ impl Location {
 
 #[cfg(test)]
 mod tests {
-    use super::{ArchiveMember, Location};
+    use super::{ArchiveMember, Location, PanelTarget};
     use std::path::PathBuf;
 
     #[test]
@@ -163,12 +207,21 @@ mod tests {
                 .panel_path(),
             PathBuf::from("/tmp/x.zip")
         );
-        assert_eq!(
-            Location::from_panel_path(std::path::Path::new(""), None).unwrap(),
-            Location::Drives
-        );
+        assert!(Location::from_panel_path(std::path::Path::new(""), None).is_err());
         for bad in ["../x", "/x", "a//b", "a/./b", "a\\b", "a/../b"] {
             assert!(ArchiveMember::new(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn places_is_a_panel_target_not_a_file_location() {
+        let target = PanelTarget::from_panel_path(std::path::Path::new(""), None).unwrap();
+        assert_eq!(target, PanelTarget::Places);
+        assert!(target.location().is_none());
+        assert!(target.into_location().is_none());
+
+        let local = PanelTarget::from_panel_path(std::path::Path::new("/tmp"), None).unwrap();
+        assert_eq!(local.panel_path(), PathBuf::from("/tmp"));
+        assert!(matches!(local, PanelTarget::Location(Location::Local(_))));
     }
 }

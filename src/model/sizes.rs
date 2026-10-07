@@ -247,7 +247,7 @@ mod tests {
         fs::write(sub.join("inner.txt"), "12345").unwrap();
         let mut folder = loaded(&dir);
         folder.set_tree(true);
-        folder.toggle_expanded(&sub);
+        folder.toggle_expanded(&Location::local(sub.clone()).unwrap());
         assert!(names(&folder).contains(&"inner.txt"));
         folder.mark_all();
         let total = folder.marked_total();

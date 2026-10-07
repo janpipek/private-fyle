@@ -3,10 +3,10 @@
 use gpui_kit::component::list::{List, ListState};
 use gpui_kit::component::{IndexPath, WindowExt as _};
 use gpui_kit::*;
-use std::path::PathBuf;
 
 use super::Commander;
 use crate::breadcrumbs::NavigationGuard;
+use crate::location::{Location, PanelTarget};
 use crate::location_view::LocationDelegate;
 use crate::places;
 use crate::remote;
@@ -17,27 +17,19 @@ impl Commander {
     pub fn navigate_panel(
         &mut self,
         panel: usize,
-        path: PathBuf,
+        target: PanelTarget,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.set_active(panel, cx);
         self.focus_active(window, cx);
-        let path = match remote::Location::parse(&path) {
-            Ok(Some(location)) => location.panel_path(),
-            Ok(None) => path,
-            Err(e) => {
-                self.status = format!("{}: {e}", path.display()).into();
-                cx.notify();
-                return;
-            }
-        };
+        let path = target.panel_path();
         if !remote::is_remote(&path) {
             self.listing_warning = None;
         }
-        if remote::is_remote(&path) {
+        if matches!(target.location(), Some(Location::Remote(_))) {
             // A remote folder is listed in the background first, then shown.
-            let again = path.clone();
+            let again = target.clone();
             if self.defer_remote_list(
                 panel,
                 Some(path.clone()),
@@ -53,14 +45,14 @@ impl Commander {
         self.navigation_generation[panel] = self.navigation_generation[panel].wrapping_add(1);
         let request = self.navigation_generation[panel];
         let mut folder = self.folders[panel].read(cx).clone();
-        let guard = NavigationGuard::new(folder.path().to_path_buf(), folder.generation());
+        let guard = NavigationGuard::new(folder.target(), folder.generation());
         self.navigation_pending[panel] = true;
         let shown = path.display().to_string();
         self.status = format!("Opening {shown}").into();
         cx.notify();
         self.navigation_tasks[panel] = cx.spawn_in(window, async move |this, cx| {
             let result = cx
-                .background_spawn(async move { folder.navigate(path).map(|()| folder) })
+                .background_spawn(async move { folder.navigate_target(target).map(|()| folder) })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
                 if this.navigation_generation[panel] != request {
@@ -69,7 +61,7 @@ impl Commander {
                 this.navigation_pending[panel] = false;
                 let current = {
                     let live = this.folders[panel].read(cx);
-                    guard.matches(live.path(), live.generation())
+                    guard.matches(&live.target(), live.generation())
                 };
                 if !current {
                     return;
@@ -190,7 +182,9 @@ impl Commander {
         let delegate = LocationDelegate::new(groups, move |path, window, cx| {
             window.close_dialog(cx);
             let _ = this.update(cx, |this, cx| {
-                this.navigate_panel(panel, path, window, cx);
+                if let Ok(target) = PanelTarget::from_panel_path(&path, None) {
+                    this.navigate_panel(panel, target, window, cx);
+                }
             });
         });
         let list = cx.new(|cx| ListState::new(delegate, window, cx).searchable(true));

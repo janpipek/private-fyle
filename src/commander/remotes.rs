@@ -20,6 +20,7 @@ use super::Commander;
 use super::files::describe;
 use super::jobs::Transfer;
 use crate::jobs::JobKind;
+use crate::location::Location as TargetLocation;
 use crate::menus::Cmd;
 use crate::model::Folder;
 use crate::remote::jobs::{self as rjobs, RemoteInfo, Side, TransferPlan};
@@ -75,8 +76,10 @@ impl Commander {
     fn open_start_remotes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let active = self.active;
         for panel in 0..2 {
-            if let Some(path) = self.start_remote[panel].take() {
-                self.navigate_panel(panel, path, window, cx);
+            if let Some(path) = self.start_remote[panel].take()
+                && let Ok(target) = crate::location::PanelTarget::from_panel_path(&path, None)
+            {
+                self.navigate_panel(panel, target, window, cx);
             }
         }
         self.set_active(active, cx);
@@ -292,7 +295,7 @@ impl Commander {
 
     /// The active remote folder with its provider.
     fn active_remote(&self, cx: &App) -> Result<Resolved, String> {
-        self.resolve_remote(self.folders[self.active].read(cx).path())
+        self.resolve_remote(&self.folders[self.active].read(cx).path())
     }
 
     /// Why `cmd` cannot run in the current state, as a status message.
@@ -318,13 +321,14 @@ impl Commander {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let sources = Rc::new(self.folders[self.active].read(cx).targets());
+        let sources = Rc::new(self.folders[self.active].read(cx).target_locations());
         let dest = self.folders[1 - self.active].read(cx).path().to_path_buf();
         if sources.is_empty() || dest.as_os_str().is_empty() {
             return;
         }
         let verb = if op == Transfer::Copy { "Copy" } else { "Move" };
-        let description = format!("{verb} {} to {}?", describe(&sources), dest.display());
+        let source_paths: Vec<_> = sources.iter().map(TargetLocation::panel_path).collect();
+        let description = format!("{verb} {} to {}?", describe(&source_paths), dest.display());
         let this = cx.entity().downgrade();
         window.open_alert_dialog(cx, move |dialog, _, _| {
             let (this, sources, dest) = (this.clone(), sources.clone(), dest.clone());
@@ -352,7 +356,7 @@ impl Commander {
     fn prepare_transfer(
         &self,
         plan: TransferPlan,
-        sources: Vec<PathBuf>,
+        sources: Vec<TargetLocation>,
         dest: &std::path::Path,
         cx: &App,
     ) -> Result<rjobs::Transfer, String> {
@@ -360,6 +364,20 @@ impl Commander {
         match plan {
             TransferPlan::Upload => {
                 let (provider, dest) = self.resolve_remote(dest)?;
+                let sources = sources
+                    .iter()
+                    .map(|location| {
+                        location
+                            .as_local_path()
+                            .map(|path| path.to_path_buf())
+                            .ok_or_else(|| {
+                                format!(
+                                    "{}: expected a local source",
+                                    location.panel_path().display()
+                                )
+                            })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
                 Ok(rjobs::Transfer::Upload {
                     provider,
                     sources,
@@ -368,7 +386,7 @@ impl Commander {
             }
             TransferPlan::Download => {
                 let items = source_folder.remote_items(&sources);
-                let (provider, _) = self.resolve_remote(source_folder.path())?;
+                let (provider, _) = self.resolve_remote(&source_folder.path())?;
                 Ok(rjobs::Transfer::Download {
                     provider,
                     items,
@@ -377,7 +395,7 @@ impl Commander {
             }
             TransferPlan::MoveWithin => {
                 let items = source_folder.remote_items(&sources);
-                let (provider, _) = self.resolve_remote(source_folder.path())?;
+                let (provider, _) = self.resolve_remote(&source_folder.path())?;
                 let (_, dest) = self.resolve_remote(dest)?;
                 Ok(rjobs::Transfer::Move {
                     provider,
@@ -391,7 +409,7 @@ impl Commander {
     fn start_remote_transfer(
         &mut self,
         plan: TransferPlan,
-        sources: Vec<PathBuf>,
+        sources: Vec<TargetLocation>,
         dest: PathBuf,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -527,13 +545,14 @@ impl Commander {
         let Some(removal) = provider.capabilities().removal else {
             return;
         };
-        let targets = self.folders[self.active].read(cx).targets();
+        let targets = self.folders[self.active].read(cx).target_locations();
         if targets.is_empty() {
             return;
         }
         let items = Rc::new(self.folders[self.active].read(cx).remote_items(&targets));
+        let target_paths: Vec<_> = targets.iter().map(TargetLocation::panel_path).collect();
         let (title, description, ok) =
-            rjobs::removal_prompt(removal, &describe(&targets), provider.label());
+            rjobs::removal_prompt(removal, &describe(&target_paths), provider.label());
         let this = cx.entity().downgrade();
         window.open_alert_dialog(cx, move |dialog, _, _| {
             let (this, items, provider) = (this.clone(), items.clone(), provider.clone());
@@ -591,13 +610,16 @@ impl Commander {
         if self.refuse_cmd(Cmd::Rename, cx) {
             return;
         }
-        let targets = self.folders[self.active].read(cx).targets();
+        let targets = self.folders[self.active].read(cx).target_locations();
         let [target] = targets.as_slice() else {
             self.status = "Rename on a remote folder works on one item at a time".into();
             cx.notify();
             return;
         };
-        let Some(location) = Location::parse(target).ok().flatten() else {
+        let Some(location) = (match target {
+            TargetLocation::Remote(location) => Some(location.clone()),
+            _ => None,
+        }) else {
             return;
         };
         let current = location.name().unwrap_or_default().to_owned();
@@ -811,8 +833,8 @@ impl Commander {
     /// The remote sides of the two panels, for [`crate::menus::State`].
     pub fn panel_sides(&self, cx: &App) -> (Side, Side) {
         (
-            Side::of(self.folders[self.active].read(cx).path()),
-            Side::of(self.folders[1 - self.active].read(cx).path()),
+            Side::of(&self.folders[self.active].read(cx).path()),
+            Side::of(&self.folders[1 - self.active].read(cx).path()),
         )
     }
 }

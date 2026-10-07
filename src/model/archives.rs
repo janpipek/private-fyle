@@ -5,7 +5,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use super::{Entry, Folder, Row};
+use super::{Entry, Folder, PanelContent, Row};
 use crate::archive;
 use crate::fs_ops;
 use crate::links::LinkState;
@@ -28,17 +28,24 @@ impl Folder {
     /// The location inside the archive being browsed (empty at its root).
     pub fn inner_path(&self) -> Option<String> {
         let mount = self.mount.as_ref()?;
-        archive::inner_of(&mount.file, &self.path)
+        archive::inner_of(&mount.file, &self.path())
     }
 
-    /// The archive and the inner paths of [`Folder::targets`], for
+    /// The archive and the inner paths of [`Folder::target_locations`], for
     /// extracting them.
     pub fn archive_targets(&self) -> Option<(PathBuf, Vec<String>)> {
         let file = self.archive()?.to_path_buf();
         let inner = self
-            .targets()
+            .target_locations()
             .iter()
-            .filter_map(|p| archive::inner_of(&file, p))
+            .filter_map(|location| match location {
+                Location::Archive { source, member }
+                    if source.as_local_path() == Some(file.as_path()) =>
+                {
+                    Some(member.as_str().to_owned())
+                }
+                _ => None,
+            })
             .collect();
         Some((file, inner))
     }
@@ -56,13 +63,16 @@ impl Folder {
 
     /// Where [`Folder::activate`] would go: the cursor entry if it is a
     /// folder or an archive.
-    pub fn activation_target(&self) -> Option<PathBuf> {
+    pub fn activation_target(&self) -> Option<Location> {
         let entry = self.current()?;
         (entry.is_dir
             || (self.mount.is_none()
                 && !self.is_remote()
-                && archive::format_of(&entry.path).is_some()))
-        .then(|| entry.path.clone())
+                && entry
+                    .location
+                    .as_local_path()
+                    .is_some_and(|path| archive::format_of(path).is_some())))
+        .then(|| entry.location.clone())
     }
 
     /// Shows an empty listing of the archive location `target` while its
@@ -78,26 +88,26 @@ impl Folder {
         self.all.clear();
         self.marked.clear();
         self.filter.clear();
-        self.results = None;
         self.cursor = 0;
         self.mount = Some(Mount {
             file,
             index: Arc::default(),
         });
-        self.path = target;
-        self.location = Location::archive(
-            Location::local(
-                self.mount
-                    .as_ref()
-                    .expect("loading has a mount")
-                    .file
-                    .clone(),
+        self.content = PanelContent::Directory(
+            Location::archive(
+                Location::local(
+                    self.mount
+                        .as_ref()
+                        .expect("loading has a mount")
+                        .file
+                        .clone(),
+                )
+                .expect("archive file has an absolute path"),
+                &archive::inner_of(self.archive().expect("loading has an archive"), &target)
+                    .expect("target is within the archive"),
             )
-            .expect("archive file has an absolute path"),
-            &archive::inner_of(self.archive().expect("loading has an archive"), &self.path)
-                .expect("target is within the archive"),
-        )
-        .expect("archive target has a valid member path");
+            .expect("archive target has a valid member path"),
+        );
         self.generation += 1;
         self.loading = Some(saved);
     }
@@ -118,7 +128,7 @@ impl Folder {
         *self = *saved;
         if let (true, Some(file)) = (leave, file) {
             let parent = fs_ops::parent_of(&file).unwrap_or_default();
-            if self.path != parent || self.mount.is_some() {
+            if self.path() != parent || self.mount.is_some() {
                 // Best effort: the previous state stays if the directory is gone.
                 let _ = self.replace(parent, Some(file));
             } else {
@@ -132,7 +142,7 @@ impl Folder {
     pub fn header(&self) -> String {
         match (self.archive(), self.inner_path()) {
             (Some(file), Some(inner)) => archive::location(file, &inner),
-            _ => fs_ops::display_path(&self.path),
+            _ => fs_ops::display_path(&self.path()),
         }
     }
 
@@ -251,7 +261,7 @@ mod tests {
         folder.select_path(Some(&zip));
         assert_eq!(folder.activate(), Ok(Activation::Entered));
         assert_eq!(folder.archive(), Some(zip.as_path()));
-        assert!(matches!(folder.location(), Location::Archive { .. }));
+        assert!(matches!(folder.location(), Some(Location::Archive { .. })));
         assert!(matches!(
             folder.entries()[1].location,
             Location::Archive { .. }
@@ -287,7 +297,7 @@ mod tests {
         // Up again leaves the archive, cursor on it.
         folder.go_up().unwrap();
         assert_eq!(folder.archive(), None);
-        assert!(matches!(folder.location(), Location::Local(_)));
+        assert!(matches!(folder.location(), Some(Location::Local(_))));
         assert_eq!(folder.path(), dir.path());
         assert_eq!(folder.current().unwrap().path, zip);
     }
@@ -300,7 +310,7 @@ mod tests {
         let mut folder = loaded(&dir);
         let before: Vec<String> = names(&folder).into_iter().map(String::from).collect();
         folder.select_path(Some(&zip));
-        assert_eq!(folder.activation_target(), Some(zip.clone()));
+        assert_eq!(folder.activation_target().unwrap().panel_path(), zip);
         assert_eq!(folder.archive_needed(dir.path()), None);
         assert_eq!(folder.archive_needed(&zip), Some(zip.clone()));
 
@@ -363,15 +373,15 @@ mod tests {
         // Back re-enters the archive.
         assert_eq!(folder.go_back(), Ok(true));
         assert_eq!(folder.archive(), Some(zip.as_path()));
-        assert!(matches!(folder.location(), Location::Archive { .. }));
+        assert!(matches!(folder.location(), Some(Location::Archive { .. })));
         assert_eq!(folder.go_back(), Ok(true));
         assert_eq!(folder.inner_path().as_deref(), Some("docs"));
-        assert!(matches!(folder.location(), Location::Archive { .. }));
+        assert!(matches!(folder.location(), Some(Location::Archive { .. })));
         assert_eq!(folder.go_forward(), Ok(true));
         assert_eq!(folder.inner_path().as_deref(), Some(""));
         assert_eq!(folder.go_forward(), Ok(true));
         assert_eq!(folder.archive(), None);
-        assert!(matches!(folder.location(), Location::Local(_)));
+        assert!(matches!(folder.location(), Some(Location::Local(_))));
     }
 
     #[test]

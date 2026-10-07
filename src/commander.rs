@@ -223,7 +223,9 @@ impl Commander {
                 move |_, _, event: &HeaderEvent, window, cx| {
                     let event = event.clone();
                     cx.defer_in(window, move |this, window, cx| match event {
-                        HeaderEvent::Navigate(path) => this.navigate_panel(ix, path, window, cx),
+                        HeaderEvent::Navigate(target) => {
+                            this.navigate_panel(ix, target, window, cx)
+                        }
                         HeaderEvent::Locations => this.open_locations(ix, true, window, cx),
                         HeaderEvent::SearchLocations => this.open_locations(ix, false, window, cx),
                         HeaderEvent::Edit => {

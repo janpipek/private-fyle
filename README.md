@@ -301,18 +301,22 @@ dev container.
 
 ## Architecture
 
-Model first: `src/model.rs` holds each panel's state (`Folder`: typed location, rows,
-cursor, marks, sort, hidden files, tree expansion) with no UI code and its own unit tests.
+Model first: `src/model.rs` holds each panel's state (`Folder`: typed
+`PanelContent` with `Directory(Location)`, `Search { root, title }` and
+`Places` modes, rows, cursor, marks, sort, hidden files, tree expansion) with
+no UI code and its own unit tests. Navigation destinations use `PanelTarget`,
+which keeps the places overview separate from file addresses.
 `src/panel.rs` is a `DataTable` view on top of a `Folder`; it only renders the
 model and forwards cursor moves, sorting and double-clicks to it.
 `src/commander.rs` owns the two models and their views and implements the
 commands. `src/fs_ops.rs` contains the file system operations.
 `src/location.rs` identifies local paths, configured remote paths and archive
 members without a live connection. Local paths retain native bytes and symlink
-spelling; archive members are validated. `Folder` rows, marks and history carry these
-identities, and remote listing cache keys use typed remote paths. The existing
-`Folder::path()` and `Entry::path` are compatibility spellings for panel and
-command code; virtual spellings must not be passed to native filesystem calls.
+spelling; archive members are validated. `Folder` derives its path spelling
+from `PanelContent`; rows, marks, history, activation and remote transfer
+selections carry typed identities. `Folder::path()` and `Entry::path` remain
+compatibility spellings for panel and native-operation boundaries; virtual
+spellings must not be passed to native filesystem calls.
 `src/tools/` is the model for context-dependent tools (run ruff on Python
 files, uv commands in uv projects, convert images, …); see
 [`docs/tools.md`](docs/tools.md). F2 opens them; your own go in

@@ -2,7 +2,7 @@
 //! translate input into calls on it; all navigation, cursor, marking,
 //! sorting and tree expansion rules live here.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
@@ -23,7 +23,7 @@ use history::Visit;
 use crate::archive;
 use crate::dirsize::DirSize;
 use crate::fs_ops::{self, Entry, SortKey};
-use crate::location::Location;
+use crate::location::{Location, PanelTarget};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Sort {
@@ -44,7 +44,7 @@ impl Default for Sort {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Activation {
     Entered,
-    OpenFile(PathBuf),
+    OpenFile(Location),
     Nothing,
 }
 
@@ -59,6 +59,17 @@ pub struct Row {
     pub hit_line: Option<(u64, String)>,
 }
 
+/// The kind of content currently shown by a panel.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PanelContent {
+    /// A local, remote, or archive directory listing.
+    Directory(Location),
+    /// Search results rooted at a typed directory location.
+    Search { root: Location, title: String },
+    /// The platform's top-level places (drive) overview.
+    Places,
+}
+
 impl Deref for Row {
     type Target = Entry;
 
@@ -69,9 +80,8 @@ impl Deref for Row {
 
 #[derive(Clone)]
 pub struct Folder {
-    /// Authoritative current address. `path` is its UI compatibility spelling.
-    location: Location,
-    path: PathBuf,
+    /// Authoritative panel content and address.
+    content: PanelContent,
     /// Remote listings loaded in the background; remote rows are built from
     /// them, never from I/O.
     remote_listings: remote::ListingCache,
@@ -83,9 +93,6 @@ pub struct Folder {
     all: Vec<Row>,
     /// Case-insensitive substring the shown names must contain.
     filter: String,
-    /// Set while showing search results instead of a directory listing;
-    /// `path` is then the search root.
-    results: Option<String>,
     /// Set while browsing inside an archive; `path` is then the archive
     /// file joined with the inner path.
     mount: Option<Mount>,
@@ -94,7 +101,7 @@ pub struct Folder {
     sort: Sort,
     show_hidden: bool,
     tree: bool,
-    expanded: BTreeSet<PathBuf>,
+    expanded: HashSet<Location>,
     /// Directory sizes computed on demand, by path. Kept across re-sorts
     /// and filters; dropped on navigation and [`Folder::refresh`].
     sizes: HashMap<PathBuf, DirSize>,
@@ -115,23 +122,25 @@ pub struct Folder {
 impl Folder {
     /// Creates an unloaded folder; call [`Folder::load_or_ancestor`] next.
     pub fn new(path: PathBuf) -> io::Result<Self> {
-        let location = Location::from_panel_path(&path, None)?;
+        let content = if path.as_os_str().is_empty() {
+            PanelContent::Places
+        } else {
+            PanelContent::Directory(Location::from_panel_path(&path, None)?)
+        };
         Ok(Self {
-            location,
-            path,
+            content,
             remote_listings: Default::default(),
             remote_origin: None,
             entries: Vec::new(),
             all: Vec::new(),
             filter: String::new(),
-            results: None,
             mount: None,
             cursor: 0,
             marked: HashSet::new(),
             sort: Sort::default(),
             show_hidden: false,
             tree: false,
-            expanded: BTreeSet::new(),
+            expanded: HashSet::new(),
             sizes: HashMap::new(),
             size_epoch: 0,
             generation: 0,
@@ -151,13 +160,36 @@ impl Folder {
 
     /// The existing panel spelling for UI callers. Virtual paths must not
     /// be passed to native filesystem operations.
-    pub fn path(&self) -> &Path {
-        &self.path
+    pub fn path(&self) -> PathBuf {
+        match &self.content {
+            PanelContent::Directory(location) => location.panel_path(),
+            PanelContent::Search { root, .. } => root.panel_path(),
+            PanelContent::Places => PathBuf::new(),
+        }
     }
 
     /// The typed identity of the folder currently shown.
-    pub fn location(&self) -> &Location {
-        &self.location
+    pub fn location(&self) -> Option<&Location> {
+        match &self.content {
+            PanelContent::Directory(location) => Some(location),
+            PanelContent::Search { root, .. } => Some(root),
+            PanelContent::Places => None,
+        }
+    }
+
+    /// Returns the current panel content mode.
+    pub fn content(&self) -> &PanelContent {
+        &self.content
+    }
+
+    /// Returns this panel's typed navigation target.
+    pub fn target(&self) -> PanelTarget {
+        match &self.content {
+            PanelContent::Directory(location) | PanelContent::Search { root: location, .. } => {
+                PanelTarget::Location(location.clone())
+            }
+            PanelContent::Places => PanelTarget::Places,
+        }
     }
 
     pub fn entries(&self) -> &[Row] {
@@ -185,8 +217,8 @@ impl Folder {
         self.tree
     }
 
-    pub fn is_expanded(&self, path: &Path) -> bool {
-        self.tree && self.mount.is_none() && self.expanded.contains(path)
+    pub fn is_expanded(&self, location: &Location) -> bool {
+        self.tree && self.mount.is_none() && self.expanded.contains(location)
     }
 
     pub fn is_marked(&self, location: &Location) -> bool {
@@ -223,20 +255,32 @@ impl Folder {
         if self.is_loading() {
             return Ok(());
         }
-        if self.results.is_some() {
+        if matches!(&self.content, PanelContent::Places) {
+            let mut entries = Vec::new();
+            self.list(&self.path(), 0, &mut entries)
+                .map_err(|error| format!("Drives: {error}"))?;
+            self.all = entries;
+            self.apply_filter();
             self.generation += 1;
-            let selected = self.current().map(|e| e.path.clone());
+            return Ok(());
+        }
+        if self.results().is_some() {
+            self.generation += 1;
+            let selected = self.current().map(|row| row.location.clone());
             self.all.retain(|r| r.is_parent || r.path.exists());
             self.marked
                 .retain(|location| location.as_local_path().is_some_and(Path::exists));
             self.apply_filter();
-            if !self.select_path(selected.as_deref()) {
+            if !self.select_location(selected.as_ref()) {
                 self.set_cursor(self.cursor);
             }
             return Ok(());
         }
-        let selected = self.current().map(|e| e.path.clone());
-        self.replace(self.path.clone(), selected)
+        let Some(location) = self.location().cloned() else {
+            return Ok(());
+        };
+        let selected = self.current().map(|row| row.location.clone());
+        self.replace_untracked_location(location, selected)
     }
 
     /// Like [`Folder::load`], but also forgets computed directory sizes,
@@ -255,18 +299,19 @@ impl Folder {
             if self.is_remote() {
                 break;
             }
-            let parent = match &self.location {
-                Location::Local(local) => fs_ops::parent_of(local.as_path()),
-                Location::Archive { source, .. } => {
+            let parent = match self.location() {
+                Some(Location::Local(local)) => fs_ops::parent_of(local.as_path()),
+                Some(Location::Archive { source, .. }) => {
                     source.as_local_path().and_then(fs_ops::parent_of)
                 }
-                Location::Remote(_) | Location::Drives => None,
+                Some(Location::Remote(_)) | None => None,
             };
             match parent {
                 Some(parent) => {
-                    self.location = Location::local(parent.clone())
-                        .expect("parent of an absolute path remains absolute");
-                    self.path = parent;
+                    self.content = PanelContent::Directory(
+                        Location::local(parent.clone())
+                            .expect("parent of an absolute path remains absolute"),
+                    );
                 }
                 None => break,
             }
@@ -276,8 +321,34 @@ impl Folder {
 
     /// Changes directory, putting the cursor on the directory we came from.
     pub fn navigate(&mut self, path: PathBuf) -> Result<(), String> {
-        let came_from = self.path.clone();
-        self.replace(path, Some(came_from))
+        let location = Location::from_panel_path(&path, self.archive())
+            .map_err(|e| format!("{}: {e}", fs_ops::display_path(&path)))?;
+        self.navigate_location(location)
+    }
+
+    /// Changes to a typed address, putting the cursor on the directory we came from.
+    pub fn navigate_location(&mut self, location: Location) -> Result<(), String> {
+        let selected = match (self.location(), &location) {
+            (Some(Location::Archive { source, member }), Location::Local(destination))
+                if member.as_str().is_empty()
+                    && source
+                        .as_local_path()
+                        .and_then(fs_ops::parent_of)
+                        .is_some_and(|parent| parent == destination.as_path()) =>
+            {
+                Some((**source).clone())
+            }
+            (current, _) => current.cloned(),
+        };
+        self.replace_location(location, selected)
+    }
+
+    /// Changes to a typed panel destination, including the places overview.
+    pub fn navigate_target(&mut self, target: PanelTarget) -> Result<(), String> {
+        match target.clone().into_location() {
+            Some(location) => self.navigate_location(location),
+            None => self.replace_places(),
+        }
     }
 
     /// While an archive is being read, going up cancels the read instead.
@@ -286,8 +357,8 @@ impl Folder {
             self.end_archive_load(true);
             return Ok(());
         }
-        if self.results.is_some() {
-            return self.replace(self.path.clone(), None);
+        if self.results().is_some() {
+            return self.replace(self.path(), None);
         }
         match self.parent_location() {
             Some(parent) => self.navigate(parent),
@@ -296,47 +367,43 @@ impl Folder {
     }
 
     pub fn activate(&mut self) -> Result<Activation, String> {
-        let Some(entry) = self.current().map(|r| r.entry.clone()) else {
+        let Some(entry) = self.current().cloned() else {
             return Ok(Activation::Nothing);
         };
         if entry.is_dir {
-            if self.results.is_some() && entry.is_parent {
-                self.replace(entry.path, None)?;
+            if self.results().is_some() && entry.is_parent {
+                let root = self
+                    .location()
+                    .cloned()
+                    .ok_or_else(|| "search root has no location".to_string())?;
+                self.replace_location(root, None)?;
             } else {
-                self.navigate(entry.path)?;
+                self.navigate_location(entry.location)?;
             }
             Ok(Activation::Entered)
         } else if !self.is_remote()
             && self.mount.is_none()
-            && archive::format_of(&entry.path).is_some()
+            && entry
+                .location
+                .as_local_path()
+                .is_some_and(|path| archive::format_of(path).is_some())
         {
             // An archive opens like a directory.
-            self.navigate(entry.path)?;
+            self.navigate_location(entry.location)?;
             Ok(Activation::Entered)
-        } else if self.results.is_some() {
+        } else if self.results().is_some() {
             // A search hit: show it in its directory.
             let parent = entry
                 .path
                 .parent()
                 .map(Path::to_path_buf)
                 .unwrap_or_default();
-            self.replace(parent, Some(entry.path))?;
+            let parent = Location::local(parent).map_err(|error| error.to_string())?;
+            self.replace_location(parent, Some(entry.location))?;
             Ok(Activation::Entered)
         } else {
-            Ok(Activation::OpenFile(entry.path))
+            Ok(Activation::OpenFile(entry.location))
         }
-    }
-
-    fn replace_untracked(&mut self, path: PathBuf, select: Option<PathBuf>) -> Result<(), String> {
-        let location = Location::from_panel_path(&path, self.archive())
-            .map_err(|e| format!("{}: {e}", fs_ops::display_path(&path)))?;
-        let selected = select
-            .map(|path| {
-                Location::from_panel_path(&path, self.archive())
-                    .map_err(|e| format!("{}: {e}", fs_ops::display_path(&path)))
-            })
-            .transpose()?;
-        self.replace_untracked_location(location, selected)
     }
 
     /// Loads a typed address, preserving its kind during history travel.
@@ -348,7 +415,7 @@ impl Folder {
         let path = requested.panel_path();
         let mut entries = Vec::new();
         let error = |e: &dyn std::fmt::Display| format!("{}: {e}", fs_ops::display_path(&path));
-        let mount = if matches!(requested, Location::Remote(_) | Location::Drives) {
+        let mount = if matches!(requested, Location::Remote(_)) {
             None
         } else {
             self.mount_for(&path).map_err(|e| error(&e))?
@@ -376,24 +443,20 @@ impl Folder {
             Location::Local(local) => self
                 .list(local.as_path(), 0, &mut entries)
                 .map_err(|e| error(&e))?,
-            Location::Drives => self.list(&path, 0, &mut entries).map_err(|e| error(&e))?,
         }
-        if path != self.path || self.results.is_some() {
+        if self.location() != Some(&location) || self.results().is_some() {
             self.marked.clear();
             self.filter.clear();
             self.clear_sizes();
         }
-        self.results = None;
+        self.content = PanelContent::Directory(location.clone());
         self.mount = mount.map(|(mount, _)| mount);
-        self.location = location;
-        self.path = path;
         self.all = entries;
         self.generation += 1;
         self.marked
             .retain(|location| self.all.iter().any(|row| &row.location == location));
         self.apply_filter();
-        let selected_path = selected.as_ref().map(Location::panel_path);
-        if !self.select_path(selected_path.as_deref()) {
+        if !self.select_location(selected.as_ref()) {
             self.set_cursor(self.cursor);
         }
         Ok(())
@@ -409,11 +472,12 @@ impl Folder {
         self.apply_sizes(&mut entries);
         fs_ops::sort_entries(&mut entries, self.sort.key, self.sort.descending);
         for entry in entries {
-            let descend = self.tree && !entry.is_parent && self.expanded.contains(&entry.path);
+            let location = Location::from_panel_path(&entry.path, None)
+                .expect("native listing returns absolute paths");
+            let descend = self.tree && !entry.is_parent && self.expanded.contains(&location);
             let path = entry.path.clone();
             out.push(Row {
-                location: Location::from_panel_path(&entry.path, None)
-                    .expect("native listing returns absolute paths or a drive overview"),
+                location,
                 entry,
                 depth,
                 hit_line: None,
@@ -428,6 +492,17 @@ impl Folder {
     /// Moves the cursor to `path`; returns false if it is not listed.
     pub fn select_path(&mut self, path: Option<&Path>) -> bool {
         let Some(ix) = path.and_then(|p| self.entries.iter().position(|e| e.path == p)) else {
+            return false;
+        };
+        self.cursor = ix;
+        true
+    }
+
+    /// Moves the cursor to a typed row identity; returns false when absent.
+    pub fn select_location(&mut self, location: Option<&Location>) -> bool {
+        let Some(ix) =
+            location.and_then(|target| self.entries.iter().position(|row| &row.location == target))
+        else {
             return false;
         };
         self.cursor = ix;
@@ -467,7 +542,9 @@ mod tests {
         folder.set_cursor(2);
         assert_eq!(
             folder.activate(),
-            Ok(Activation::OpenFile(dir.path().join("a.txt")))
+            Ok(Activation::OpenFile(
+                Location::local(dir.path().join("a.txt")).unwrap(),
+            ))
         );
     }
 
@@ -484,5 +561,20 @@ mod tests {
         assert!(Folder::new("relative".into()).is_err());
         assert!(Folder::new("nas:relative".into()).is_err());
         assert!(Folder::new(PathBuf::new()).is_ok());
+    }
+
+    #[test]
+    fn leaving_places_for_a_directory_uses_no_fake_parent_location() {
+        let dir = fixture();
+        let mut folder = Folder::new(PathBuf::new()).unwrap();
+        assert!(matches!(folder.content(), PanelContent::Places));
+        assert!(folder.location().is_none());
+
+        folder
+            .navigate_location(Location::local(dir.path().to_path_buf()).unwrap())
+            .unwrap();
+        assert!(matches!(folder.content(), PanelContent::Directory(_)));
+        assert_eq!(folder.path(), dir.path());
+        assert_eq!(names(&folder), ["..", "sub", "a.txt", "b.txt"]);
     }
 }

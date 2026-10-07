@@ -27,6 +27,7 @@ use crate::glyphs::glyph;
 use crate::grid::ViewMode;
 use crate::icon_view::{GridEvent, IconGrid};
 use crate::icons;
+use crate::location::PanelTarget;
 use crate::model::{Folder, Sort};
 use gpui_kit::assets::IconName as Lucide;
 
@@ -37,7 +38,7 @@ pub struct Activate;
 /// the originating panel when the other panel was active.
 #[derive(Clone, Debug)]
 pub enum HeaderEvent {
-    Navigate(PathBuf),
+    Navigate(PanelTarget),
     Locations,
     SearchLocations,
     Edit,
@@ -170,7 +171,9 @@ impl FolderView {
         let menu = crate::location_view::locations_menu(
             groups,
             move |path, _, cx| {
-                let _ = pick.update(cx, |_, cx| cx.emit(HeaderEvent::Navigate(path)));
+                if let Ok(target) = PanelTarget::from_panel_path(&path, None) {
+                    let _ = pick.update(cx, |_, cx| cx.emit(HeaderEvent::Navigate(target)));
+                }
             },
             move |_, cx| {
                 let _ = search.update(cx, |_, cx| cx.emit(HeaderEvent::SearchLocations));
@@ -326,36 +329,38 @@ impl FolderView {
         }
         let value = {
             let folder = self.folder.read(cx);
-            crate::breadcrumbs::editable_path(folder.path())
+            crate::breadcrumbs::editable_path(&folder.path())
         };
         let input = cx.new(|cx| InputState::new(window, cx).default_value(value));
-        self._location_subscription =
-            Some(
-                cx.subscribe_in(&input, window, |this, input, event: &InputEvent, _, cx| {
-                    if let InputEvent::PressEnter { .. } = event {
-                        let text = input.read(cx).value().to_string();
-                        let (current, archive) = {
-                            let folder = this.folder.read(cx);
-                            (
-                                folder.path().to_path_buf(),
-                                folder.archive().map(Path::to_path_buf),
-                            )
-                        };
-                        match crate::breadcrumbs::parse_location(
-                            &text,
-                            &current,
-                            dirs::home_dir().as_deref(),
-                            archive.as_deref(),
-                        ) {
-                            Ok(path) => {
-                                cx.emit(HeaderEvent::Navigate(path));
-                            }
+        self._location_subscription = Some(cx.subscribe_in(
+            &input,
+            window,
+            |this, input, event: &InputEvent, _, cx| {
+                if let InputEvent::PressEnter { .. } = event {
+                    let text = input.read(cx).value().to_string();
+                    let (current, archive) = {
+                        let folder = this.folder.read(cx);
+                        (
+                            folder.path().to_path_buf(),
+                            folder.archive().map(Path::to_path_buf),
+                        )
+                    };
+                    match crate::breadcrumbs::parse_location(
+                        &text,
+                        &current,
+                        dirs::home_dir().as_deref(),
+                        archive.as_deref(),
+                    ) {
+                        Ok(path) => match PanelTarget::from_panel_path(&path, archive.as_deref()) {
+                            Ok(target) => cx.emit(HeaderEvent::Navigate(target)),
                             Err(error) => cx.emit(HeaderEvent::Error(format!("{text}: {error}"))),
-                        }
-                        cx.notify();
+                        },
+                        Err(error) => cx.emit(HeaderEvent::Error(format!("{text}: {error}"))),
                     }
-                }),
-            );
+                    cx.notify();
+                }
+            },
+        ));
         input.update(cx, |input, cx| input.focus(window, cx));
         let focus = input.focus_handle(cx);
         self.location_input = Some(input);
@@ -452,14 +457,15 @@ impl Render for FolderView {
             theme.foreground
         };
         let folder = self.folder.read(cx);
-        let path_text = crate::breadcrumbs::editable_path(folder.path());
+        let path_text = crate::breadcrumbs::editable_path(&folder.path());
         let header_text = folder.header();
         let segments = crate::breadcrumbs::segments(
-            folder.path(),
+            &folder.path(),
             folder.archive(),
             folder.inner_path().as_deref(),
-            crate::remote_labels::label_of(folder.path(), cx).as_deref(),
+            crate::remote_labels::label_of(&folder.path(), cx).as_deref(),
         );
+        let archive_source = folder.archive().map(Path::to_path_buf);
         let mut footer = format!("{} dirs, {} files", folder.dir_count(), folder.file_count());
         if folder.is_loading() {
             footer = if folder.is_remote() {
@@ -494,6 +500,7 @@ impl Render for FolderView {
         let segment_count = segments.len();
         for (index, segment) in segments.into_iter().enumerate() {
             let path = segment.path;
+            let archive_source = archive_source.clone();
             let label = match segment.kind {
                 crate::breadcrumbs::Kind::Archive => format!("{} [archive]", segment.label),
                 crate::breadcrumbs::Kind::ArchiveInner => format!("↳ {}", segment.label),
@@ -512,8 +519,11 @@ impl Render for FolderView {
                     .text_color(header_foreground)
                     .accessibility_label(format!("Open {}", path.display()))
                     .on_click(move |_, _, cx| {
-                        if let Some(view) = view.upgrade() {
-                            view.update(cx, |_, cx| cx.emit(HeaderEvent::Navigate(path.clone())));
+                        if let Some(view) = view.upgrade()
+                            && let Ok(target) =
+                                PanelTarget::from_panel_path(&path, archive_source.as_deref())
+                        {
+                            view.update(cx, |_, cx| cx.emit(HeaderEvent::Navigate(target)));
                         }
                     })
                     .into_any_element(),
@@ -878,7 +888,7 @@ impl TableDelegate for FileTable {
         };
         match self.columns[col_ix] {
             ColumnKind::Name => {
-                let expanded = folder.is_expanded(&entry.path);
+                let expanded = folder.is_expanded(&row.location);
                 let icon = glyph(icons::icon_for(
                     &entry.name,
                     entry.is_dir,
@@ -888,7 +898,7 @@ impl TableDelegate for FileTable {
                 // Tree mode: indentation plus a clickable expand chevron.
                 let chevron = folder.is_tree().then(|| {
                     let toggle = (entry.is_dir && !entry.is_parent).then(|| {
-                        let (folder, path) = (self.folder.clone(), entry.path.clone());
+                        let (folder, location) = (self.folder.clone(), row.location.clone());
                         div()
                             .child(if expanded {
                                 IconName::ChevronDown
@@ -897,7 +907,7 @@ impl TableDelegate for FileTable {
                             })
                             .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                                 folder.update(cx, |folder, cx| {
-                                    folder.toggle_expanded(&path);
+                                    folder.toggle_expanded(&location);
                                     cx.notify();
                                 });
                             })

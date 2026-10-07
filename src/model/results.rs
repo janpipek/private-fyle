@@ -2,14 +2,17 @@
 
 use std::path::PathBuf;
 
-use super::{Entry, Folder, Row};
+use super::{Entry, Folder, PanelContent, Row};
 use crate::location::Location;
 use crate::search::Hit;
 
 impl Folder {
     /// Title of the search whose results are shown, if any.
     pub fn results(&self) -> Option<&str> {
-        self.results.as_deref()
+        match &self.content {
+            PanelContent::Search { title, .. } => Some(title),
+            _ => None,
+        }
     }
 
     /// Switches to showing search results under `root` (initially none;
@@ -31,10 +34,11 @@ impl Folder {
             depth: 0,
             hit_line: None,
         }];
-        self.path = root;
-        self.location = Location::local(self.path.clone()).expect("search root is absolute");
+        self.content = PanelContent::Search {
+            root: Location::local(root).expect("search root is absolute"),
+            title,
+        };
         self.mount = None;
-        self.results = Some(title);
         self.generation += 1;
         self.marked.clear();
         self.filter.clear();
@@ -44,7 +48,7 @@ impl Folder {
 
     /// Appends search hits, keeping the cursor on its entry.
     pub fn add_results(&mut self, hits: Vec<Hit>) {
-        let selected = self.current().map(|e| e.path.clone());
+        let selected = self.current().map(|row| row.location.clone());
         self.all.extend(hits.into_iter().map(|hit| Row {
             location:
                 Location::local(hit.entry.path.clone()).expect("search hits have absolute paths"),
@@ -53,7 +57,7 @@ impl Folder {
             hit_line: hit.line,
         }));
         self.apply_filter();
-        self.select_path(selected.as_deref());
+        self.select_location(selected.as_ref());
     }
 }
 
@@ -113,7 +117,8 @@ mod tests {
         // ".." / go up from results returns to the search root.
         folder.show_results(dir.path().to_path_buf(), "again".into());
         folder.go_up().unwrap();
-        assert_eq!((folder.results(), folder.path()), (None, dir.path()));
+        assert_eq!(folder.results(), None);
+        assert_eq!(folder.path(), dir.path());
         assert_eq!(names(&folder), ["..", "sub", "a.txt"]);
     }
 }

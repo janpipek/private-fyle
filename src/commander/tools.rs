@@ -81,11 +81,12 @@ impl Commander {
         ToolContext {
             dir: folder.path().to_path_buf(),
             targets: folder
-                .targets()
+                .target_locations()
                 .into_iter()
-                .map(|path| {
+                .filter_map(|location| {
+                    let path = location.as_local_path()?.to_path_buf();
                     let is_dir = path.is_dir();
-                    Target::new(path, is_dir)
+                    Some(Target::new(path, is_dir))
                 })
                 .collect(),
             other_dir: (!other.as_os_str().is_empty()).then(|| other.to_path_buf()),

@@ -46,6 +46,17 @@ pub fn summarize(verb: &str, unit: &str, done: usize, errors: &[String]) -> Stri
 }
 
 impl Commander {
+    fn local_targets(&mut self, cx: &mut Context<Self>) -> Option<Vec<PathBuf>> {
+        match self.folders[self.active].read(cx).local_targets() {
+            Ok(targets) => Some(targets),
+            Err(error) => {
+                self.status = error.to_string().into();
+                cx.notify();
+                None
+            }
+        }
+    }
+
     pub fn yank_files(&mut self, _: &YankFiles, _: &mut Window, cx: &mut Context<Self>) {
         self.set_yank(false, cx);
     }
@@ -60,7 +71,9 @@ impl Commander {
         if self.refuse_in_archive(cx) || self.refuse_on_remote(cx) {
             return;
         }
-        let paths = self.folders[self.active].read(cx).targets();
+        let Some(paths) = self.local_targets(cx) else {
+            return;
+        };
         if paths.is_empty() {
             return;
         }
@@ -115,7 +128,10 @@ impl Commander {
         if self.refuse_in_archive(cx) {
             return;
         }
-        let sources = Rc::new(self.folders[self.active].read(cx).targets());
+        let Some(sources) = self.local_targets(cx) else {
+            return;
+        };
+        let sources = Rc::new(sources);
         if sources.is_empty() {
             return;
         }
@@ -369,7 +385,10 @@ impl Commander {
             }
             return;
         }
-        let sources = Rc::new(self.folders[self.active].read(cx).targets());
+        let Some(sources) = self.local_targets(cx) else {
+            return;
+        };
+        let sources = Rc::new(sources);
         let dest = self.folders[1 - self.active].read(cx).path().to_path_buf();
         if sources.is_empty() || dest.as_os_str().is_empty() {
             return;
@@ -532,7 +551,10 @@ impl Commander {
         if self.refuse_in_archive(cx) {
             return;
         }
-        let targets = Rc::new(self.folders[self.active].read(cx).targets());
+        let Some(targets) = self.local_targets(cx) else {
+            return;
+        };
+        let targets = Rc::new(targets);
         if targets.is_empty() {
             return;
         }

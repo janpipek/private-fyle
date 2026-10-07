@@ -5,7 +5,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use super::{Entry, Folder, Row};
+use super::{Entry, Folder, PanelContent, Row};
 use crate::location::Location;
 use crate::{fs_ops, remote};
 
@@ -54,22 +54,22 @@ impl ListingCache {
 impl Folder {
     /// Whether this panel displays a remote folder.
     pub fn is_remote(&self) -> bool {
-        matches!(self.location(), Location::Remote(_))
+        matches!(self.location(), Some(Location::Remote(_)))
     }
 
     /// Installs a background result before navigation or history traversal.
     pub fn cache_remote(&mut self, path: PathBuf, entries: Vec<Entry>) {
         if !self.is_remote() {
-            self.remote_origin = Some(self.location.clone());
+            self.remote_origin = self.location().cloned();
         }
         let path = remote::Location::parse(&path)
             .expect("background result has a validated address")
             .expect("background result names a remote");
-        let keep = match &self.location {
-            Location::Remote(current) => Some(current),
+        let keep = match self.location() {
+            Some(Location::Remote(current)) => Some(current.clone()),
             _ => None,
         };
-        self.remote_listings.insert(path, entries, keep);
+        self.remote_listings.insert(path, entries, keep.as_ref());
     }
 
     /// Whether showing `path` needs a background listing first: it is
@@ -91,37 +91,36 @@ impl Folder {
         self.all.clear();
         self.marked.clear();
         self.filter.clear();
-        self.results = None;
         self.cursor = 0;
         self.mount = None;
-        self.path = target;
-        self.location = Location::from_panel_path(&self.path, None)
-            .expect("remote load receives a valid address");
+        self.content = PanelContent::Directory(
+            Location::from_panel_path(&target, None).expect("remote load receives a valid address"),
+        );
         self.generation += 1;
         self.loading = Some(saved);
     }
 
     /// Parent of the current folder, including the return location at remote root.
     pub fn parent_location(&self) -> Option<PathBuf> {
-        match &self.location {
-            Location::Remote(location) => location
+        match self.location() {
+            Some(Location::Remote(location)) => location
                 .parent()
                 .map(|p| p.panel_path())
                 .or_else(|| self.remote_origin.as_ref().map(Location::panel_path)),
-            Location::Local(path) => fs_ops::parent_of(path.as_path()),
-            Location::Archive { .. } => fs_ops::parent_of(self.path()),
-            Location::Drives => None,
+            Some(Location::Local(path)) => fs_ops::parent_of(path.as_path()),
+            Some(Location::Archive { .. }) => fs_ops::parent_of(&self.path()),
+            None => None,
         }
     }
 
-    /// The remote items for panel paths (e.g. [`Folder::targets`]), with
+    /// The remote items for typed panel targets, with
     /// whether each is a folder as listed; paths that are not remote or not
     /// listed are skipped.
-    pub fn remote_items(&self, paths: &[PathBuf]) -> Vec<remote::jobs::RemoteItem> {
-        paths
+    pub fn remote_items(&self, locations: &[Location]) -> Vec<remote::jobs::RemoteItem> {
+        locations
             .iter()
-            .filter_map(|path| {
-                let row = self.all.iter().find(|row| &row.path == path)?;
+            .filter_map(|location| {
+                let row = self.all.iter().find(|row| &row.location == location)?;
                 let Location::Remote(location) = &row.location else {
                     return None;
                 };
@@ -209,7 +208,7 @@ mod tests {
         folder.cache_remote(root().panel_path(), listing());
         folder.navigate(root().panel_path()).unwrap();
         assert!(folder.is_remote());
-        assert!(matches!(folder.location(), PanelLocation::Remote(_)));
+        assert!(matches!(folder.location(), Some(PanelLocation::Remote(_))));
         assert!(matches!(
             folder.entries()[1].location,
             PanelLocation::Remote(_)
@@ -222,7 +221,7 @@ mod tests {
         assert_eq!(folder.marked_count(), 1);
         assert!(folder.go_back().unwrap());
         assert!(!folder.is_remote());
-        assert!(matches!(folder.location(), PanelLocation::Local(_)));
+        assert!(matches!(folder.location(), Some(PanelLocation::Local(_))));
         assert!(folder.go_forward().unwrap());
         assert!(folder.is_remote());
     }
@@ -271,12 +270,12 @@ mod tests {
         ];
         folder.cache_remote(root().panel_path(), remote::entries(&root(), items).entries);
         folder.navigate(root().panel_path()).unwrap();
-        let paths = [
-            root().child("d").unwrap().panel_path(),
-            root().child("f").unwrap().panel_path(),
-            "/local".into(),
+        let locations = [
+            PanelLocation::Remote(root().child("d").unwrap()),
+            PanelLocation::Remote(root().child("f").unwrap()),
+            PanelLocation::local("/local".into()).unwrap(),
         ];
-        let found = folder.remote_items(&paths);
+        let found = folder.remote_items(&locations);
         assert_eq!(found.len(), 2);
         assert!(found[0].is_dir && !found[1].is_dir);
     }
