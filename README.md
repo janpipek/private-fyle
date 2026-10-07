@@ -36,6 +36,7 @@ palette. The bottom area shows status messages and running jobs.
 | Ctrl-A / * / +      | Select all / invert selection / select by pattern (glob or substring) |
 | / or Ctrl-F         | Filter as you type (Enter keeps the filter, Esc clears it) |
 | Esc                 | Clear the filter, else the marks          |
+| (no key)            | Clear Selection (Edit menu, palette, F1): unmark everything in the active panel, leaving the filter; unavailable when nothing is marked |
 | Shift-F4            | New file: create and edit it |
 | Ctrl-C / Ctrl-X / Ctrl-V | Yank / cut / paste entries (paths also go to the system clipboard); paste runs as a background copy/move |
 | F5                  | Copy marked (or current) to other panel; inside an archive, extract them there (existing files are asked about) |

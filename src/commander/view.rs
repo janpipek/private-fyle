@@ -13,8 +13,8 @@ use gpui_kit::*;
 use super::Commander;
 use super::jobs::first_of;
 use super::keys::{
-    CalculateSizes, Collapse, Expand, Filter, InvertSelection, Refresh, SelectAll, SelectPattern,
-    ToggleHidden, ToggleMark, TogglePreview, ToggleTree, Unmark,
+    CalculateSizes, ClearSelection, Collapse, Expand, Filter, InvertSelection, Refresh, SelectAll,
+    SelectPattern, ToggleHidden, ToggleMark, TogglePreview, ToggleTree, Unmark,
 };
 use super::location::ListingCommit;
 use crate::dirsize::{self, DirSize};
@@ -257,6 +257,12 @@ impl Commander {
                 folder.set_filter("");
             }
         });
+    }
+
+    /// Clear Selection: unmarks every entry of the active panel; unlike
+    /// Esc it leaves the filter and running work alone.
+    pub fn clear_selection(&mut self, _: &ClearSelection, _: &mut Window, cx: &mut Context<Self>) {
+        self.update_folder(cx, |folder| folder.clear_marks());
     }
 
     /// Ctrl-R: reloads both panels and forgets computed folder sizes

@@ -32,6 +32,7 @@ pub enum Cmd {
     InvertSelection,
     SelectPattern,
     Unmark,
+    ClearSelection,
     Filter,
     TogglePreview,
     ToggleTree,
@@ -79,6 +80,8 @@ pub enum Cmd {
 pub struct State {
     /// Something to act on: marked entries, or a cursor entry other than "..".
     pub has_targets: bool,
+    /// At least one entry of the active panel is marked.
+    pub has_marks: bool,
     /// The cursor is on a regular file (not a directory).
     pub cursor_on_file: bool,
     /// Entries were yanked or cut and can be pasted.
@@ -115,7 +118,7 @@ pub struct State {
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 61] = [
+    pub const ALL: [Cmd; 62] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::OpenInBrowser,
@@ -132,6 +135,7 @@ impl Cmd {
         Cmd::InvertSelection,
         Cmd::SelectPattern,
         Cmd::Unmark,
+        Cmd::ClearSelection,
         Cmd::Filter,
         Cmd::Copy,
         Cmd::Move,
@@ -203,6 +207,7 @@ impl Cmd {
             Cmd::InvertSelection => "Invert Selection",
             Cmd::SelectPattern => "Select by Pattern…",
             Cmd::Unmark => "Clear Filter or Marks",
+            Cmd::ClearSelection => "Clear Selection",
             Cmd::Filter => "Filter…",
             Cmd::TogglePreview => "Preview",
             Cmd::ToggleTree => "Tree",
@@ -278,6 +283,7 @@ impl Cmd {
             Cmd::GoUp => "Go to parent directory",
             Cmd::GoFirst => "Go to first entry",
             Cmd::GoLast => "Go to last entry",
+            Cmd::ClearSelection => "Clear the marks of the active panel",
             Cmd::SwitchPanel => "Switch panel",
             Cmd::ToggleBookmark => "Add or remove the bookmark for this folder",
             Cmd::EditLocation => "Edit or paste the active panel location",
@@ -405,6 +411,7 @@ impl Cmd {
             {
                 Some("Select or mark entries")
             }
+            Cmd::ClearSelection if !state.has_marks => Some("Nothing is marked"),
             Cmd::PasteFiles if !state.can_paste => Some("Copy or cut entries first"),
             Cmd::PasteFiles | Cmd::NewFile | Cmd::MakeDir | Cmd::ToggleBookmark
                 if !state.in_directory =>
@@ -498,7 +505,7 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
             items(&[
                 &[CutFiles, YankFiles, PasteFiles],
                 &[ToggleMark, SelectAll, InvertSelection, SelectPattern],
-                &[Unmark, Filter],
+                &[ClearSelection, Unmark, Filter],
             ]),
         ),
         ("View", {
@@ -643,6 +650,20 @@ mod tests {
             Some("This remote has no web view")
         );
         assert_eq!(Cmd::OpenInBrowser.unavailable(&remote(true)), None);
+    }
+
+    #[test]
+    fn clear_selection_needs_marks() {
+        let none = State::default();
+        assert_eq!(
+            Cmd::ClearSelection.unavailable(&none),
+            Some("Nothing is marked")
+        );
+        let marked = State {
+            has_marks: true,
+            ..none
+        };
+        assert_eq!(Cmd::ClearSelection.unavailable(&marked), None);
     }
 
     #[test]

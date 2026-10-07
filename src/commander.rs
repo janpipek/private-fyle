@@ -465,6 +465,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::switch_panel))
             .on_action(cx.listener(Self::toggle_mark))
             .on_action(cx.listener(Self::unmark))
+            .on_action(cx.listener(Self::clear_selection))
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::move_))
             .on_action(cx.listener(Self::extract_archive))

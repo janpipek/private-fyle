@@ -1,8 +1,7 @@
 # TODO
 
-- [ ] Menus and selection, remaining parts: output/history in Tools; a
-      "Clear selection" command (Esc already clears marks). Implement
-      missing actions as separate features.
+- [ ] Menus and selection, remaining parts: output/history in Tools.
+      Implement missing actions as separate features.
 - [ ] Swap Panels command: exchange the two panels' content, cursor, marks,
       navigation history and view state. Register it in `Cmd`, menus, the
       palette and F1 help; decide its shortcut and focus behavior. Handle
@@ -110,6 +109,10 @@
 
 ## Done
 
+- [x] Clear Selection command (`ClearSelection`, Edit menu, palette, F1): unmarks
+      the active panel without touching the filter; unavailable ("Nothing is
+      marked") when no entry is marked. Esc keeps its filter-then-marks
+      behavior and has no extra shortcut.
 - [x] Toggle bookmark: Ctrl-D adds or removes the active local folder's
       bookmark (`ToggleBookmark`, one `Cmd` shared by the shortcut, menus,
       palette and F1 help, checked when bookmarked). A star in each panel's
