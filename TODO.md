@@ -69,7 +69,7 @@
       there (a pool would fix it); copy between two remotes; move between local
       and remote (copy then remove); bulk rename and per-byte progress; uploading
       edited cache copies back; search, tools, thumbnails and folder sizes on
-      remotes; remote bookmarks; automatic refresh when a remote changes;
+      remotes; automatic refresh when a remote changes;
       a web view for WebDAV and a check of the Proton share-ID
       address; per-remote "Shared with me" is read-only on purpose.
 - [ ] Embedded terminal (idea, undecided): alacritty_terminal + PTY rendered
@@ -114,11 +114,20 @@
       the active panel without touching the filter; unavailable ("Nothing is
       marked") when no entry is marked. Esc keeps its filter-then-marks
       behavior and has no extra shortcut.
+- [x] Remote bookmarks: Ctrl-D and the location-bar star now work on remote
+      folders too (same `Cmd`; still unavailable in archives, search results
+      and Places). Bookmarks are typed locations (`Vec<Location>`), stored in
+      `config.toml` with the same versioned encoding as history, so local and
+      remote entries mix in one list. The Locations picker (Ctrl-G) lists
+      remote bookmarks by their `remote:/path` address, without disk checks,
+      and opens them through the normal background listing; a bookmark whose
+      remote is no longer configured stays listed and reports "no remote named
+      X is configured" on the status line when opened.
 - [x] Toggle bookmark: Ctrl-D adds or removes the active local folder's
       bookmark (`ToggleBookmark`, one `Cmd` shared by the shortcut, menus,
       palette and F1 help, checked when bookmarked). A star in each panel's
       location bar shows the state and toggles it on click; it is hidden for
-      archives, search results, remotes and the drive list. The model lives
+      archives, search results and the drive list. The model lives
       in `bookmarks.rs`; the settings file is edited in the background.
 - [x] Read-only Jupyter/IPython notebook view (IPYNB): parse bounded nbformat 4
       JSON in Rust and lazily render Markdown, highlighted code, saved text,

@@ -338,7 +338,6 @@ impl Cmd {
             Cmd::OpenWith
             | Cmd::EditFile
             | Cmd::NewFile
-            | Cmd::ToggleBookmark
             | Cmd::OpenTerminal
             | Cmd::ToolsMenu
             | Cmd::FindFiles
@@ -733,6 +732,16 @@ mod tests {
             ..folder
         };
         assert!(Cmd::ToggleBookmark.unavailable(&archive).is_some());
+        let remote = State {
+            remote: Some(Capabilities::default()),
+            ..folder
+        };
+        assert_eq!(Cmd::ToggleBookmark.unavailable(&remote), None);
+        let remote_archive = State {
+            in_archive: true,
+            ..remote
+        };
+        assert!(Cmd::ToggleBookmark.unavailable(&remote_archive).is_some());
     }
 
     #[test]
@@ -849,7 +858,6 @@ mod tests {
             Cmd::ToolsMenu,
             Cmd::YankFiles,
             Cmd::PasteFiles,
-            Cmd::ToggleBookmark,
         ] {
             assert_eq!(
                 cmd.unavailable(&full),
@@ -866,6 +874,7 @@ mod tests {
             Cmd::Copy,
             Cmd::Move,
             Cmd::GoUp,
+            Cmd::ToggleBookmark,
         ] {
             assert_eq!(cmd.unavailable(&full), None, "{cmd:?}");
         }

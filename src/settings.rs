@@ -13,6 +13,7 @@ use serde::Deserialize;
 
 use crate::fs_ops::SortKey;
 use crate::grid::ViewMode;
+use crate::location::Location;
 use crate::model::Sort;
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -23,8 +24,10 @@ pub struct Settings {
     pub theme: String,
     /// UI font size in pixels; zooming (Ctrl-+ / Ctrl--) saves it.
     pub font_size: f32,
-    /// Directories offered first in Go to (Ctrl-G); Ctrl-D adds one.
-    pub bookmarks: Vec<PathBuf>,
+    /// Local and remote folders offered first in Go to (Ctrl-G); Ctrl-D adds
+    /// one. Read from legacy path strings or versioned location values.
+    #[serde(deserialize_with = "deserialize_bookmarks")]
+    pub bookmarks: Vec<Location>,
     /// Programs opening files (Enter uses the first match; Shift-Enter lists all).
     #[serde(rename = "opener")]
     pub openers: Vec<crate::openers::Opener>,
@@ -219,27 +222,34 @@ impl Settings {
         let mut settings: Self = toml::from_str(text).map_err(|e| e.message().to_string())?;
         settings.panels.left = settings.panels.left.map(expand_home);
         settings.panels.right = settings.panels.right.map(expand_home);
-        settings.bookmarks = settings
-            .bookmarks
-            .into_iter()
-            .map(|path| {
-                let Some(value) = path.to_str() else {
-                    return Ok(path);
-                };
-                if value.starts_with(crate::location_codec::PREFIX) {
-                    let location = crate::location_codec::decode(value)
-                        .map_err(|error| format!("invalid bookmark: {error}"))?;
-                    location
-                        .as_local_path()
-                        .map(Path::to_path_buf)
-                        .ok_or_else(|| "bookmarks must name local paths".to_owned())
-                } else {
-                    Ok(expand_home(path))
-                }
-            })
-            .collect::<Result<_, String>>()?;
         Ok(settings)
     }
+}
+
+/// Reads bookmark entries: versioned typed locations (local or remote) or
+/// legacy local path strings (`~` expands to the home directory).
+fn deserialize_bookmarks<'de, D>(deserializer: D) -> Result<Vec<Location>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    Vec::<String>::deserialize(deserializer)?
+        .into_iter()
+        .map(|value| {
+            if value.starts_with(crate::location_codec::PREFIX) {
+                match crate::location_codec::decode(&value) {
+                    Ok(location @ (Location::Local(_) | Location::Remote(_))) => Ok(location),
+                    Ok(Location::Archive { .. }) => Err(D::Error::custom(
+                        "bookmarks must name folders, not archive members",
+                    )),
+                    Err(error) => Err(D::Error::custom(format!("invalid bookmark: {error}"))),
+                }
+            } else {
+                Location::local(expand_home(PathBuf::from(&value)))
+                    .map_err(|error| D::Error::custom(format!("invalid bookmark {value}: {error}")))
+            }
+        })
+        .collect()
 }
 
 /// Writes `theme = "<name>"` into the settings file, keeping the rest of the
@@ -583,16 +593,14 @@ mod tests {
         let path = dir.join("config.toml");
         std::fs::create_dir_all(dir).unwrap();
         std::fs::write(&path, "# mine\ntheme = \"dark\"\n").unwrap();
-        crate::bookmarks::add_bookmark_to(&path, Path::new("/srv/a")).unwrap();
-        crate::bookmarks::add_bookmark_to(&path, Path::new("/srv/b")).unwrap();
-        crate::bookmarks::add_bookmark_to(&path, Path::new("/srv/a")).unwrap();
+        let loc = |p: &str| Location::local(p.into()).unwrap();
+        crate::bookmarks::add_bookmark_to(&path, &loc("/srv/a")).unwrap();
+        crate::bookmarks::add_bookmark_to(&path, &loc("/srv/b")).unwrap();
+        crate::bookmarks::add_bookmark_to(&path, &loc("/srv/a")).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("# mine"));
         let settings = Settings::parse(&text).unwrap();
-        assert_eq!(
-            settings.bookmarks,
-            [PathBuf::from("/srv/a"), "/srv/b".into()]
-        );
+        assert_eq!(settings.bookmarks, [loc("/srv/a"), loc("/srv/b")]);
         assert_eq!(settings.theme, "dark");
     }
 
@@ -610,6 +618,7 @@ mod tests {
         #[cfg(windows)]
         let unusual = PathBuf::from("C:\\tmp\\a\tb\nc");
 
+        let unusual = Location::local(unusual).unwrap();
         crate::bookmarks::add_bookmark_to(&path, &unusual).unwrap();
         crate::bookmarks::add_bookmark_to(&path, &unusual).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -617,16 +626,18 @@ mod tests {
         assert!(text.contains(crate::location_codec::PREFIX));
         assert_eq!(
             Settings::parse(&text).unwrap().bookmarks,
-            [PathBuf::from("/legacy"), unusual]
+            [Location::local("/legacy".into()).unwrap(), unusual]
         );
     }
 
     #[test]
-    fn bookmark_codec_rejects_remote_and_malformed_markers() {
-        let remote =
-            crate::location::Location::Remote(crate::remote::Location::root("nas").unwrap());
-        let encoded = crate::location_codec::encode(&remote).unwrap();
-        let value = toml_edit::value(encoded);
+    fn bookmark_codec_reads_remotes_and_rejects_malformed_entries() {
+        let remote = Location::Remote(crate::remote::Location::root("nas").unwrap());
+        let value = toml_edit::value(crate::location_codec::encode(&remote).unwrap());
+        let settings = Settings::parse(&format!("bookmarks = [{value}]")).unwrap();
+        assert_eq!(settings.bookmarks, std::slice::from_ref(&remote));
+        let member = Location::archive(Location::local("/a.zip".into()).unwrap(), "x").unwrap();
+        let value = toml_edit::value(crate::location_codec::encode(&member).unwrap());
         assert!(Settings::parse(&format!("bookmarks = [{value}]")).is_err());
         assert!(Settings::parse("bookmarks = [\"fyle-location:v1:{\"]").is_err());
     }

@@ -114,7 +114,7 @@ pub fn system_places() -> Vec<Place> {
 /// as given, without touching the disk.
 #[allow(dead_code)] // Kept as the panel-path adapter for older callers.
 pub fn grouped_locations(
-    bookmarks: &[PathBuf],
+    bookmarks: &[Location],
     frequent: &[PathBuf],
     remotes: Vec<Place>,
 ) -> Vec<Group> {
@@ -128,7 +128,7 @@ pub fn grouped_locations(
 /// Groups places using typed frequent locations so virtual addresses keep
 /// their identity through history and the locations picker.
 pub fn grouped_locations_typed(
-    bookmarks: &[PathBuf],
+    bookmarks: &[Location],
     frequent: &[Location],
     remotes: Vec<Place>,
 ) -> Vec<Group> {
@@ -165,24 +165,9 @@ pub fn grouped_locations_typed(
         system_places(),
         &no_virtual_paths,
     );
-    let bookmarks = group(
-        GroupKind::Bookmarks,
-        "Bookmarks",
-        bookmarks
-            .iter()
-            .map(|path| Place::new(crate::tools::file_name(path), path.clone()))
-            .collect(),
-        &no_virtual_paths,
-    );
-    let virtual_paths: std::collections::HashSet<_> = frequent
-        .iter()
-        .filter(|location| matches!(location, Location::Remote(_)))
-        .map(Location::panel_path)
-        .collect();
-    let frequent = group(
-        GroupKind::Frequent,
-        "Frequent",
-        frequent
+    // Remote folders are labelled with their full `remote:/path` address.
+    let places_of = |locations: &[Location]| -> Vec<Place> {
+        locations
             .iter()
             .map(|location| {
                 let path = location.panel_path();
@@ -193,8 +178,26 @@ pub fn grouped_locations_typed(
                 };
                 Place::new(label, path)
             })
-            .collect(),
-        &virtual_paths,
+            .collect()
+    };
+    let virtual_paths_of = |locations: &[Location]| -> std::collections::HashSet<PathBuf> {
+        locations
+            .iter()
+            .filter(|location| matches!(location, Location::Remote(_)))
+            .map(Location::panel_path)
+            .collect()
+    };
+    let bookmarks = group(
+        GroupKind::Bookmarks,
+        "Bookmarks",
+        places_of(bookmarks),
+        &virtual_paths_of(bookmarks),
+    );
+    let frequent = group(
+        GroupKind::Frequent,
+        "Frequent",
+        places_of(frequent),
+        &virtual_paths_of(frequent),
     );
     let remotes = Group {
         kind: GroupKind::Remotes,
@@ -573,6 +576,29 @@ mod tests {
         assert_eq!(group.places[0].label, "gdrive:/Docs/2026");
         let text = history.serialize();
         assert_eq!(History::parse(&text), history);
+    }
+
+    #[test]
+    fn bookmarks_keep_remote_folders_labelled_with_their_remote() {
+        let remote = |path: &str| Location::from_panel_path(Path::new(path), None).unwrap();
+        let bookmarks = [remote("proton:/a/b"), remote("gone:/x")];
+        let groups = grouped_locations_typed(&bookmarks, &[], Vec::new());
+        let group = groups
+            .iter()
+            .find(|g| g.kind == GroupKind::Bookmarks)
+            .expect("bookmarks group");
+        let shown: Vec<_> = group
+            .places
+            .iter()
+            .map(|p| (p.label.as_str(), p.path.clone()))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("proton:/a/b", PathBuf::from("proton:/a/b")),
+                ("gone:/x", PathBuf::from("gone:/x"))
+            ]
+        );
     }
 
     #[test]

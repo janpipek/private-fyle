@@ -198,14 +198,21 @@ impl Folder {
         }
     }
 
-    /// The local folder this panel shows if it can be bookmarked: not search
-    /// results, an archive, a remote or the drive list.
-    pub fn bookmark_target(&self) -> Option<&Path> {
+    /// The local or remote folder this panel shows if it can be bookmarked:
+    /// not search results, an archive or the drive list.
+    pub fn bookmark_target(&self) -> Option<&Location> {
         match &self.content {
-            PanelContent::Directory(Location::Local(local))
+            PanelContent::Directory(location @ Location::Local(local))
+                if self.archive().is_none()
+                    && self.results().is_none()
+                    && !local.as_path().as_os_str().is_empty() =>
+            {
+                Some(location)
+            }
+            PanelContent::Directory(location @ Location::Remote(_))
                 if self.archive().is_none() && self.results().is_none() =>
             {
-                Some(local.as_path()).filter(|path| !path.as_os_str().is_empty())
+                Some(location)
             }
             _ => None,
         }
@@ -920,5 +927,26 @@ mod tests {
         assert!(matches!(folder.content(), PanelContent::Directory(_)));
         assert_eq!(folder.path(), dir.path());
         assert_eq!(names(&folder), ["..", "sub", "a.txt", "b.txt"]);
+    }
+
+    #[test]
+    fn bookmark_target_covers_local_and_remote_folders_but_not_places() {
+        let dir = fixture();
+        let local = Folder::new(dir.path().to_path_buf()).unwrap();
+        assert_eq!(
+            local.bookmark_target(),
+            Some(&Location::local(dir.path().to_path_buf()).unwrap())
+        );
+        let remote = Folder::new("nas:/docs/2026".into()).unwrap();
+        assert_eq!(
+            remote.bookmark_target().map(Location::panel_path),
+            Some(PathBuf::from("nas:/docs/2026"))
+        );
+        assert!(
+            Folder::new(PathBuf::new())
+                .unwrap()
+                .bookmark_target()
+                .is_none()
+        );
     }
 }

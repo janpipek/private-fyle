@@ -38,6 +38,7 @@ use self::tools::load_tools;
 use crate::editor_view::EditorPane;
 use crate::grid::ViewMode;
 use crate::jobs::Yank;
+use crate::location::Location;
 use crate::menu_bar::MenuBar;
 use crate::menus::Cmd;
 use crate::model::Folder;
@@ -112,7 +113,7 @@ pub struct Commander {
     remote_open_copy: Option<crate::remote::jobs::LocalCopy>,
     locations_generation: u64,
     locations_pending: bool,
-    bookmarks: Vec<PathBuf>,
+    bookmarks: Vec<Location>,
     history: History,
     /// Last directory recorded in the history.
     last_visited: Option<crate::location::Location>,

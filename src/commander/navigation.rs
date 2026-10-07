@@ -314,23 +314,24 @@ impl Commander {
 
     /// Ctrl-D: adds the active directory to the bookmarks, or removes it.
     pub fn toggle_bookmark(&mut self, _: &ToggleBookmark, _: &mut Window, cx: &mut Context<Self>) {
-        if self.refuse_in_archive(cx) || self.refuse_on_remote(cx) {
+        if self.refuse_in_archive(cx) {
             return;
         }
         let Some(dir) = self.folders[self.active]
             .read(cx)
             .bookmark_target()
-            .map(Path::to_path_buf)
+            .cloned()
         else {
-            self.status = "Only local folders can be bookmarked".into();
+            self.status = "Only local and remote folders can be bookmarked".into();
             cx.notify();
             return;
         };
         let bookmarked = bookmarks::toggle(&mut self.bookmarks, &dir);
+        let shown = dir.panel_path().display().to_string();
         self.status = if bookmarked {
-            format!("Bookmarked {}", dir.display())
+            format!("Bookmarked {shown}")
         } else {
-            format!("Removed bookmark {}", dir.display())
+            format!("Removed bookmark {shown}")
         }
         .into();
         // The settings file is written in the background; undo on failure.

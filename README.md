@@ -201,7 +201,9 @@ status line and the defaults are used. Settings are read at startup.
 
 Bookmarks still accept ordinary path strings in `config.toml`; newly saved
 bookmarks use a versioned location value so native path bytes and control
-characters round-trip. Bookmarks remain local paths. Frequent-directory
+characters round-trip. Bookmarks can also be remote folders (`proton:/a/b`),
+stored the same way; one whose remote is no longer configured stays in the
+list and fails with a status-line message when opened. Frequent-directory
 history reads the existing `count<TAB>time<TAB>path` format and writes typed,
 versioned locations, keeping local, remote and archive addresses distinct.
 History snapshots save in one background writer; while a save is active,
@@ -276,7 +278,7 @@ Using them:
   cannot be learnt, the Drive start page opens and the status line says so.
   SFTP, FTP, S3 and WebDAV servers have no web view.
 - Everything else is unavailable on remote folders and says so: search, tools,
-  archives, folder sizes, thumbnails, terminal, editing, bookmarks, tree mode,
+  archives, folder sizes, thumbnails, terminal, editing, tree mode,
   cut/copy/paste. Remote paths are never read from the local disk.
 
 Providers:
@@ -433,7 +435,7 @@ Where things live (`src/`):
 
 | Module | Role |
 |---|---|
-| `bookmarks.rs` | Bookmark toggling in memory and in `config.toml` |
+| `bookmarks.rs` | Local and remote bookmark toggling in memory and in `config.toml` |
 | `main.rs` | Startup, settings, start directories, window |
 | `commander.rs`, `commander/` | Main window: the two panels, actions, dialogs, jobs bar, tools orchestration. Split by area into `commander/` (keys, navigation, search, files, jobs, view, archives, remotes, tools, menus, appearance); new logic goes into its own module, only wiring here. |
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
