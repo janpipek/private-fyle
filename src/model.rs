@@ -250,6 +250,11 @@ impl Folder {
         {
             return self.location().cloned();
         }
+        // Going to the parent (Go Up or the `..` row): the cursor lands on the
+        // folder just left, as for local folders.
+        if self.parent_target().as_ref() == Some(target) {
+            return self.location().cloned();
+        }
         self.current().map(|row| row.location.clone())
     }
 

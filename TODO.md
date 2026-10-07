@@ -11,9 +11,10 @@
       Decide the editor presentation and preset coverage; map only supported
       commands, with Finder's Command-key conventions tied to later macOS
       support. References: official Krusader/MC keymaps and Apple shortcuts.
-- [ ] Investigate missing parent navigation in Proton Drive: check the `..`
-      row and Go Up in subfolders and at the drive root; add model/provider
-      regression tests for the intended destinations.
+- [ ] Missing `..` in Proton Drive, live check: the code builds `..` for
+      every remote subfolder, and at a remote root only when the panel came
+      from a local folder (none for `fyle proton:/`). Reproduce with a real
+      account; the cursor-placement part is fixed.
 - [ ] Open With: use the OS/desktop's configured file-type associations,
       available applications and default application, alongside fyle's
       configured openers. Respect KDE/GNOME/XDG settings on Linux, Windows
@@ -98,6 +99,9 @@
 
 ## Done
 
+- [x] Remote Go Up / `..` puts the cursor on the folder just left (the
+      shared selection rule only handled the remote root before); model tests
+      cover `..` and Go Up in a Proton subfolder, a nested subfolder and the root.
 - [x] Swap Panels (`SwapPanels`, Ctrl-U, Go menu, palette, F1): `Folder::swap_with`
       exchanges the two panel models (content, cursor, marks, filter, sort,
       history), the view modes follow (and are saved as `left_view` /

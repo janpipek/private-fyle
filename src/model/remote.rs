@@ -319,4 +319,104 @@ mod tests {
         assert!(folder.load_or_ancestor().is_some());
         assert_eq!(folder.path(), root().panel_path());
     }
+
+    fn dir_item(name: &str) -> Item {
+        Item {
+            name: name.into(),
+            is_dir: true,
+            size: Some(0),
+            modified: None,
+            created: None,
+        }
+    }
+
+    /// Folder showing `proton:/a/b` (reached from a local folder through the
+    /// drive root and `a`), with listings of every level cached.
+    fn nested_folder(local: &std::path::Path) -> Folder {
+        let a = root().child("a").unwrap();
+        let b = a.child("b").unwrap();
+        let mut folder = Folder::new(local.into()).unwrap();
+        folder.load().unwrap();
+        for (dir, items) in [
+            (&root(), vec![dir_item("a")]),
+            (&a, vec![dir_item("b"), dir_item("c")]),
+            (&b, vec![dir_item("deep")]),
+        ] {
+            folder.cache_remote(dir.panel_path(), remote::entries(dir, items).entries);
+        }
+        for dir in [root(), a, b] {
+            folder.navigate(dir.panel_path()).unwrap();
+        }
+        folder
+    }
+
+    #[test]
+    fn remote_subfolders_have_a_parent_row_and_go_up_to_their_parent() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut folder = nested_folder(dir.path());
+        let a = root().child("a").unwrap();
+        let b = a.child("b").unwrap();
+        // In a nested folder: `..` exists and leads to the parent folder.
+        assert_eq!(folder.location(), Some(&PanelLocation::Remote(b.clone())));
+        assert!(folder.entries()[0].is_parent);
+        assert_eq!(folder.entries()[0].path, a.panel_path());
+        assert_eq!(
+            folder.parent_target().and_then(|t| t.into_location()),
+            Some(PanelLocation::Remote(a.clone()))
+        );
+        // Leaving puts the cursor on the folder we came from, even when the
+        // cursor was on another row.
+        folder.set_cursor(1);
+        let target = folder.parent_target().unwrap();
+        assert_eq!(
+            folder.selection_for_navigation(&target),
+            Some(PanelLocation::Remote(b.clone()))
+        );
+        folder.go_up().unwrap();
+        assert_eq!(folder.location(), Some(&PanelLocation::Remote(a.clone())));
+        assert_eq!(folder.current().unwrap().name, "b");
+        // One level below the root: `..` is the drive root.
+        assert_eq!(folder.entries()[0].path, root().panel_path());
+        let target = folder.parent_target().unwrap();
+        assert_eq!(
+            folder.selection_for_navigation(&target),
+            Some(PanelLocation::Remote(a))
+        );
+        folder.go_up().unwrap();
+        assert_eq!(folder.location(), Some(&PanelLocation::Remote(root())));
+        assert_eq!(folder.current().unwrap().name, "a");
+    }
+
+    #[test]
+    fn remote_root_parent_row_returns_to_where_the_panel_came_from() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut folder = nested_folder(dir.path());
+        folder.navigate(root().panel_path()).unwrap();
+        // Same as every other remote: `..` at the root is the local folder
+        // the panel came from, and the cursor stays on the remote root.
+        assert!(folder.entries()[0].is_parent);
+        assert_eq!(folder.entries()[0].path, dir.path());
+        let target = folder.parent_target().unwrap();
+        assert_eq!(
+            target.clone().into_location(),
+            Some(PanelLocation::local(dir.path().into()).unwrap())
+        );
+        assert_eq!(
+            folder.selection_for_navigation(&target),
+            Some(PanelLocation::Remote(root()))
+        );
+        folder.go_up().unwrap();
+        assert!(!folder.is_remote());
+        assert_eq!(folder.path(), dir.path());
+    }
+
+    #[test]
+    fn remote_root_without_a_known_origin_has_no_parent_row() {
+        // Opened directly (e.g. `fyle proton:/`): nothing to return to.
+        let mut folder = Folder::new(root().panel_path()).unwrap();
+        folder.cache_remote(root().panel_path(), listing());
+        folder.navigate(root().panel_path()).unwrap();
+        assert!(folder.parent_target().is_none());
+        assert!(folder.entries().iter().all(|row| !row.is_parent));
+    }
 }
