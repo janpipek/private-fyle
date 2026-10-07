@@ -3,7 +3,68 @@
 - [ ] Menus and selection, remaining parts: output/history in Tools; a
       "Clear selection" command (Esc already clears marks). Implement
       missing actions as separate features.
+- [ ] Swap Panels command: exchange the two panels' content, cursor, marks,
+      navigation history and view state. Register it in `Cmd`, menus, the
+      palette and F1 help; decide its shortcut and focus behavior. Handle
+      pending loads and the preview/editor pane explicitly, with model tests
+      for swaps across local, remote, archive and search modes.
+- [ ] Go to Other Panel's Folder command: navigate the active panel to the
+      other panel's folder, preserving its typed local, remote or archive
+      location. For search results, use the search root; explain availability
+      when the other panel shows Places. Register it in `Cmd`, menus, the
+      palette and F1 help. Decide its shortcut; cover navigation and pending
+      loads with model tests.
+- [ ] Toggle bookmark: make Ctrl-D add or remove the current folder's
+      bookmark. Add a small star in the location bar that reflects the
+      bookmark state and toggles it on click. Use the same `Cmd` for the
+      shortcut, star, menus, palette and F1 help, with model tests for adding
+      and removing bookmarks. Keep availability consistent with supported
+      bookmark locations.
+- [ ] Investigate missing parent navigation in Proton Drive: check the `..`
+      row and Go Up in subfolders and at the drive root; add model/provider
+      regression tests for the intended destinations.
+- [ ] Open With: use the OS/desktop's configured file-type associations,
+      available applications and default application, alongside fyle's
+      configured openers. Respect KDE/GNOME/XDG settings on Linux, Windows
+      associations when Windows work resumes, and macOS associations when
+      macOS support starts. Put platform discovery behind a common model,
+      load it in the background, handle unavailable applications, and test
+      with isolated fixtures. Decide how system and configured entries are
+      ordered and deduplicated, and how the default is indicated.
 - [ ] Archive follow-ups: nested archives; maybe write support.
+- [ ] File inspection: separate Properties and View as two perspectives.
+      Properties shows filesystem attributes and format metadata; View (F3)
+      shows file content when there is a useful representation. An image has
+      EXIF properties and an image view; a SQLite database can offer its
+      structure (tables, columns, indexes and relationships) as properties
+      without a content viewer. Parquet schema and row-group metadata also
+      belong in Properties. Reuse a UI-independent inspection model, load in
+      the background with cancellation and bounded reads, and allow either
+      perspective independently. Properties command placement/shortcut and
+      the presentation of structured metadata remain to be decided.
+- [ ] More F3 file types, priorities: Parquet (bounded table samples), camera
+      RAW images (image or embedded preview), spreadsheets (XLS/XLSX), Word
+      documents (DOC/DOCX), and OpenDocument text (ODT). Keep schema, EXIF and
+      other format metadata in the Properties perspective above. Decoding
+      libraries versus optional external converters, document fidelity, and
+      sheet/page navigation remain to be decided; implement formats as
+      separate features and keep tests independent of optional programs.
+- [ ] Read-only Jupyter/IPython notebook view (IPYNB): parse notebook JSON
+      in Rust and render Markdown cells, highlighted code cells, and saved
+      text/error/image outputs in F3. Reuse existing Markdown, editor and
+      image views; a basic viewer needs no Python runtime or kernel. Put
+      kernel/language and cell counts in Properties. Bound file/output sizes
+      and render cells lazily; unsupported output types need a clear fallback.
+      HTML/SVG outputs, math, attachments and interactive widgets need separate
+      decisions; executing or editing notebooks is outside this viewer's scope.
+      Format reference: https://nbformat.readthedocs.io/en/latest/format_description.html
+- [ ] Tabular conversions in the Tools Convert group: extend the existing
+      CSV conversions to cover CSV, Parquet and Excel (XLS/XLSX) in both
+      directions. Reuse format readers with inspection where practical;
+      decide sheet selection, column types, headers/delimiters, formula
+      handling and supported Excel output formats. Choose conversion
+      backends before implementation and implement each conversion as a
+      separate feature with the usual output conflict handling.
 - [ ] Remote locations, follow-ups (the UI works: Locations, address bar,
       breadcrumbs, background listing, F5/F6/F7/F8, Shift-F6, open and quick
       view of downloaded copies; see README): SMB (needs libsmbclient);
