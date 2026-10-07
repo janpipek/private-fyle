@@ -26,6 +26,7 @@ mod location_view;
 mod menu_bar;
 mod menus;
 mod model;
+mod notebook_view;
 mod openers;
 mod palette;
 mod palette_view;

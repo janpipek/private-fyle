@@ -5,6 +5,7 @@ edition = "2024"
 license = "GPL-3.0-or-later"
 
 [dependencies]
+base64 = "0.22.1"
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 dirs = "5"
 flate2 = "1.1.10"
@@ -15,6 +16,7 @@ grep-regex = "0.1.14"
 grep-searcher = "0.1.17"
 ignore = "0.4.33"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff"] }
+markdown = "1.0.0"
 kamadak-exif = "0.6.1"
 md-5 = "0.10"
 mlua = { version = "0.12.2", features = ["lua54", "vendored", "send"] }

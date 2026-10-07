@@ -3130,6 +3130,7 @@ dependencies = [
 name = "fyle"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "dirs 5.0.1",
  "flate2",
@@ -3142,6 +3143,7 @@ dependencies = [
  "image",
  "kamadak-exif",
  "libc",
+ "markdown",
  "md-5 0.10.6",
  "mlua",
  "open",

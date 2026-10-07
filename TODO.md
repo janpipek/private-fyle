@@ -78,15 +78,6 @@
       libraries versus optional external converters, document fidelity, and
       sheet/page navigation remain to be decided; implement formats as
       separate features and keep tests independent of optional programs.
-- [ ] Read-only Jupyter/IPython notebook view (IPYNB): parse notebook JSON
-      in Rust and render Markdown cells, highlighted code cells, and saved
-      text/error/image outputs in F3. Reuse existing Markdown, editor and
-      image views; a basic viewer needs no Python runtime or kernel. Put
-      kernel/language and cell counts in Properties. Bound file/output sizes
-      and render cells lazily; unsupported output types need a clear fallback.
-      HTML/SVG outputs, math, attachments and interactive widgets need separate
-      decisions; executing or editing notebooks is outside this viewer's scope.
-      Format reference: https://nbformat.readthedocs.io/en/latest/format_description.html
 - [ ] Tabular conversions in the Tools Convert group: extend the existing
       CSV conversions to cover CSV, Parquet and Excel (XLS/XLSX) in both
       directions. Reuse format readers with inspection where practical;
@@ -126,6 +117,13 @@
 
 ## Done
 
+- [x] Read-only Jupyter/IPython notebook view (IPYNB): parse bounded nbformat 4
+      JSON in Rust and lazily render Markdown, highlighted code, saved text,
+      errors and bounded PNG/JPEG outputs in F3. HTML is an explicit
+      placeholder (including MIME bundles, Markdown HTML and raw-cell HTML);
+      SVG, math, attachments, widgets, remote Markdown images and unknown
+      outputs are also placeholders. No Python runtime, execution or editing.
+      Kernel/language and cell counts remain Properties work.
 - [x] F3 preview for Parquet files: native table samples (500 rows, 40 columns,
       1,024 characters per cell; 8 MiB metadata and a 64 MiB selected column
       chunk decoding budget), with common codecs; repeated/list/map columns report an

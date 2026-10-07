@@ -18,6 +18,7 @@ mod directory;
 mod image;
 mod markdown;
 mod media;
+mod notebook;
 mod parquet;
 mod pdf;
 mod raw;
@@ -35,6 +36,7 @@ pub use directory::DirectoryPreviewer;
 pub use image::{ImagePreviewer, exif_fields};
 pub use markdown::MarkdownPreviewer;
 pub use media::MediaPreviewer;
+pub use notebook::{Cell as NotebookCell, Notebook, NotebookPreviewer, Output as NotebookOutput};
 pub use parquet::ParquetPreviewer;
 pub use pdf::PdfPreviewer;
 pub use raw::RawPreviewer;
@@ -134,6 +136,8 @@ pub enum Content {
     Binary { dump: String, truncated: bool },
     /// Markdown source, shown rendered.
     Markdown { text: String },
+    /// Read-only Jupyter notebook cells and saved outputs.
+    Notebook(std::sync::Arc<Notebook>),
     /// Tabular data (CSV, TSV or Parquet): a header row and records.
     Table {
         header: Vec<String>,
@@ -195,6 +199,7 @@ impl Registry {
         registry.register(MediaPreviewer);
         registry.register(ArchivePreviewer);
         registry.register(MarkdownPreviewer);
+        registry.register(NotebookPreviewer);
         registry.register(ParquetPreviewer);
         registry.register(TablePreviewer);
         registry.register(TextPreviewer);

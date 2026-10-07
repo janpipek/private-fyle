@@ -1,6 +1,7 @@
 //! Quick-view pane: shows a [`Preview`] of a path. Loading runs in the
 //! background; each [`Content`] variant has one render arm here.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,6 +22,11 @@ enum State {
     Failed(String),
 }
 
+struct LoadedPreview {
+    preview: Preview,
+    notebook_images: HashMap<(usize, usize), Arc<RenderImage>>,
+}
+
 /// How long the cursor must rest on an entry before its preview loads.
 const LOAD_DELAY: Duration = Duration::from_millis(60);
 
@@ -38,6 +44,10 @@ pub struct PreviewPane {
     state: State,
     /// Reused read-only editor for text content.
     editor: Entity<EditorState>,
+    /// Variable-height virtual list state for notebook cells.
+    notebook_list: ListState,
+    /// Raster images prepared off the UI thread for notebook outputs.
+    notebook_images: Arc<HashMap<(usize, usize), Arc<RenderImage>>>,
     _load: Task<()>,
     _reveal: Task<()>,
 }
@@ -56,6 +66,8 @@ impl PreviewPane {
             line: None,
             state: State::Empty,
             editor,
+            notebook_list: ListState::new(0, ListAlignment::Top, px(160.)),
+            notebook_images: Arc::new(HashMap::new()),
             _load: Task::ready(()),
             _reveal: Task::ready(()),
         }
@@ -81,6 +93,7 @@ impl PreviewPane {
         }
         self.line = line;
         self.target = target.clone();
+        self.release_notebook_images(window, cx);
         let Some(path) = target.and_then(|target| target.path) else {
             self.state = State::Empty;
             self._load = Task::ready(());
@@ -94,7 +107,19 @@ impl PreviewPane {
             // next target drops the task, so only the entry it stops on loads.
             cx.background_executor().timer(LOAD_DELAY).await;
             let result = cx
-                .background_spawn(async move { registry.preview(&path) })
+                .background_spawn(async move {
+                    let preview = registry.preview(&path)?;
+                    let images = match &preview.content {
+                        Content::Notebook(notebook) => {
+                            crate::notebook_view::prepare_images(notebook)
+                        }
+                        _ => HashMap::new(),
+                    };
+                    Ok(LoadedPreview {
+                        preview,
+                        notebook_images: images,
+                    })
+                })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| this.show(result, window, cx));
         });
@@ -147,12 +172,19 @@ impl PreviewPane {
 
     fn show(
         &mut self,
-        result: Result<Preview, String>,
+        result: Result<LoadedPreview, String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.state = match result {
-            Ok(preview) => {
+            Ok(loaded) => {
+                let preview = loaded.preview;
+                self.release_notebook_images(window, cx);
+                self.notebook_images = Arc::new(loaded.notebook_images);
+                if let Content::Notebook(notebook) = &preview.content {
+                    self.notebook_list =
+                        ListState::new(notebook.cells.len(), ListAlignment::Top, px(240.));
+                }
                 if let Content::Text { text, language, .. } = &preview.content {
                     self.editor.update(cx, |editor, cx| {
                         editor.set_highlighter(language.unwrap_or("text"), cx);
@@ -165,6 +197,13 @@ impl PreviewPane {
         };
         self.reveal_line(window, cx);
         cx.notify();
+    }
+
+    fn release_notebook_images(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for image in self.notebook_images.values() {
+            cx.drop_image(image.clone(), Some(window));
+        }
+        self.notebook_images = Arc::new(HashMap::new());
     }
 
     fn render_content(&self, preview: &Preview, cx: &App) -> AnyElement {
@@ -247,6 +286,12 @@ impl PreviewPane {
                 .p_3()
                 .child(TextView::markdown("markdown-view", text.clone()))
                 .into_any_element(),
+            Content::Notebook(notebook) => crate::notebook_view::render(
+                notebook.clone(),
+                self.notebook_list.clone(),
+                self.notebook_images.clone(),
+                cx,
+            ),
             Content::Table {
                 header,
                 rows,

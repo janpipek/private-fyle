@@ -83,6 +83,14 @@ budget. Uncompressed, Snappy, gzip, Brotli, LZ4 and Zstandard chunks are
 supported. Files with
 repeated, list or map columns show an unsupported-format message.
 
+F3 previews `.ipynb` notebooks as a lazy, read-only list of Markdown and
+highlighted code cells with their saved text, error and PNG/JPEG outputs. The
+Rust nbformat 4 reader bounds notebooks to 16 MiB and 500 cells, text items to
+512 KiB, outputs to 100 per cell, images to 4 megapixels each and 64 MiB total.
+It never starts a kernel. HTML outputs (including mixed MIME bundles), HTML in Markdown
+or raw cells, SVG, math, attachments, widgets, remote Markdown images and
+unknown output types show explicit placeholders.
+
 F3 and icon view can use embedded JPEG previews from camera RAW files with
 extensions `.raw`, `.cr2`, `.cr3`, `.nef`, `.nrw`, `.arw`, `.sr2`, `.srf`,
 `.raf`, `.rw2`, `.orf`, `.pef` and `.dng`. This is best-effort JPEG extraction;
@@ -409,14 +417,14 @@ Where things live (`src/`):
 | `fs_ops.rs`, `transfer.rs`, `jobs.rs` | `Entry` and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
 | `remote.rs`, `remote/` | Remote providers: `Provider` trait, `Location` paths, Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `LocalCopy` keeps a typed source address separate from the cache path used at native I/O boundaries; `model/remote.rs` holds cached listings |
 | `archive.rs`, `archive/extraction.rs`, `dirsize.rs`, `links.rs` | Archive index; safe extraction; recursive sizes; symlink state |
-| `preview/`, `preview_view.rs` | `Previewer`s and their `Registry` (order: directory, RAW image, image, pdf, media, archive, markdown, Parquet, table, text, binary); one render arm per `Content`; preview identity stays separate from materialized local bytes |
+| `preview/`, `preview_view.rs`, `notebook_view.rs` | `Previewer`s and their `Registry` (including bounded nbformat 4 notebook parsing); one render arm per `Content`; notebooks render through a variable-height lazy list; preview identity stays separate from materialized local bytes |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and the editor pane |
 | `tools/`, `tools_view.rs` | Tool, Action and Registry model; `defaults.toml`; built-ins; Lua plugins; `exec.rs` runs them |
 | `search.rs`, `places.rs`, `breadcrumbs.rs`, `remote_labels.rs`, `rename.rs`, `openers.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs`, `zoom.rs` | Further UI-independent models, each with tests |
 | `*_view.rs`, `menu_bar.rs`, `link_badge.rs`, `theme_picker.rs` | Thin views |
 
 Previews follow the same split. `src/preview/` is the model: a `Registry`
-of `Previewer`s (directory, embedded-JPEG RAW images, image with EXIF, PDF via poppler, audio/video via ffmpeg, archive, Markdown,
+of `Previewer`s (directory, embedded-JPEG RAW images, image with EXIF, PDF via poppler, audio/video via ffmpeg, archive, Markdown, read-only IPYNB,
 Parquet and CSV tables, text, binary fallback) turns a path into
 plain `Content` data; the first previewer whose `matches` accepts the file's
 `Probe` (name, extension, size, first 8 KiB) wins. `src/preview_view.rs` loads
