@@ -51,6 +51,27 @@
       the background with cancellation and bounded reads, and allow either
       perspective independently. Properties command placement/shortcut and
       the presentation of structured metadata remain to be decided.
+- [ ] Workspace layout, open design: keep both directory panels visible and
+      usable for file operations while an independent inspector shows Preview,
+      Properties or another supported perspective. Consider three resizable
+      panes with the inspector docked to the right or bottom; evaluate a 2x2
+      layout for two inspectors (Preview plus Properties, or one per directory).
+      Base layout availability on usable space after UI scaling. Decide
+      minimum pane sizes, follow-selection versus pinned-file behavior, and
+      focus/shortcut rules that retain an explicit source and destination for
+      file commands. Model layout and inspector state independently and test
+      focus, resize and pending-load transitions. Decide before implementing.
+- [ ] Mouse interaction and drag-and-drop, open design: start with dragging
+      selected typed locations between directory panels through existing
+      transfer jobs, progress, cancellation and conflict handling. Show the
+      proposed Copy/Move operation and destination before dropping, respecting
+      provider capabilities and read-only archive content. Add conventional
+      pointer selection, modifier-click toggles and selection ranges using
+      the selection model and keymap conventions. Plan external application
+      drops separately, including native file/URI data, remote materialization,
+      archive extraction and permissions. Decide default drop actions and
+      modifiers before implementing; test source/destination identity through
+      focus changes, cancelled drags and pending loads.
 - [ ] More F3 file types, priorities: Parquet (bounded table samples), camera
       RAW images (image or embedded preview), spreadsheets (XLS/XLSX), Word
       documents (DOC/DOCX), and OpenDocument text (ODT). Keep schema, EXIF and
