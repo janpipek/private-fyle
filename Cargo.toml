@@ -7,6 +7,7 @@ license = "GPL-3.0-or-later"
 [dependencies]
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 dirs = "5"
+dunce = "1.0.5"
 flate2 = "1.1.10"
 globset = "0.4.20"
 gpui-kit = { version = "0.7.0", features = ["tree-sitter-languages"] }
