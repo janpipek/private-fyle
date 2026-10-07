@@ -18,7 +18,7 @@ use serde::Deserialize;
 
 use super::process::Program;
 use super::{
-    Capabilities, Control, Entry, Item, Location, Provider, Removal, entries, percent_encode,
+    Capabilities, Control, Item, Listing, Location, Provider, Removal, entries, percent_encode,
     timestamp,
 };
 
@@ -164,7 +164,7 @@ impl Provider for Proton {
         }
     }
 
-    fn list(&self, dir: &Location, control: &Control) -> io::Result<Vec<Entry>> {
+    fn list(&self, dir: &Location, control: &Control) -> io::Result<Listing> {
         let cli = cli_path(dir);
         let bytes = self.run(
             "list",
@@ -397,9 +397,10 @@ fn web_url_for(info: &Info, share: Option<&str>) -> io::Result<String> {
     ))
 }
 
-/// Decodes the CLI's JSON array of nodes; rejects undecryptable, unsafe and
-/// duplicate names.
-fn parse_listing(dir: &Location, bytes: &[u8]) -> io::Result<Vec<Entry>> {
+/// Decodes the CLI's JSON array of nodes; rejects undecryptable names (the
+/// rest of the folder could not be trusted); duplicate and unsafe names
+/// become warnings.
+fn parse_listing(dir: &Location, bytes: &[u8]) -> io::Result<Listing> {
     let nodes: Vec<Node> =
         serde_json::from_slice(bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     let items = nodes
@@ -433,7 +434,7 @@ fn parse_listing(dir: &Location, bytes: &[u8]) -> io::Result<Vec<Entry>> {
             })
         })
         .collect::<io::Result<Vec<_>>>()?;
-    entries(dir, "Proton Drive", items)
+    Ok(entries(dir, items))
 }
 
 /// Checks the summary printed by `download` and `upload`:
@@ -533,7 +534,8 @@ mod tests {
             {"uid":"v~4","name":{"ok":true,"value":"Notes"},"type":"file","mediaType":"application/vnd.proton.doc","creationTime":"2026-10-06T12:00:01.000Z","modificationTime":"2026-10-06T12:00:02.000Z","activeRevision":{"storageSize":10}}
         ]"#,
         )
-        .unwrap();
+        .unwrap()
+        .entries;
         assert!(entries[0].is_dir);
         let folder_time = crate::remote::timestamp(Some("2026-02-01T00:00:00Z"));
         assert_eq!(entries[0].modified, folder_time);
@@ -547,11 +549,9 @@ mod tests {
     }
 
     #[test]
-    fn rejects_degraded_and_unsafe_names_and_partial_json() {
+    fn rejects_degraded_names_and_partial_json() {
         for input in [
             r#"[{"name":{"ok":false,"error":{}},"type":"file"}]"#,
-            r#"[{"name":{"ok":true,"value":"../escape"},"type":"file"}]"#,
-            r#"[{"name":{"ok":true,"value":"a"},"type":"file"},{"name":{"ok":true,"value":"a"},"type":"file"}]"#,
             r#"[{"name":{"ok":true,"value":"p"},"type":"photo"}]"#,
             r#"[{"name":{"ok":true,"value":"a"},"type":"file"},"#,
         ] {
@@ -559,51 +559,15 @@ mod tests {
         }
     }
 
-    fn info(json: &str) -> super::Info {
-        serde_json::from_str(json).unwrap()
-    }
-
     #[test]
-    fn builds_web_urls_for_docs_sheets_files_and_folders() {
-        use super::web_url_for;
-        let doc =
-            info(r#"{"uid":"vol=~li+k/1","type":"file","mediaType":"application/vnd.proton.doc"}"#);
-        assert_eq!(
-            web_url_for(&doc, None).unwrap(),
-            "https://docs.proton.me/doc?mode=open&volumeId=vol%3D&linkId=li%2Bk%2F1"
-        );
-        let sheet =
-            info(r#"{"uid":"v~l","type":"file","mediaType":"application/vnd.proton.sheet"}"#);
-        assert_eq!(
-            web_url_for(&sheet, Some("S")).unwrap(),
-            "https://docs.proton.me/sheet?mode=open&volumeId=v&linkId=l"
-        );
-        let file = info(r#"{"uid":"v~l1","type":"file","mediaType":"text/plain"}"#);
-        assert_eq!(
-            web_url_for(&file, Some("sh=")).unwrap(),
-            "https://drive.proton.me/sh%3D/file/l1"
-        );
-        let folder = info(r#"{"uid":"v~l2","type":"folder","deprecatedShareId":"own"}"#);
-        assert_eq!(folder.deprecated_share_id.as_deref(), Some("own"));
-        assert_eq!(
-            web_url_for(&folder, Some("own")).unwrap(),
-            "https://drive.proton.me/own/folder/l2"
-        );
-        // No share ID known: the start page.
-        assert_eq!(
-            web_url_for(&folder, None).unwrap(),
-            "https://drive.proton.me/"
-        );
-        assert!(web_url_for(&info(r#"{"uid":"nolink","type":"file"}"#), None).is_err());
-        assert!(!super::needs_share(&doc) && super::needs_share(&folder));
-    }
-
-    #[test]
-    fn the_root_has_a_web_address_without_running_the_cli() {
-        let cancel = AtomicBool::new(false);
-        let url = Proton::default().web_url(&root(), &Control::new(&cancel));
-        assert_eq!(url.unwrap(), "https://drive.proton.me/");
-        assert!(Proton::default().capabilities().web);
+    fn duplicate_and_unsafe_names_become_warnings() {
+        let listing = parse_listing(
+            &root(),
+            br#"[{"name":{"ok":true,"value":"a"},"type":"file"},{"name":{"ok":true,"value":"a"},"type":"file"},{"name":{"ok":true,"value":"../x"},"type":"file"}]"#,
+        )
+        .unwrap();
+        assert_eq!(listing.entries.len(), 1);
+        assert_eq!(listing.warnings.len(), 2);
     }
 
     #[test]

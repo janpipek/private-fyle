@@ -10,7 +10,9 @@ use std::time::Duration;
 use serde::Deserialize;
 
 use super::process::Program;
-use super::{Capabilities, Control, Entry, Item, Location, Provider, Removal, entries, timestamp};
+use super::{
+    Capabilities, Control, Item, Listing, Location, Provider, Removal, entries_with_hint, timestamp,
+};
 
 const LIST_TIMEOUT: Duration = Duration::from_secs(120);
 const REMOTES_TIMEOUT: Duration = Duration::from_secs(30);
@@ -28,7 +30,14 @@ fn program() -> Program {
 #[derive(Clone, Debug)]
 pub struct Rclone {
     program: Program,
+    /// The panel name (`<name>:/`); the rclone remote's own name, or that
+    /// with `.shared` for the "Shared with me" view.
+    name: String,
+    /// The rclone remote.
     remote: String,
+    /// A Google Drive "Shared with me" view: every command gets
+    /// `--drive-shared-with-me`, and nothing can be changed.
+    shared: bool,
     backend: String,
     label: String,
 }
@@ -45,16 +54,21 @@ impl Rclone {
         let program = program();
         let args = ["listremotes", "--long"].map(OsStr::new);
         let bytes = program.run(&args, cancel, Some(REMOTES_TIMEOUT))?;
-        Ok(parse_remotes(&String::from_utf8_lossy(&bytes))
-            .into_iter()
-            .filter(|(name, backend)| backend != "protondrive" && Location::root(name).is_ok())
-            .map(|(remote, backend)| Rclone {
-                program: program.clone(),
-                label: format!("{} ({remote})", backend_label(&backend)),
-                remote,
-                backend,
-            })
-            .collect())
+        Ok(build_remotes(
+            &program,
+            parse_remotes(&String::from_utf8_lossy(&bytes)),
+        ))
+    }
+
+    /// Shared views only read.
+    fn writable(&self) -> io::Result<()> {
+        if self.shared {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!("{} is read-only", self.label),
+            ));
+        }
+        Ok(())
     }
 
     fn path(&self, location: &Location) -> String {
@@ -67,6 +81,7 @@ impl Rclone {
         let name = to.name().ok_or_else(root_error)?;
         if self
             .list(&parent, control)?
+            .entries
             .iter()
             .any(|entry| entry.name == name)
         {
@@ -89,9 +104,50 @@ impl Rclone {
         cancel: &AtomicBool,
         timeout: Option<Duration>,
     ) -> io::Result<Vec<u8>> {
-        let args: Vec<&OsStr> = args.iter().map(OsString::as_os_str).collect();
+        let mut args: Vec<&OsStr> = args.iter().map(OsString::as_os_str).collect();
+        if self.shared {
+            args.push(OsStr::new("--drive-shared-with-me"));
+        }
         self.program.run(&args, cancel, timeout)
     }
+}
+
+/// The providers for the remotes rclone knows, except those that cannot be
+/// panel paths and Proton Drive (the official CLI serves it). Each Google
+/// Drive remote also gets a read-only `<name>.shared` view of the files
+/// shared with the user, unless that name is taken.
+fn build_remotes(program: &Program, remotes: Vec<(String, String)>) -> Vec<Rclone> {
+    let taken: std::collections::HashSet<String> =
+        remotes.iter().map(|(name, _)| name.clone()).collect();
+    let mut out = Vec::new();
+    for (remote, backend) in remotes {
+        if backend == "protondrive" || Location::root(&remote).is_err() {
+            continue;
+        }
+        let label = format!("{} ({remote})", backend_label(&backend));
+        let shared_name = format!("{remote}.shared");
+        let shared = (backend == "drive"
+            && !taken.contains(&shared_name)
+            && Location::root(&shared_name).is_ok())
+        .then(|| Rclone {
+            program: program.clone(),
+            name: shared_name,
+            remote: remote.clone(),
+            shared: true,
+            backend: backend.clone(),
+            label: format!("{label} \u{2013} Shared with me"),
+        });
+        out.push(Rclone {
+            program: program.clone(),
+            name: remote.clone(),
+            remote,
+            shared: false,
+            backend,
+            label,
+        });
+        out.extend(shared);
+    }
+    out
 }
 
 /// Parses `rclone listremotes --long` lines such as `gdrive:   drive` into
@@ -160,6 +216,7 @@ struct Stat {
 }
 
 const DRIVE_MY_DRIVE: &str = "https://drive.google.com/drive/my-drive";
+const DRIVE_SHARED: &str = "https://drive.google.com/drive/shared-with-me";
 
 /// The private Google Drive web address of a stat result. Drive IDs are
 /// restricted to letters, digits, `-` and `_`, so nothing needs escaping.
@@ -215,8 +272,10 @@ struct Listed {
     is_dir: bool,
 }
 
-/// Decodes `rclone lsjson` output; rejects unsafe and duplicate names.
-fn parse_listing(dir: &Location, label: &str, bytes: &[u8]) -> io::Result<Vec<Entry>> {
+/// Decodes `rclone lsjson` output. Drive allows several items with one name;
+/// only the first is shown, with a warning. Sizes rclone does not know (-1,
+/// as for native Google Docs) show as 0.
+fn parse_listing(dir: &Location, bytes: &[u8]) -> io::Result<Listing> {
     let listed: Vec<Listed> =
         serde_json::from_slice(bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     let items = listed
@@ -229,12 +288,12 @@ fn parse_listing(dir: &Location, label: &str, bytes: &[u8]) -> io::Result<Vec<En
             created: None,
         })
         .collect();
-    entries(dir, label, items)
+    Ok(entries_with_hint(dir, items, "; run rclone dedupe"))
 }
 
 impl Provider for Rclone {
     fn name(&self) -> &str {
-        &self.remote
+        &self.name
     }
 
     fn label(&self) -> &str {
@@ -242,6 +301,12 @@ impl Provider for Rclone {
     }
 
     fn capabilities(&self) -> Capabilities {
+        if self.shared {
+            return Capabilities {
+                web: true,
+                ..Default::default()
+            };
+        }
         Capabilities {
             upload: true,
             removal: Some(if self.backend == "drive" {
@@ -256,10 +321,10 @@ impl Provider for Rclone {
         }
     }
 
-    fn list(&self, dir: &Location, control: &Control) -> io::Result<Vec<Entry>> {
+    fn list(&self, dir: &Location, control: &Control) -> io::Result<Listing> {
         let args = vec!["lsjson".into(), self.path(dir).into()];
         let bytes = self.run(&args, control.cancel, Some(LIST_TIMEOUT))?;
-        parse_listing(dir, &self.label, &bytes)
+        parse_listing(dir, &bytes)
     }
 
     fn download(
@@ -279,6 +344,7 @@ impl Provider for Rclone {
     }
 
     fn upload(&self, source: &Path, destination: &Location, control: &Control) -> io::Result<()> {
+        self.writable()?;
         let source = absolute(source)?;
         let name = source.file_name().and_then(OsStr::to_str).ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "invalid local file name")
@@ -290,6 +356,7 @@ impl Provider for Rclone {
     }
 
     fn remove(&self, target: &Location, is_dir: bool, control: &Control) -> io::Result<()> {
+        self.writable()?;
         if target.name().is_none() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -305,11 +372,13 @@ impl Provider for Rclone {
     }
 
     fn create_folder(&self, parent: &Location, name: &str, control: &Control) -> io::Result<()> {
+        self.writable()?;
         let args = vec!["mkdir".into(), self.path(&parent.child(name)?).into()];
         self.run(&args, control.cancel, None).map(drop)
     }
 
     fn rename(&self, target: &Location, new_name: &str, control: &Control) -> io::Result<()> {
+        self.writable()?;
         let parent = target.parent().ok_or_else(root_error)?;
         self.move_to_path(target, &parent.child(new_name)?, control)
     }
@@ -320,6 +389,7 @@ impl Provider for Rclone {
         destination: &Location,
         control: &Control,
     ) -> io::Result<()> {
+        self.writable()?;
         let name = target.name().ok_or_else(root_error)?;
         self.move_to_path(target, &destination.child(name)?, control)
     }
@@ -332,7 +402,12 @@ impl Provider for Rclone {
             ));
         }
         if target.name().is_none() {
-            return Ok(DRIVE_MY_DRIVE.into());
+            return Ok(if self.shared {
+                DRIVE_SHARED
+            } else {
+                DRIVE_MY_DRIVE
+            }
+            .into());
         }
         let args = vec!["lsjson".into(), "--stat".into(), self.path(target).into()];
         let bytes = self.run(&args, control.cancel, Some(LIST_TIMEOUT))?;
@@ -343,8 +418,8 @@ impl Provider for Rclone {
 #[cfg(test)]
 mod tests {
     use super::{
-        Rclone, backend_label, drive_url, parse_listing, parse_remotes, program, remove_args,
-        transfer_args,
+        Rclone, backend_label, build_remotes, drive_url, parse_listing, parse_remotes, program,
+        remove_args, transfer_args,
     };
     use crate::remote::{Control, Location, Provider, Removal};
     use std::ffi::OsString;
@@ -354,6 +429,8 @@ mod tests {
     fn remote(name: &str, backend: &str) -> Rclone {
         Rclone {
             program: program(),
+            name: name.into(),
+            shared: false,
             remote: name.into(),
             backend: backend.into(),
             label: format!("{} ({name})", backend_label(backend)),
@@ -390,13 +467,13 @@ mod tests {
         let dir = Location::root("gdrive").unwrap();
         let entries = parse_listing(
             &dir,
-            "Google Drive (gdrive)",
             br#"[
             {"Path":"Docs","Name":"Docs","Size":-1,"MimeType":"inode/directory","ModTime":"2026-10-06T12:00:00.123456789Z","IsDir":true},
             {"Path":"a b.txt","Name":"a b.txt","Size":42,"ModTime":"2026-10-06T12:00:00+02:00","IsDir":false}
         ]"#,
         )
-        .unwrap();
+        .unwrap()
+        .entries;
         assert!(entries[0].is_dir);
         assert_eq!(entries[0].size, 0);
         assert!(entries[0].modified.is_some());
@@ -405,18 +482,68 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unsafe_names_and_partial_json() {
+    fn duplicate_and_unsafe_names_warn_and_partial_json_fails() {
         let dir = Location::root("gdrive").unwrap();
-        for input in [
-            r#"[{"Name":"../x","Size":1,"IsDir":false}]"#,
-            r#"[{"Name":"a","Size":1,"IsDir":false},{"Name":"a","Size":1,"IsDir":false}]"#,
-            r#"[{"Name":"a","#,
+        let listing = parse_listing(
+            &dir,
+            br#"[{"Name":"a","Size":1,"IsDir":false},{"Name":"a","Size":2,"IsDir":false},{"Name":"../x","Size":1,"IsDir":false},{"Name":"b","Size":3,"IsDir":false}]"#,
+        )
+        .unwrap();
+        let names: Vec<_> = listing
+            .entries
+            .iter()
+            .map(|e| (e.name.as_str(), e.size))
+            .collect();
+        assert_eq!(names, [("a", 1), ("b", 3)]);
+        assert_eq!(listing.warnings.len(), 2);
+        assert!(listing.warnings[0].ends_with("hidden; run rclone dedupe"));
+        assert!(parse_listing(&dir, br#"[{"Name":"a","#).is_err());
+    }
+
+    #[test]
+    fn drive_remotes_get_a_read_only_shared_view() {
+        let remotes = build_remotes(
+            &program(),
+            parse_remotes(
+                "gdrive: drive\nwork: drive\nwork.shared: s3\nnas: sftp\nproton: protondrive\n",
+            ),
+        );
+        let names: Vec<_> = remotes.iter().map(|r| r.name()).collect();
+        assert_eq!(
+            names,
+            ["gdrive", "gdrive.shared", "work", "work.shared", "nas"]
+        );
+        // `work.shared` is a real remote, so only the real one is listed.
+        assert!(remotes[3].capabilities().upload);
+        let shared = &remotes[1];
+        assert_eq!(
+            shared.label(),
+            "Google Drive (gdrive) \u{2013} Shared with me"
+        );
+        let caps = shared.capabilities();
+        assert!(caps.web && !caps.upload && !caps.create_folder && !caps.rename);
+        assert!(caps.removal.is_none() && !caps.move_within);
+        assert_eq!(
+            shared.path(&Location::root("gdrive.shared").unwrap()),
+            "gdrive:"
+        );
+        let cancel = AtomicBool::new(false);
+        let control = Control::new(&cancel);
+        let root = Location::root("gdrive.shared").unwrap();
+        let file = root.child("a").unwrap();
+        for result in [
+            shared.upload(Path::new("/tmp/a"), &root, &control),
+            shared.remove(&file, false, &control),
+            shared.create_folder(&root, "x", &control),
+            shared.rename(&file, "y", &control),
+            shared.move_to(&file, &root, &control),
         ] {
-            assert!(
-                parse_listing(&dir, "x", input.as_bytes()).is_err(),
-                "{input}"
-            );
+            assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Unsupported);
         }
+        assert_eq!(
+            shared.web_url(&root, &control).unwrap(),
+            "https://drive.google.com/drive/shared-with-me"
+        );
     }
 
     #[test]

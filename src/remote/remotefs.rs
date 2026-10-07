@@ -24,7 +24,7 @@ use remotefs::{File, RemoteError, RemoteErrorType, RemoteFs};
 use super::connections::{Protocol, RemoteConfig};
 use super::hostkey;
 use super::process::Program;
-use super::{Capabilities, Control, Entry, Item, Location, Provider, Removal, entries};
+use super::{Capabilities, Control, Item, Listing, Location, Provider, Removal, entries};
 
 /// Size of the blocks that are copied between disk and server.
 pub const CHUNK: usize = 256 * 1024;
@@ -432,7 +432,7 @@ impl Provider for RemoteFsProvider {
         }
     }
 
-    fn list(&self, dir: &Location, control: &Control) -> io::Result<Vec<Entry>> {
+    fn list(&self, dir: &Location, control: &Control) -> io::Result<Listing> {
         let path = self.path(dir);
         let files = self.with_client(control, true, |fs| {
             fs.list_dir(&path).map_err(|e| self.err(e))
@@ -442,7 +442,7 @@ impl Provider for RemoteFsProvider {
             .filter(|file| !matches!(file.name().as_str(), "." | ".."))
             .map(item_from)
             .collect();
-        entries(dir, &self.label, items)
+        Ok(entries(dir, items))
     }
 
     fn download(

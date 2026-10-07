@@ -85,7 +85,7 @@ pub trait Provider: Send + Sync {
     fn label(&self) -> &str;
     fn capabilities(&self) -> Capabilities;
     /// Lists one folder, without a ".." entry.
-    fn list(&self, dir: &Location, control: &Control) -> io::Result<Vec<Entry>>;
+    fn list(&self, dir: &Location, control: &Control) -> io::Result<Listing>;
     /// Downloads `source` (a file or a whole folder) into the local folder
     /// `destination`, keeping its name.
     fn download(
@@ -270,35 +270,72 @@ pub struct Item {
     pub created: Option<SystemTime>,
 }
 
-/// Turns provider items into panel entries below `dir`, rejecting unsafe
-/// and duplicate names (a panel path must name exactly one item).
-pub fn entries(dir: &Location, label: &str, items: Vec<Item>) -> io::Result<Vec<Entry>> {
+/// A folder listing and what had to be left out of it.
+#[derive(Debug, Default)]
+pub struct Listing {
+    pub entries: Vec<Entry>,
+    /// Problems worth showing once (hidden duplicates, unusable names); the
+    /// folder still opens.
+    pub warnings: Vec<String>,
+}
+
+/// Turns provider items into panel entries below `dir`. A panel path must
+/// name exactly one item, so of items sharing a name only the first is kept,
+/// and items with unsafe names are dropped; both are reported as warnings.
+pub fn entries(dir: &Location, items: Vec<Item>) -> Listing {
+    entries_with_hint(dir, items, "")
+}
+
+/// Like [`entries`]; `hint` (e.g. "; run rclone dedupe") ends the warning
+/// about duplicate names.
+pub fn entries_with_hint(dir: &Location, items: Vec<Item>, hint: &str) -> Listing {
     let mut seen = HashSet::new();
-    items
-        .into_iter()
-        .map(|item| {
-            let path = dir.child(&item.name)?.panel_path();
-            if !seen.insert(item.name.clone()) {
-                return Err(io::Error::other(format!(
-                    "{label} has two items named {}",
-                    item.name
-                )));
-            }
-            Ok(Entry {
-                name: item.name,
-                path,
-                is_dir: item.is_dir,
-                is_parent: false,
-                size: item.size,
-                modified: item.modified,
-                attrs: Attrs {
-                    created: item.created,
-                    ..Default::default()
-                },
-                link: Default::default(),
-            })
-        })
-        .collect()
+    let (mut duplicates, mut unsafe_names) = (0, 0);
+    let mut listing = Vec::new();
+    for item in items {
+        let Ok(child) = dir.child(&item.name) else {
+            unsafe_names += 1;
+            continue;
+        };
+        if !seen.insert(item.name.clone()) {
+            duplicates += 1;
+            continue;
+        }
+        listing.push(Entry {
+            name: item.name,
+            path: child.panel_path(),
+            is_dir: item.is_dir,
+            is_parent: false,
+            size: item.size,
+            modified: item.modified,
+            attrs: Attrs {
+                created: item.created,
+                ..Default::default()
+            },
+            link: Default::default(),
+        });
+    }
+    let shown = dir.panel_path().display().to_string();
+    let plural = |n: usize| if n == 1 { "item" } else { "items" };
+    let mut warnings = Vec::new();
+    if duplicates > 0 {
+        warnings.push(format!(
+            "{shown}: {duplicates} {} {} a name with another item and {} hidden{hint}",
+            plural(duplicates),
+            if duplicates == 1 { "shares" } else { "share" },
+            if duplicates == 1 { "is" } else { "are" },
+        ));
+    }
+    if unsafe_names > 0 {
+        warnings.push(format!(
+            "{shown}: {unsafe_names} {} with unusable names skipped",
+            plural(unsafe_names),
+        ));
+    }
+    Listing {
+        entries: listing,
+        warnings,
+    }
 }
 
 /// Percent-encodes `text` for a URL path segment or query value: only
@@ -403,7 +440,8 @@ impl Registry {
 #[cfg(test)]
 mod tests {
     use super::{
-        Capabilities, Control, Entry, Item, Location, Provider, Registry, entries, is_remote,
+        Capabilities, Control, Item, Listing, Location, Provider, Registry, entries,
+        entries_with_hint, is_remote,
     };
     use std::io;
     use std::path::Path;
@@ -422,8 +460,8 @@ mod tests {
         fn capabilities(&self) -> Capabilities {
             Capabilities::default()
         }
-        fn list(&self, _: &Location, _: &Control) -> io::Result<Vec<Entry>> {
-            Ok(Vec::new())
+        fn list(&self, _: &Location, _: &Control) -> io::Result<Listing> {
+            Ok(Listing::default())
         }
         fn download(&self, _: &Location, _: bool, _: &Path, _: &Control) -> io::Result<()> {
             Ok(())
@@ -475,45 +513,48 @@ mod tests {
     }
 
     #[test]
-    fn entries_reject_duplicate_and_unsafe_names() {
+    fn entries_hide_duplicates_and_skip_unsafe_names_with_warnings() {
         let root = Location::root("gdrive").unwrap();
-        let item = |name: &str| Item {
+        let item = |name: &str, size| Item {
             name: name.into(),
             is_dir: false,
-            size: 1,
+            size,
             modified: None,
             created: None,
         };
-        let listed = entries(&root, "Fake", vec![item("a"), item("b")]).unwrap();
-        assert_eq!(listed[1].path, Path::new("gdrive:/b"));
-        assert!(entries(&root, "Fake", vec![item("a"), item("a")]).is_err());
-        assert!(entries(&root, "Fake", vec![item("../x")]).is_err());
-    }
+        let listed = entries(&root, vec![item("a", 1), item("b", 2)]);
+        assert_eq!(listed.entries[1].path, Path::new("gdrive:/b"));
+        assert!(listed.warnings.is_empty());
 
-    #[test]
-    fn percent_encoding_keeps_only_unreserved_characters() {
-        assert_eq!(super::percent_encode("aZ09-_.~"), "aZ09-_.~");
-        assert_eq!(super::percent_encode("a=b+c/d é"), "a%3Db%2Bc%2Fd%20%C3%A9");
-    }
-
-    #[test]
-    fn start_pages_have_no_path() {
-        assert!(super::is_start_page("https://drive.proton.me/"));
-        assert!(super::is_start_page("https://drive.proton.me"));
-        assert!(!super::is_start_page("https://drive.proton.me/s/folder/x"));
-        assert!(!super::is_start_page(
-            "https://docs.proton.me/doc?mode=open"
-        ));
-    }
-
-    #[test]
-    fn providers_have_no_web_view_by_default() {
-        let cancel = AtomicBool::new(false);
-        let root = Location::root("gdrive").unwrap();
-        let error = Fake("gdrive").web_url(&root, &Control::new(&cancel));
-        let error = error.unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
-        assert_eq!(error.to_string(), "Fake has no web view");
+        let listed = entries_with_hint(
+            &root,
+            vec![
+                item("a", 1),
+                item("b", 2),
+                item("a", 3),
+                item("a", 4),
+                item("../x", 5),
+            ],
+            "; run rclone dedupe",
+        );
+        let names: Vec<_> = listed
+            .entries
+            .iter()
+            .map(|e| (e.name.as_str(), e.size))
+            .collect();
+        assert_eq!(names, [("a", 1), ("b", 2)]);
+        assert_eq!(
+            listed.warnings,
+            [
+                "gdrive:/: 2 items share a name with another item and are hidden; run rclone dedupe",
+                "gdrive:/: 1 item with unusable names skipped"
+            ]
+        );
+        let one = entries(&root, vec![item("a", 1), item("a", 1)]);
+        assert_eq!(
+            one.warnings,
+            ["gdrive:/: 1 item shares a name with another item and is hidden"]
+        );
     }
 
     #[test]

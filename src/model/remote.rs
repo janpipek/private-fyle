@@ -173,7 +173,7 @@ mod tests {
             modified: None,
             created: None,
         };
-        remote::entries(&root(), "Test", vec![item]).unwrap()
+        remote::entries(&root(), vec![item]).entries
     }
 
     #[test]
@@ -235,10 +235,7 @@ mod tests {
                 created: None,
             },
         ];
-        folder.cache_remote(
-            root().panel_path(),
-            remote::entries(&root(), "Test", items).unwrap(),
-        );
+        folder.cache_remote(root().panel_path(), remote::entries(&root(), items).entries);
         folder.navigate(root().panel_path()).unwrap();
         let paths = [
             root().child("d").unwrap().panel_path(),

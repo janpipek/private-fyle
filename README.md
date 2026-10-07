@@ -221,6 +221,23 @@ Providers:
   on download.
 - Every remote set up with `rclone config` (Google Drive, OneDrive, ...);
   credentials stay with rclone.
+
+Google Drive through rclone:
+
+- Drive allows several items with one name. Only the first of each name is
+  listed; the status line warns (e.g. "gdrive:/X: 2 items share a name with
+  another item and are hidden; run rclone dedupe").
+- Native Google Docs, Sheets and Slides have no size (shown as 0). Downloading
+  one exports it with rclone's default export formats (docx, xlsx, pptx, svg
+  for drawings), so a Doc is listed and saved as `Report.docx`.
+- Every Drive remote also gets a read-only `<name>.shared` remote,
+  "Google Drive (name) – Shared with me" in Locations (it runs rclone with
+  `--drive-shared-with-me`): browse, download and open in the browser only.
+- Shared drives (team drives) are separate rclone remotes: create one with
+  `rclone config` and a team drive, and it appears here automatically.
+
+Other providers:
+
 - Servers in `remotes.toml` (next to `config.toml`; see `remotes.example.toml`)
   over SFTP, FTP, FTPS, WebDAV and S3, through the `remotefs` crates. SMB is
   not supported. Removing there is permanent. The file is never created

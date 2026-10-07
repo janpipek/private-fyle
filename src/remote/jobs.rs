@@ -139,6 +139,7 @@ pub fn existing_remote(
 ) -> io::Result<HashSet<String>> {
     Ok(provider
         .list(dir, control)?
+        .entries
         .into_iter()
         .map(|entry| entry.name)
         .collect())
@@ -446,7 +447,6 @@ mod tests {
     use std::sync::atomic::AtomicBool;
 
     use super::*;
-    use crate::fs_ops::Entry;
 
     /// Records calls; downloads write a small file; `fail` names make
     /// the operation fail.
@@ -477,7 +477,7 @@ mod tests {
         fn capabilities(&self) -> Capabilities {
             Capabilities::default()
         }
-        fn list(&self, dir: &Location, _: &Control) -> io::Result<Vec<Entry>> {
+        fn list(&self, dir: &Location, _: &Control) -> io::Result<crate::remote::Listing> {
             let items = self
                 .names
                 .iter()
@@ -489,7 +489,7 @@ mod tests {
                     created: None,
                 })
                 .collect();
-            crate::remote::entries(dir, "Fake", items)
+            Ok(crate::remote::entries(dir, items))
         }
         fn download(
             &self,

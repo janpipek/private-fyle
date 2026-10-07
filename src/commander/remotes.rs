@@ -192,10 +192,10 @@ impl Commander {
                     return;
                 }
                 match result {
-                    Ok(entries) => {
+                    Ok(listing) => {
                         this.folders[panel]
-                            .update(cx, |folder, _| folder.cache_remote(target, entries));
-                        this.status = String::new().into();
+                            .update(cx, |folder, _| folder.cache_remote(target, listing.entries));
+                        this.status = listing.warnings.join("; ").into();
                         then(this, window, cx);
                     }
                     Err(e) => this.status = format!("{}: {e}", target.display()).into(),
@@ -240,17 +240,20 @@ impl Commander {
                     return;
                 }
                 match result {
-                    Ok(entries) => {
+                    Ok(listing) => {
+                        let warnings = listing.warnings.join("; ");
                         let error = this.folders[panel].update(cx, |folder, cx| {
                             if folder.path() != listed || folder.is_loading() {
                                 return None;
                             }
-                            folder.cache_remote(listed, entries);
+                            folder.cache_remote(listed, listing.entries);
                             cx.notify();
                             folder.load().err()
                         });
                         if let Some(e) = error {
                             this.status = e.into();
+                        } else if !warnings.is_empty() {
+                            this.status = warnings.into();
                         }
                     }
                     Err(e) => this.status = format!("{}: {e}", path.display()).into(),
@@ -667,10 +670,10 @@ impl Commander {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 match result {
-                    Ok(entries) => {
+                    Ok(listing) => {
                         this.folders[panel].update(cx, |folder, cx| {
                             if folder.path() == folder_path && !folder.is_loading() {
-                                folder.cache_remote(folder_path.clone(), entries);
+                                folder.cache_remote(folder_path.clone(), listing.entries);
                                 folder.clear_marks();
                                 let _ = folder.load();
                                 folder.select_path(select.as_deref());
