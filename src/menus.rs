@@ -61,6 +61,7 @@ pub enum Cmd {
     EditLocation,
     CopyLocation,
     GoTo,
+    GoToOtherFolder,
     ToggleBookmark,
     OpenTerminal,
     ToolsMenu,
@@ -82,6 +83,8 @@ pub struct State {
     pub has_targets: bool,
     /// At least one entry of the active panel is marked.
     pub has_marks: bool,
+    /// Why the active panel cannot follow the other panel's folder.
+    pub other_folder_blocked: Option<&'static str>,
     /// The cursor is on a regular file (not a directory).
     pub cursor_on_file: bool,
     /// Entries were yanked or cut and can be pasted.
@@ -118,7 +121,7 @@ pub struct State {
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 62] = [
+    pub const ALL: [Cmd; 63] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::OpenInBrowser,
@@ -174,6 +177,7 @@ impl Cmd {
         Cmd::CutFiles,
         Cmd::PasteFiles,
         Cmd::GoTo,
+        Cmd::GoToOtherFolder,
         Cmd::ToggleBookmark,
         Cmd::OpenTerminal,
         Cmd::CommandPalette,
@@ -236,6 +240,7 @@ impl Cmd {
             Cmd::EditLocation => "Edit Location…",
             Cmd::CopyLocation => "Copy Full Path",
             Cmd::GoTo => "Go To… (Bookmarks, Places, Frequent)",
+            Cmd::GoToOtherFolder => "Go to Other Panel's Folder",
             Cmd::ToggleBookmark => "Bookmark This Folder",
             Cmd::OpenTerminal => "Terminal Here",
             Cmd::ToolsMenu => "Tools for Selection…",
@@ -411,6 +416,9 @@ impl Cmd {
             {
                 Some("Select or mark entries")
             }
+            Cmd::GoToOtherFolder if state.other_folder_blocked.is_some() => {
+                state.other_folder_blocked
+            }
             Cmd::ClearSelection if !state.has_marks => Some("Nothing is marked"),
             Cmd::PasteFiles if !state.can_paste => Some("Copy or cut entries first"),
             Cmd::PasteFiles | Cmd::NewFile | Cmd::MakeDir | Cmd::ToggleBookmark
@@ -538,7 +546,13 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
             items(&[
                 &[GoBack, GoForward, GoUp],
                 &[GoFirst, GoLast, SwitchPanel],
-                &[EditLocation, CopyLocation, GoTo, ToggleBookmark],
+                &[
+                    EditLocation,
+                    CopyLocation,
+                    GoTo,
+                    GoToOtherFolder,
+                    ToggleBookmark,
+                ],
                 &[OpenTerminal],
             ]),
         ),
@@ -650,6 +664,19 @@ mod tests {
             Some("This remote has no web view")
         );
         assert_eq!(Cmd::OpenInBrowser.unavailable(&remote(true)), None);
+    }
+
+    #[test]
+    fn go_to_other_folder_explains_why_it_is_blocked() {
+        assert_eq!(Cmd::GoToOtherFolder.unavailable(&State::default()), None);
+        let places = State {
+            other_folder_blocked: Some("The other panel shows Places"),
+            ..State::default()
+        };
+        assert_eq!(
+            Cmd::GoToOtherFolder.unavailable(&places),
+            Some("The other panel shows Places")
+        );
     }
 
     #[test]

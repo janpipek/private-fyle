@@ -14,7 +14,7 @@ mod remote;
 mod results;
 mod sizes;
 #[cfg(test)]
-mod test_support;
+pub mod test_support;
 mod view;
 
 use archives::Mount;

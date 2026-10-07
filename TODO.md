@@ -7,12 +7,6 @@
       palette and F1 help; decide its shortcut and focus behavior. Handle
       pending loads and the preview/editor pane explicitly, with model tests
       for swaps across local, remote, archive and search modes.
-- [ ] Go to Other Panel's Folder command: navigate the active panel to the
-      other panel's folder, preserving its typed local, remote or archive
-      location. For search results, use the search root; explain availability
-      when the other panel shows Places. Register it in `Cmd`, menus, the
-      palette and F1 help. Decide its shortcut; cover navigation and pending
-      loads with model tests.
 - [ ] Keymap editor and presets: build on existing `[[keymap]]` overrides
       and unbinding, with selectable fyle, Krusader, Midnight Commander and
       Finder-style presets beneath user overrides. Keep stable command IDs,
@@ -109,6 +103,11 @@
 
 ## Done
 
+- [x] Go to Other Panel's Folder (`GoToOtherFolder`, Ctrl-Left / Ctrl-Right,
+      Go menu, palette, F1): the active panel navigates to the other panel's
+      typed location; search results use their root, a load in flight there is
+      followed to its destination (`pending_target`), Places make it
+      unavailable with an explanation. The decision lives in `panels.rs`.
 - [x] Clear Selection command (`ClearSelection`, Edit menu, palette, F1): unmarks
       the active panel without touching the filter; unavailable ("Nothing is
       marked") when no entry is marked. Esc keeps its filter-then-marks

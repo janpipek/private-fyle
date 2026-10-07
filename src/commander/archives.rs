@@ -34,6 +34,7 @@ impl Commander {
             cx.notify();
         });
         self.navigation_pending[panel] = true;
+        self.pending_target[panel] = None;
         let shown = fs_ops::display_path(&file);
         self.status = format!("Reading {shown}…").into();
         cx.notify();

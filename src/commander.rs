@@ -78,6 +78,8 @@ pub struct Commander {
     navigation_tasks: [Task<()>; 2],
     navigation_generation: [u64; 2],
     navigation_pending: [bool; 2],
+    /// Per panel: the target of the listing in flight (not archive reads).
+    pending_target: [Option<crate::location::PanelTarget>; 2],
     _locations_task: Task<()>,
     /// Configured remotes, discovered in the background.
     remotes: Arc<remote::Registry>,
@@ -294,6 +296,7 @@ impl Commander {
             navigation_tasks: [Task::ready(()), Task::ready(())],
             navigation_generation: [0, 0],
             navigation_pending: [false, false],
+            pending_target: [None, None],
             _locations_task: Task::ready(()),
             remotes: Arc::default(),
             listing_caches: [Arc::default(), Arc::default()],
@@ -496,6 +499,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::edit_location))
             .on_action(cx.listener(Self::copy_location))
             .on_action(cx.listener(Self::toggle_bookmark))
+            .on_action(cx.listener(Self::go_to_other_folder))
             .on_action(cx.listener(Self::open_terminal))
             .on_action(cx.listener(Self::select_columns))
             .on_action(cx.listener(Self::select_all))

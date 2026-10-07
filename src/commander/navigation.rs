@@ -9,8 +9,8 @@ use gpui_kit::*;
 
 use super::Commander;
 use super::keys::{
-    CopyLocation, EditLocation, GoBack, GoFirst, GoForward, GoLast, GoTo, GoUp, Open, OpenTerminal,
-    OpenWith, SwitchPanel, ToggleBookmark,
+    CopyLocation, EditLocation, GoBack, GoFirst, GoForward, GoLast, GoTo, GoToOtherFolder, GoUp,
+    Open, OpenTerminal, OpenWith, SwitchPanel, ToggleBookmark,
 };
 use super::location::ListingCommit;
 use crate::bookmarks;
@@ -130,6 +130,36 @@ impl Commander {
 
     pub fn go_last(&mut self, _: &GoLast, _: &mut Window, cx: &mut Context<Self>) {
         self.update_folder(cx, |f| f.set_cursor(usize::MAX));
+    }
+
+    /// Where the other panel is, or is heading (see
+    /// [`crate::panels::other_panel_target`]).
+    pub fn other_panel_target(
+        &self,
+        cx: &App,
+    ) -> Result<crate::location::PanelTarget, &'static str> {
+        let other = 1 - self.active;
+        crate::panels::other_panel_target(
+            &self.folders[other].read(cx).target(),
+            self.pending_target[other].as_ref(),
+        )
+    }
+
+    /// Ctrl-Left / Ctrl-Right: the active panel shows the other panel's
+    /// folder; search results lead to their root.
+    pub fn go_to_other_folder(
+        &mut self,
+        _: &GoToOtherFolder,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.other_panel_target(cx) {
+            Ok(target) => self.navigate_panel(self.active, target, window, cx),
+            Err(reason) => {
+                self.status = reason.into();
+                cx.notify();
+            }
+        }
     }
 
     pub fn switch_panel(&mut self, _: &SwitchPanel, window: &mut Window, cx: &mut Context<Self>) {

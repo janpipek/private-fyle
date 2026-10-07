@@ -32,6 +32,7 @@ mod openers;
 mod palette;
 mod palette_view;
 mod panel;
+mod panels;
 mod places;
 mod preview;
 mod preview_view;

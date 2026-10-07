@@ -82,6 +82,7 @@ impl Commander {
         let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         self.remote_cancel[panel] = Some(cancel.clone());
         self.navigation_pending[panel] = true;
+        self.pending_target[panel] = Some(target.clone());
         let shown = path.display().to_string();
         self.status = format!("Opening {shown}").into();
         cx.notify();
@@ -96,6 +97,7 @@ impl Commander {
                     return;
                 }
                 this.navigation_pending[panel] = false;
+                this.pending_target[panel] = None;
                 this.remote_cancel[panel] = None;
                 let current = {
                     let live = this.folders[panel].read(cx);
@@ -221,6 +223,7 @@ impl Commander {
                 self.navigation_generation[panel] =
                     self.navigation_generation[panel].wrapping_add(1);
                 self.navigation_pending[panel] = false;
+                self.pending_target[panel] = None;
                 self.navigation_tasks[panel] = Task::ready(());
                 cancelled = true;
             }
