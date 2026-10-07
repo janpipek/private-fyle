@@ -237,6 +237,9 @@ Providers:
 
 Google Drive through rclone:
 
+See [`HOWTO.md`](HOWTO.md) for installing rclone, configuring OAuth access and
+opening a Drive remote in fyle.
+
 - Drive allows several items with one name. Only the first of each name is
   listed; the status line warns (e.g. "gdrive:/X: 2 items share a name with
   another item and are hidden; run rclone dedupe").
