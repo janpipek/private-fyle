@@ -28,7 +28,7 @@ palette. The bottom area shows status messages and running jobs.
 | Up / Down, PgUp/Dn  | Move cursor (icon view: one row / a page of rows) |
 | Home / End          | First / last entry                        |
 | Enter / dbl-click   | Enter directory or archive (zip, tar, tar.gz/tgz: browsed like a folder, read-only), or open the file (first matching `[[opener]]`, else the system default) |
-| Shift-Enter         | Open with…: matching openers, system default, built-in editor |
+| Shift-Enter         | Open with…: matching `[[opener]]`s, then the desktop's default application (marked "(default)") and other applications registered for the file's type (Linux), then the built-in editor |
 | Backspace           | Parent directory                          |
 | Alt-Left / Alt-Right | Back / forward through visited directories (per panel) |
 | Tab                 | Switch active panel                       |
@@ -163,6 +163,29 @@ unique name), Replace, or Merge for two directories, and can apply the
 choice to the remaining conflicts of the same kind or cancel the operation.
 Copy, move, trash and delete run in the background with progress in a jobs
 bar.
+
+## Open with
+
+Shift-Enter lists, in this order: matching `[[opener]]` rules; the desktop's
+default application for the file's type, marked "(default)"; other
+applications registered for it; the built-in editor. A system entry that
+runs the same command as a configured opener is dropped, and the opener
+takes the "(default)" mark. Entries whose program is missing are greyed out
+with the reason. Enter itself is unchanged: first matching opener, else
+`xdg-open` (through the `open` crate).
+
+On Linux the types and applications come from the desktop's files, read
+directly (no `xdg-mime` or `gio`): the type from shared-mime-info's
+`globs2` by file name (weight, then longest glob; no magic sniffing), with
+`subclasses` and `aliases` (so `text/x-rust` also offers `text/plain`
+applications); desktop entries from `applications/` in `XDG_DATA_HOME` and
+`XDG_DATA_DIRS` (`MimeType=`, `Hidden`, `NoDisplay`, `TryExec`, localized
+names); `mimeapps.list` in the order of the spec, including the
+`$XDG_CURRENT_DESKTOP` variants, Default, Added and Removed. Without an
+explicit default the first associated application is marked. `Terminal=true`
+applications start in the configured terminal. The lookup runs in the
+background and is kept for 60 seconds (F5 drops it). Windows and macOS
+associations are not read yet.
 
 ## Settings
 
@@ -426,7 +449,8 @@ Where things live (`src/`):
 | `preview/`, `preview_view.rs`, `notebook_view.rs` | `Previewer`s and their `Registry` (including bounded nbformat 4 notebook parsing); one render arm per `Content`; notebooks render through a variable-height lazy list; preview identity stays separate from materialized local bytes |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and the editor pane |
 | `tools/`, `tools_view.rs` | Tool, Action and Registry model; `defaults.toml`; built-ins; Lua plugins; `exec.rs` runs them |
-| `search.rs`, `places.rs`, `breadcrumbs.rs`, `remote_labels.rs`, `rename.rs`, `openers.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs`, `zoom.rs` | Further UI-independent models, each with tests |
+| `search.rs`, `places.rs`, `breadcrumbs.rs`, `remote_labels.rs`, `rename.rs`, `openers.rs`, `terminal.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs`, `zoom.rs` | Further UI-independent models, each with tests |
+| `apps.rs`, `mime.rs`, `desktop.rs`, `mimeapps.rs`, `xdg.rs`, `ini.rs` | Open With model: `apps::Catalog` (Linux discovery) and `merge` with the openers; MIME type from shared-mime-info `globs2`/`subclasses`/`aliases`; `.desktop` parsing and `Exec` expansion; `mimeapps.list`; XDG directories |
 | `*_view.rs`, `menu_bar.rs`, `link_badge.rs`, `theme_picker.rs` | Thin views |
 
 Previews follow the same split. `src/preview/` is the model: a `Registry`

@@ -268,6 +268,7 @@ impl Commander {
     /// Ctrl-R: reloads both panels and forgets computed folder sizes
     /// (stopping the scans that would recompute them).
     pub fn refresh(&mut self, _: &Refresh, window: &mut Window, cx: &mut Context<Self>) {
+        self.catalog_cache = None;
         for ix in 0..2 {
             self.stop_size_scan(ix);
         }

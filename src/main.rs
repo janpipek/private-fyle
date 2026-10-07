@@ -1,6 +1,7 @@
 // Release builds on Windows should not open a console window.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod apps;
 mod archive;
 mod bookmarks;
 mod breadcrumbs;
@@ -8,6 +9,7 @@ mod columns;
 mod commander;
 mod conflict_view;
 mod context_menu;
+mod desktop;
 mod dirsize;
 mod editor;
 mod editor_view;
@@ -17,6 +19,7 @@ mod glyphs;
 mod grid;
 mod icon_view;
 mod icons;
+mod ini;
 mod jobs;
 mod link_badge;
 mod links;
@@ -26,8 +29,11 @@ mod location_codec;
 mod location_view;
 mod menu_bar;
 mod menus;
+mod mime;
+mod mimeapps;
 mod model;
 mod notebook_view;
+mod open_with_view;
 mod openers;
 mod palette;
 mod palette_view;
@@ -51,6 +57,7 @@ mod tools;
 mod tools_view;
 mod transfer;
 mod xattr;
+mod xdg;
 mod zoom;
 
 use std::path::PathBuf;

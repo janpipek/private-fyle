@@ -1,24 +1,19 @@
 //! Navigation commands: opening, history, bookmarks, locations and openers.
 
 use std::path::Path;
-use std::rc::Rc;
 
-use gpui_kit::component::list::{List, ListState};
-use gpui_kit::component::{IndexPath, WindowExt as _};
 use gpui_kit::*;
 
 use super::Commander;
 use super::keys::{
     CopyLocation, EditLocation, GoBack, GoFirst, GoForward, GoLast, GoTo, GoToOtherFolder, GoUp,
-    Open, OpenTerminal, OpenWith, SwapPanels, SwitchPanel, ToggleBookmark,
+    Open, OpenTerminal, SwapPanels, SwitchPanel, ToggleBookmark,
 };
 use super::location::ListingCommit;
 use crate::bookmarks;
-use crate::editor::Document;
 use crate::model::Folder;
 use crate::places::{self, History};
 use crate::tools::{self};
-use crate::tools_view::PickDelegate;
 
 impl Commander {
     /// Tells each panel whether its folder is bookmarked, for the star in
@@ -238,61 +233,6 @@ impl Commander {
                 false
             }
         }
-    }
-
-    /// Shift-Enter: choose how to open the cursor file.
-    pub fn open_with(&mut self, _: &OpenWith, window: &mut Window, cx: &mut Context<Self>) {
-        if self.refuse_in_archive(cx) || self.refuse_on_remote(cx) {
-            return;
-        }
-        let Some(entry) = self.folders[self.active].read(cx).current().cloned() else {
-            return;
-        };
-        if entry.is_dir {
-            return;
-        }
-        let Some(path) = entry.location.as_local_path().map(Path::to_path_buf) else {
-            return;
-        };
-        let rules: Vec<_> = crate::openers::matching(&self.openers, &path)
-            .into_iter()
-            .cloned()
-            .collect();
-        let mut labels: Vec<String> = rules.iter().map(|r| r.label.clone()).collect();
-        labels.push("System default".into());
-        labels.push("Built-in editor (F4)".into());
-        let rules = Rc::new(rules);
-        let this = cx.entity().downgrade();
-        let delegate = PickDelegate::new(labels, move |index, window, cx| {
-            window.close_dialog(cx);
-            let path = path.clone();
-            let rules = rules.clone();
-            let _ = this.update(cx, |this, cx| {
-                if let Some(rule) = rules.get(index) {
-                    this.run_opener(rule, &path);
-                } else if index == rules.len() {
-                    if let Err(e) = open::that_detached(&path) {
-                        this.status = format!("Cannot open {}: {e}", path.display()).into();
-                    }
-                } else {
-                    this.open_in_editor(path.clone(), Document::open(&path), window, cx);
-                }
-                cx.notify();
-            });
-        });
-        let list = cx.new(|cx| ListState::new(delegate, window, cx).searchable(true));
-        list.update(cx, |list, cx| {
-            list.set_selected_index(Some(IndexPath::new(0)), window, cx)
-        });
-        let dialog_list = list.clone();
-        let title = format!("Open {} with", entry.name);
-        window.open_dialog(cx, move |dialog, _, _| {
-            dialog
-                .title(title.clone())
-                .w(px(420.))
-                .child(div().h(px(260.)).child(List::new(&dialog_list)))
-        });
-        list.update(cx, |list, cx| list.focus(window, cx));
     }
 
     /// Remembers directories the active panel shows, for frecency.

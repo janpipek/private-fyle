@@ -8,6 +8,7 @@ mod keys;
 mod location;
 mod menus;
 mod navigation;
+mod open_with;
 mod panel_view;
 mod remotes;
 mod search;
@@ -65,6 +66,9 @@ pub struct Commander {
     history_saves: crate::places::history_save::Queue<(PathBuf, History)>,
     _history_save_task: Task<()>,
     openers: Vec<crate::openers::Opener>,
+    /// Applications the desktop associates with file types, read lazily.
+    catalog_cache: Option<open_with::CatalogCache>,
+    _open_with_task: Task<()>,
     /// Entries waiting to be pasted.
     yank: Option<Yank>,
     yank_generation: u64,
@@ -283,6 +287,8 @@ impl Commander {
             preview_on: settings.preview.open_on_start,
             tools: Arc::new(tools_registry),
             programs: Arc::new(Programs::from_env()),
+            catalog_cache: None,
+            _open_with_task: Task::ready(()),
             _tool_task: Task::ready(()),
             _zoom_save: Task::ready(()),
             history_saves: Default::default(),

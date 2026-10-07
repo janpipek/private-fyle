@@ -15,14 +15,8 @@
       every remote subfolder, and at a remote root only when the panel came
       from a local folder (none for `fyle proton:/`). Reproduce with a real
       account; the cursor-placement part is fixed.
-- [ ] Open With: use the OS/desktop's configured file-type associations,
-      available applications and default application, alongside fyle's
-      configured openers. Respect KDE/GNOME/XDG settings on Linux, Windows
-      associations when Windows work resumes, and macOS associations when
-      macOS support starts. Put platform discovery behind a common model,
-      load it in the background, handle unavailable applications, and test
-      with isolated fixtures. Decide how system and configured entries are
-      ordered and deduplicated, and how the default is indicated.
+- [ ] Open With on Windows and macOS: read the platform's file-type
+      associations behind `apps::Catalog` when those platforms resume.
 - [ ] Archive follow-ups: nested archives; maybe write support.
 - [ ] File inspection: separate Properties and View as two perspectives.
       Properties shows filesystem attributes and format metadata; View (F3)
@@ -220,6 +214,7 @@
 - [x] Lua plugins (`<config dir>/fyle/plugins/*.lua`) define tools (mlua, Lua 5.4 vendored).
 - [x] Search: regex option; content hits show their matching line.
 - [x] Tools: conversions (image, CSV) share one "Convert" group.
+- [x] Open With lists the desktop's default and associated applications (Linux: shared-mime-info, desktop entries, mimeapps.list) after the configured openers, with a "(default)" mark.
 - [x] Openers ([[opener]] rules by extension/kind/name) and Open with… (Shift-Enter).
 - [x] Yank/cut/paste (Ctrl-C/X/V) between panels; paths also on the system clipboard.
 - [x] Editor: Shift-F4 new file, overwrite prompt when changed on disk, optional external editor ([editor] command).

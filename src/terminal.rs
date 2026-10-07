@@ -55,6 +55,34 @@ pub fn command(
         })
 }
 
+/// What precedes the program to run in a terminal: `-e` for most.
+fn run_separator(terminal: &str) -> Option<&'static str> {
+    let name = Path::new(terminal).file_name()?.to_str()?;
+    match name {
+        "gnome-terminal" | "ptyxis" | "wezterm" => Some("--"),
+        // These take the command as the rest of their arguments.
+        "kitty" | "foot" => None,
+        _ => Some("-e"),
+    }
+}
+
+/// The command line running `argv` in a terminal window started in `dir`
+/// (same choice of terminal as [`command`]).
+pub fn run_command(
+    configured: &[String],
+    env_terminal: Option<&str>,
+    dir: &Path,
+    exists: impl Fn(&str) -> bool,
+    argv: &[String],
+) -> Option<Vec<String>> {
+    let mut command = command(configured, env_terminal, dir, exists)?;
+    if let Some(separator) = run_separator(command.first()?) {
+        command.push(separator.into());
+    }
+    command.extend(argv.iter().cloned());
+    Some(command)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,5 +126,43 @@ mod tests {
         let cmd = command(&[], Some(""), dir, |name| name == "xterm");
         assert_eq!(cmd, Some(strings(&["xterm"])));
         assert_eq!(command(&[], None, dir, |_| false), None);
+    }
+
+    #[test]
+    fn runs_a_program_in_a_terminal() {
+        let argv = strings(&["vim", "/a b"]);
+        let run = |term: Option<&str>| run_command(&[], term, Path::new("/w"), |_| false, &argv);
+        assert_eq!(
+            run(Some("konsole")),
+            Some(strings(&[
+                "konsole",
+                "--workdir",
+                "/w",
+                "-e",
+                "vim",
+                "/a b"
+            ]))
+        );
+        assert_eq!(
+            run(Some("gnome-terminal")),
+            Some(strings(&[
+                "gnome-terminal",
+                "--working-directory=/w",
+                "--",
+                "vim",
+                "/a b"
+            ]))
+        );
+        assert_eq!(
+            run(Some("/usr/bin/kitty")),
+            Some(strings(&[
+                "/usr/bin/kitty",
+                "--directory",
+                "/w",
+                "vim",
+                "/a b"
+            ]))
+        );
+        assert_eq!(run(None), None);
     }
 }
