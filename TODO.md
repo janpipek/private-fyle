@@ -1,5 +1,11 @@
 # TODO
 
+- [ ] Next up — Toggle bookmark: make Ctrl-D add or remove the current folder's
+      bookmark. Add a small star in the location bar that reflects the
+      bookmark state and toggles it on click. Use the same `Cmd` for the
+      shortcut, star, menus, palette and F1 help, with model tests for adding
+      and removing bookmarks. Keep availability consistent with supported
+      bookmark locations.
 - [ ] Menus and selection, remaining parts: output/history in Tools; a
       "Clear selection" command (Esc already clears marks). Implement
       missing actions as separate features.
@@ -14,12 +20,6 @@
       when the other panel shows Places. Register it in `Cmd`, menus, the
       palette and F1 help. Decide its shortcut; cover navigation and pending
       loads with model tests.
-- [ ] Toggle bookmark: make Ctrl-D add or remove the current folder's
-      bookmark. Add a small star in the location bar that reflects the
-      bookmark state and toggles it on click. Use the same `Cmd` for the
-      shortcut, star, menus, palette and F1 help, with model tests for adding
-      and removing bookmarks. Keep availability consistent with supported
-      bookmark locations.
 - [ ] Keymap editor and presets: build on existing `[[keymap]]` overrides
       and unbinding, with selectable fyle, Krusader, Midnight Commander and
       Finder-style presets beneath user overrides. Keep stable command IDs,
