@@ -15,7 +15,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::fs_ops;
-use crate::preview::{Content, Preview, Registry};
+use crate::preview::{Content, Preview, Registry, Sheet};
 
 enum State {
     Empty,
@@ -57,6 +57,11 @@ pub struct PreviewPane {
     pdf_image: Option<PathBuf>,
     pdf_error: Option<String>,
     _pdf_render: Task<()>,
+    /// Selected sheet (0-based) of a spreadsheet and its sample, `None` while loading.
+    sheet_index: usize,
+    sheet_generation: u64,
+    sheet: Option<Result<Sheet, String>>,
+    _sheet_load: Task<()>,
     _load: Task<()>,
     _reveal: Task<()>,
 }
@@ -83,6 +88,10 @@ impl PreviewPane {
             pdf_image: None,
             pdf_error: None,
             _pdf_render: Task::ready(()),
+            sheet_index: 0,
+            sheet_generation: 0,
+            sheet: None,
+            _sheet_load: Task::ready(()),
             _load: Task::ready(()),
             _reveal: Task::ready(()),
         }
@@ -115,6 +124,10 @@ impl PreviewPane {
         self.pdf_image = None;
         self.pdf_error = None;
         self._pdf_render = Task::ready(());
+        self.sheet_index = 0;
+        self.sheet_generation = self.sheet_generation.wrapping_add(1);
+        self.sheet = None;
+        self._sheet_load = Task::ready(());
         let Some(path) = target.and_then(|target| target.path) else {
             self.state = State::Empty;
             self._load = Task::ready(());
@@ -212,6 +225,9 @@ impl PreviewPane {
                         editor.set_value(text.clone(), window, cx);
                     });
                 }
+                if let Content::Spreadsheet { first, .. } = &preview.content {
+                    self.sheet = Some(Ok(Sheet::clone(first)));
+                }
                 State::Ready(preview)
             }
             Err(e) => State::Failed(e),
@@ -272,11 +288,129 @@ impl PreviewPane {
         }
     }
 
+    /// Shows another sheet of the workbook, read in the background.
+    fn change_sheet(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((path, count)) = (match &self.state {
+            State::Ready(preview) => match &preview.content {
+                Content::Spreadsheet { path, sheets, .. } => Some((path.clone(), sheets.len())),
+                _ => None,
+            },
+            _ => None,
+        }) else {
+            return;
+        };
+        let index = self
+            .sheet_index
+            .saturating_add_signed(delta)
+            .min(count.saturating_sub(1));
+        if index == self.sheet_index {
+            return;
+        }
+        self.sheet_index = index;
+        self.sheet_generation = self.sheet_generation.wrapping_add(1);
+        let generation = self.sheet_generation;
+        self.sheet = None;
+        self.table_scroll.set_offset(point(px(0.), px(0.)));
+        self._sheet_load = cx.spawn_in(window, async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { crate::preview::read_sheet(&path, index) })
+                .await
+                .map_err(|error| error.to_string());
+            let _ = this.update_in(cx, |this, _, cx| {
+                if this.sheet_generation == generation {
+                    this.sheet = Some(result);
+                    cx.notify();
+                }
+            });
+        });
+        cx.notify();
+    }
+
     fn release_notebook_images(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         for image in self.notebook_images.values() {
             cx.drop_image(image.clone(), Some(window));
         }
         self.notebook_images = Arc::new(HashMap::new());
+    }
+
+    /// A scrollable table with a footer note; `row_numbers` narrows the first
+    /// column, which then holds spreadsheet row numbers.
+    fn render_table(
+        &self,
+        header: &[String],
+        rows: &[Vec<String>],
+        footer: String,
+        row_numbers: bool,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let theme = cx.theme();
+        let columns = rows
+            .iter()
+            .map(Vec::len)
+            .max()
+            .unwrap_or(0)
+            .max(header.len());
+        let first_width = if row_numbers { 48. } else { 140. };
+        let table_width = px(first_width + 140. * columns.saturating_sub(1) as f32);
+        let scroll = self.table_scroll.clone();
+        let cell = |(i, text): (usize, &String)| {
+            div()
+                .w(px(if i == 0 { first_width } else { 140. }))
+                .flex_none()
+                .px_2()
+                .py_0p5()
+                .truncate()
+                .when(row_numbers && i == 0, |d| {
+                    d.text_color(theme.muted_foreground)
+                })
+                .child(text.clone())
+        };
+        v_flex()
+            .size_full()
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .child(
+                        div()
+                            .id("table-scroll-area")
+                            .size_full()
+                            .overflow_scroll()
+                            .track_scroll(&scroll)
+                            .text_xs()
+                            .child(
+                                v_flex()
+                                    .w(table_width)
+                                    .flex_none()
+                                    .child(
+                                        h_flex()
+                                            .w(table_width)
+                                            .flex_none()
+                                            .bg(theme.muted)
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .children(header.iter().enumerate().map(cell)),
+                                    )
+                                    .children(rows.iter().enumerate().map(|(i, row)| {
+                                        h_flex()
+                                            .w(table_width)
+                                            .flex_none()
+                                            .when(i % 2 == 1, |r| r.bg(theme.muted.opacity(0.4)))
+                                            .children(row.iter().enumerate().map(cell))
+                                    })),
+                            ),
+                    )
+                    .vertical_scrollbar(&scroll)
+                    .horizontal_scrollbar(&scroll),
+            )
+            .child(
+                div()
+                    .px_2()
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .child(footer),
+            )
+            .into_any_element()
     }
 
     fn render_content(&self, preview: &Preview, cx: &Context<Self>) -> AnyElement {
@@ -439,76 +573,74 @@ impl PreviewPane {
                 rows,
                 truncated,
             } => {
-                let columns = rows
-                    .iter()
-                    .map(Vec::len)
-                    .max()
-                    .unwrap_or(0)
-                    .max(header.len());
-                let table_width = px(140. * columns as f32);
-                let scroll = self.table_scroll.clone();
-                let cell = |text: &String| {
-                    div()
-                        .w(px(140.))
+                let footer = format!(
+                    "{} rows{}",
+                    rows.len(),
+                    if *truncated {
+                        if preview.kind == "Parquet" {
+                            " (sample truncated)"
+                        } else {
+                            " (more not shown)"
+                        }
+                    } else {
+                        ""
+                    }
+                );
+                self.render_table(header, rows, footer, false, cx)
+            }
+            Content::Spreadsheet { sheets, .. } => {
+                let index = self.sheet_index;
+                let count = sheets.len();
+                let name = sheets.get(index).cloned().unwrap_or_default();
+                let controls =
+                    h_flex()
                         .flex_none()
-                        .px_2()
-                        .py_0p5()
-                        .truncate()
-                        .child(text.clone())
+                        .items_center()
+                        .justify_center()
+                        .gap_3()
+                        .p_2()
+                        .child(
+                            Button::new("sheet-previous")
+                                .label("Previous")
+                                .disabled(index == 0)
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.change_sheet(-1, window, cx)
+                                })),
+                        )
+                        .child(format!("{name} ({} of {count})", index + 1))
+                        .child(
+                            Button::new("sheet-next")
+                                .label("Next")
+                                .disabled(index + 1 >= count)
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.change_sheet(1, window, cx)
+                                })),
+                        );
+                let body = match &self.sheet {
+                    Some(Ok(sheet)) => {
+                        self.render_table(&sheet.header, &sheet.rows, sheet.summary(), true, cx)
+                    }
+                    Some(Err(error)) => div()
+                        .size_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_color(theme.muted_foreground)
+                        .child(error.clone())
+                        .into_any_element(),
+                    None => div()
+                        .size_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_color(theme.muted_foreground)
+                        .child("Loading sheet…")
+                        .into_any_element(),
                 };
                 v_flex()
                     .size_full()
-                    .child(
-                        div()
-                            .relative()
-                            .flex_1()
-                            .min_h_0()
-                            .child(
-                                div()
-                                    .id("table-scroll-area")
-                                    .size_full()
-                                    .overflow_scroll()
-                                    .track_scroll(&scroll)
-                                    .text_xs()
-                                    .child(
-                                        v_flex()
-                                            .w(table_width)
-                                            .flex_none()
-                                            .child(
-                                                h_flex()
-                                                    .w(table_width)
-                                                    .flex_none()
-                                                    .bg(theme.muted)
-                                                    .font_weight(FontWeight::SEMIBOLD)
-                                                    .children(header.iter().map(cell)),
-                                            )
-                                            .children(rows.iter().enumerate().map(|(i, row)| {
-                                                h_flex()
-                                                    .w(table_width)
-                                                    .flex_none()
-                                                    .when(i % 2 == 1, |r| {
-                                                        r.bg(theme.muted.opacity(0.4))
-                                                    })
-                                                    .children(row.iter().map(cell))
-                                            })),
-                                    ),
-                            )
-                            .vertical_scrollbar(&scroll)
-                            .horizontal_scrollbar(&scroll),
-                    )
-                    .child(note(format!(
-                        "{} rows{}",
-                        rows.len(),
-                        if *truncated {
-                            if preview.kind == "Parquet" {
-                                " (sample truncated)"
-                            } else {
-                                " (more not shown)"
-                            }
-                        } else {
-                            ""
-                        }
-                    )))
+                    .child(controls)
+                    .child(div().flex_1().min_h_0().child(body))
                     .into_any_element()
             }
             Content::Archive {

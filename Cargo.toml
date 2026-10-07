@@ -41,6 +41,7 @@ toml = "0.9"
 toml_edit = "0.25.15"
 trash = "5"
 zip = { version = "8.6.0", default-features = false, features = ["deflate-flate2"] }
+calamine = { version = "0.36.1", default-features = false, features = ["dates"] }
 
 # Dependencies (gpui, tree-sitter grammars, ...) without debug info keep the
 # dev build small and fast to link; fyle's own code keeps it. They are

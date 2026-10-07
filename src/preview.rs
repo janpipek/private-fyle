@@ -22,6 +22,7 @@ mod notebook;
 mod parquet;
 mod pdf;
 mod raw;
+mod spreadsheet;
 mod table;
 pub mod text;
 
@@ -40,6 +41,7 @@ pub use notebook::{Cell as NotebookCell, Notebook, NotebookPreviewer, Output as 
 pub use parquet::ParquetPreviewer;
 pub use pdf::{PdfPreviewer, render_page};
 pub use raw::RawPreviewer;
+pub use spreadsheet::{Sheet, SpreadsheetPreviewer, read_sheet};
 pub use table::TablePreviewer;
 pub use text::TextPreviewer;
 
@@ -133,6 +135,13 @@ pub enum Content {
         pages: usize,
         metadata: Vec<(String, String)>,
     },
+    /// A workbook: sheet names, with the first sheet's sample. The view loads
+    /// other sheets on demand with [`read_sheet`].
+    Spreadsheet {
+        path: PathBuf,
+        sheets: Vec<String>,
+        first: Box<Sheet>,
+    },
     /// Summary of a directory's direct children.
     Directory {
         dirs: usize,
@@ -204,6 +213,8 @@ impl Registry {
         registry.register(ImagePreviewer);
         registry.register(PdfPreviewer);
         registry.register(MediaPreviewer);
+        // Before the archive previewer: XLSX, XLSM and ODS are zip files.
+        registry.register(SpreadsheetPreviewer);
         registry.register(ArchivePreviewer);
         registry.register(MarkdownPreviewer);
         registry.register(NotebookPreviewer);

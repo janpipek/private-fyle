@@ -86,6 +86,16 @@ budget. Uncompressed, Snappy, gzip, Brotli, LZ4 and Zstandard chunks are
 supported. Files with
 repeated, list or map columns show an unsupported-format message.
 
+F3 previews XLSX, XLSM, XLS, XLSB and ODS workbooks as tables using the pure-Rust
+`calamine` reader (no external programs). One sheet shows at a time with
+Previous/Next buttons and a "Sheet name (n of m)" label; other sheets are read
+on demand. Columns are headed by letters (the sheet's used range keeps its
+absolute letters and a row-number column), formulas show their cached values,
+dates appear as ISO text and errors as codes. The sample is limited to 500
+rows and 40 columns with cells capped at 1,024 characters; files over 32 MiB or
+declaring over 256 MiB uncompressed are refused. Corrupt or password-protected
+files show the reader's error.
+
 F3 previews `.ipynb` notebooks as a lazy, read-only list of Markdown and
 highlighted code cells with their saved text, error and PNG/JPEG outputs. The
 Rust nbformat 4 reader bounds notebooks to 16 MiB and 500 cells, text items to

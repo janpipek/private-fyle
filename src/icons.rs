@@ -108,7 +108,7 @@ fn by_extension(ext: &str) -> Option<FileIcon> {
         "mp4" | "mkv" | "webm" | "mov" | "avi" | "wmv" | "m4v" | "flv" => FileIcon::Video,
         "zip" | "tar" | "gz" | "tgz" | "bz2" | "xz" | "zst" | "7z" | "rar" | "jar" | "deb"
         | "rpm" | "dmg" | "iso" | "crate" | "whl" => FileIcon::Archive,
-        "xls" | "xlsx" | "ods" | "numbers" => FileIcon::Spreadsheet,
+        "xls" | "xlsx" | "xlsm" | "xlsb" | "ods" | "numbers" => FileIcon::Spreadsheet,
         "lock" => FileIcon::Lock,
         "pem" | "key" | "crt" | "cer" | "pub" | "gpg" | "asc" | "p12" | "pfx" => FileIcon::Key,
         "sh" | "bash" | "zsh" | "fish" | "ps1" | "bat" | "cmd" | "nu" => FileIcon::Script,

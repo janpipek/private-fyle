@@ -49,7 +49,7 @@
       archive extraction and permissions. Decide default drop actions and
       modifiers before implementing; test source/destination identity through
       focus changes, cancelled drags and pending loads.
-- [ ] More F3 file types: spreadsheets (XLS/XLSX), Word
+- [ ] More F3 file types: Word
       documents (DOC/DOCX), and OpenDocument text (ODT). Keep schema, EXIF and
       other format metadata in the Properties perspective above. Decoding
       libraries versus optional external converters, document fidelity, and
@@ -137,6 +137,10 @@
       SVG, math, attachments, widgets, remote Markdown images and unknown
       outputs are placeholders. No Python runtime, execution or editing.
       Kernel/language and cell counts remain Properties work.
+- [x] F3 preview for spreadsheets (XLSX, XLSM, XLS, XLSB, ODS): native
+      `calamine` reader, one sheet at a time with Previous/Next navigation,
+      500 rows, 40 columns, 1,024 characters per cell, 32 MiB file and 256 MiB
+      uncompressed limits; formulas show cached values, dates as ISO text.
 - [x] F3 preview for Parquet files: native table samples (500 rows, 40 columns,
       1,024 characters per cell; 8 MiB metadata and a 64 MiB selected column
       chunk decoding budget), with common codecs; repeated/list/map columns report an
