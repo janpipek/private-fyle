@@ -20,6 +20,15 @@
       shortcut, star, menus, palette and F1 help, with model tests for adding
       and removing bookmarks. Keep availability consistent with supported
       bookmark locations.
+- [ ] Keymap editor and presets: build on existing `[[keymap]]` overrides
+      and unbinding, with selectable fyle, Krusader, Midnight Commander and
+      Finder-style presets beneath user overrides. Keep stable command IDs,
+      detect conflicts across overlapping panel/global/editor contexts,
+      support reset, and update menu, palette, F1 and tooltip shortcuts.
+      Save edits with `toml_edit`, preserving comments and other settings.
+      Decide the editor presentation and preset coverage; map only supported
+      commands, with Finder's Command-key conventions tied to later macOS
+      support. References: official Krusader/MC keymaps and Apple shortcuts.
 - [ ] Investigate missing parent navigation in Proton Drive: check the `..`
       row and Go Up in subfolders and at the drive root; add model/provider
       regression tests for the intended destinations.
