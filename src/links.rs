@@ -82,7 +82,7 @@ impl LinkState {
     /// `path`. This touches the disk, so resolve it in a background worker.
     pub fn resolved(&self, path: &Path) -> Option<PathBuf> {
         match self {
-            Self::Link { .. } => fs::canonicalize(path).ok(),
+            Self::Link { .. } => dunce::canonicalize(path).ok(),
             _ => None,
         }
     }

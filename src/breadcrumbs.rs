@@ -113,10 +113,16 @@ fn remote_segments(path: &Path, label: Option<&str>) -> Vec<Segment> {
 }
 
 fn path_segments(path: &Path, kind: Kind) -> Vec<Segment> {
-    let mut result = Vec::new();
+    let mut result: Vec<Segment> = Vec::new();
     let mut target = PathBuf::new();
     for component in path.components() {
         target.push(component.as_os_str());
+        // A drive's root joins its prefix: one `C:\` segment, not `C:` and `\`.
+        if let (Component::RootDir, Some(prefix)) = (component, result.last_mut()) {
+            prefix.label.push(std::path::MAIN_SEPARATOR);
+            prefix.path = target.clone();
+            continue;
+        }
         let label = match component {
             Component::RootDir => std::path::MAIN_SEPARATOR.to_string(),
             Component::Prefix(prefix) => prefix.as_os_str().to_string_lossy().into_owned(),
@@ -247,6 +253,17 @@ mod tests {
         );
         assert_eq!(crumbs[2].path, Path::new("/home/u"));
         assert!(crumbs.iter().all(|c| c.kind == Kind::Normal));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn drive_and_root_are_one_segment() {
+        let crumbs = segments(Path::new(r"C:\Users\u"), None, None, None);
+        assert_eq!(
+            crumbs.iter().map(|c| c.label.as_str()).collect::<Vec<_>>(),
+            [r"C:\", "Users", "u"]
+        );
+        assert_eq!(crumbs[0].path, Path::new(r"C:\"));
     }
 
     #[test]

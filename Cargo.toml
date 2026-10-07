@@ -8,6 +8,7 @@ license = "GPL-3.0-or-later"
 base64 = "0.22.1"
 chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 dirs = "5"
+dunce = "1.0.5"
 flate2 = "1.1.10"
 globset = "0.4.20"
 html5ever = "0.27.0"
