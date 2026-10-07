@@ -108,8 +108,7 @@
       tooling and initial target languages remain to be decided.
 - [ ] Ideas from yazi (terminal file manager):
   - [ ] Tabs per panel (parked).
-  - [ ] Richer previews: PDF pages beyond the first, video thumbnails, scrolling
-        and paging inside the preview.
+  - [ ] Richer previews: video thumbnails and scrolling inside previews.
   - [ ] Shell command on selection with output capture (ties into tools).
         Unclear to the owner; only "open terminal here" (F9, done) was
         wanted. Ask before starting.
@@ -206,7 +205,7 @@
 - [x] Columns… dialog: pick columns from a grouped catalog, incl. single EXIF fields.
 - [x] Previews: audio/video details (ffprobe) and a video frame (ffmpeg).
 - [x] Search: the preview scrolls to a content hit's matching line.
-- [x] Previews: PDF first page and info (poppler), EXIF data under images.
+- [x] Previews: multi-page PDF navigation (poppler), EXIF data under images.
 - [x] Columns: created time, git status, xattrs, SELinux context.
 - [x] Lua plugins (`<config dir>/fyle/plugins/*.lua`) define tools (mlua, Lua 5.4 vendored).
 - [x] Search: regex option; content hits show their matching line.

@@ -38,7 +38,7 @@ pub use markdown::MarkdownPreviewer;
 pub use media::MediaPreviewer;
 pub use notebook::{Cell as NotebookCell, Notebook, NotebookPreviewer, Output as NotebookOutput};
 pub use parquet::ParquetPreviewer;
-pub use pdf::PdfPreviewer;
+pub use pdf::{PdfPreviewer, render_page};
 pub use raw::RawPreviewer;
 pub use table::TablePreviewer;
 pub use text::TextPreviewer;
@@ -121,10 +121,17 @@ pub enum Content {
         truncated: bool,
     },
     /// An image the view loads from `path` (a PDF's rendered first page),
-    /// with labelled details (EXIF data, PDF info).
+    /// with labelled details (EXIF data, media info).
     Image {
         path: PathBuf,
         info: Vec<(String, String)>,
+    },
+    /// PDF pages rendered one at a time by the preview view. Metadata stays
+    /// in the model for later use by file properties.
+    Pdf {
+        path: PathBuf,
+        pages: usize,
+        metadata: Vec<(String, String)>,
     },
     /// Summary of a directory's direct children.
     Directory {

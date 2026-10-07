@@ -429,8 +429,10 @@ Previews follow the same split. `src/preview/` is the model: a `Registry`
 of `Previewer`s (directory, embedded-JPEG RAW images, image with EXIF, PDF via poppler, audio/video via ffmpeg, archive, Markdown, read-only IPYNB,
 Parquet and CSV tables, text, binary fallback) turns a path into
 plain `Content` data; the first previewer whose `matches` accepts the file's
-`Probe` (name, extension, size, first 8 KiB) wins. `src/preview_view.rs` loads
-in the background and has one render arm per `Content` variant. A new file
+`Probe` (name, extension, size, first 8 KiB) wins. PDF pages render on demand
+in the background and can be browsed with Previous/Next controls; PDF metadata
+stays in the model for future file properties. `src/preview_view.rs` loads in
+the background and has one render arm per `Content` variant. A new file
 type is a new `Previewer` registered before the fallbacks; only a new kind of
 display needs a new `Content` variant and render arm.
 

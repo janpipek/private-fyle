@@ -6,9 +6,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Editor, EditorState, Position};
 use gpui_kit::component::text::TextView;
-use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, Disableable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -48,6 +49,11 @@ pub struct PreviewPane {
     notebook_list: ListState,
     /// Raster images prepared off the UI thread for notebook outputs.
     notebook_images: Arc<HashMap<(usize, usize), Arc<RenderImage>>>,
+    pdf_page: usize,
+    pdf_generation: u64,
+    pdf_image: Option<PathBuf>,
+    pdf_error: Option<String>,
+    _pdf_render: Task<()>,
     _load: Task<()>,
     _reveal: Task<()>,
 }
@@ -68,6 +74,11 @@ impl PreviewPane {
             editor,
             notebook_list: ListState::new(0, ListAlignment::Top, px(160.)),
             notebook_images: Arc::new(HashMap::new()),
+            pdf_page: 1,
+            pdf_generation: 0,
+            pdf_image: None,
+            pdf_error: None,
+            _pdf_render: Task::ready(()),
             _load: Task::ready(()),
             _reveal: Task::ready(()),
         }
@@ -94,6 +105,11 @@ impl PreviewPane {
         self.line = line;
         self.target = target.clone();
         self.release_notebook_images(window, cx);
+        self.pdf_page = 1;
+        self.pdf_generation = self.pdf_generation.wrapping_add(1);
+        self.pdf_image = None;
+        self.pdf_error = None;
+        self._pdf_render = Task::ready(());
         let Some(path) = target.and_then(|target| target.path) else {
             self.state = State::Empty;
             self._load = Task::ready(());
@@ -195,8 +211,60 @@ impl PreviewPane {
             }
             Err(e) => State::Failed(e),
         };
+        let pdf_path = match &self.state {
+            State::Ready(preview) => match &preview.content {
+                Content::Pdf { path, .. } => Some(path.clone()),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(path) = pdf_path {
+            self.render_pdf_page(path, window, cx);
+        }
         self.reveal_line(window, cx);
         cx.notify();
+    }
+
+    /// Renders only the selected PDF page in the background.
+    fn render_pdf_page(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        let page = self.pdf_page;
+        self.pdf_generation = self.pdf_generation.wrapping_add(1);
+        let generation = self.pdf_generation;
+        self.pdf_image = None;
+        self.pdf_error = None;
+        self._pdf_render = cx.spawn_in(window, async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { crate::preview::render_page(&path, page) })
+                .await
+                .map_err(|error| error.to_string());
+            let _ = this.update_in(cx, |this, _, cx| {
+                if this.pdf_page == page && this.pdf_generation == generation {
+                    match result {
+                        Ok(path) => this.pdf_image = Some(path),
+                        Err(error) => this.pdf_error = Some(error),
+                    }
+                    cx.notify();
+                }
+            });
+        });
+        cx.notify();
+    }
+
+    fn change_pdf_page(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((path, pages)) = (match &self.state {
+            State::Ready(preview) => match &preview.content {
+                Content::Pdf { path, pages, .. } => Some((path.clone(), *pages)),
+                _ => None,
+            },
+            _ => None,
+        }) else {
+            return;
+        };
+        let page = self.pdf_page.saturating_add_signed(delta).clamp(1, pages);
+        if page != self.pdf_page {
+            self.pdf_page = page;
+            self.render_pdf_page(path, window, cx);
+        }
     }
 
     fn release_notebook_images(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -206,7 +274,7 @@ impl PreviewPane {
         self.notebook_images = Arc::new(HashMap::new());
     }
 
-    fn render_content(&self, preview: &Preview, cx: &App) -> AnyElement {
+    fn render_content(&self, preview: &Preview, cx: &Context<Self>) -> AnyElement {
         let theme = cx.theme();
         let note = |text: String| {
             div()
@@ -246,6 +314,70 @@ impl PreviewPane {
                 )
                 .when(!info.is_empty(), |d| d.child(details(info, cx)))
                 .into_any_element(),
+            Content::Pdf { pages, .. } => {
+                let page = self.pdf_page;
+                let image = self.pdf_image.clone();
+                let error = self.pdf_error.clone();
+                let controls = h_flex()
+                    .flex_none()
+                    .items_center()
+                    .justify_center()
+                    .gap_3()
+                    .child(
+                        Button::new("pdf-previous")
+                            .label("Previous")
+                            .disabled(page <= 1)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.change_pdf_page(-1, window, cx)
+                            })),
+                    )
+                    .child(format!("Page {page} of {pages}"))
+                    .child(
+                        Button::new("pdf-next")
+                            .label("Next")
+                            .disabled(page >= *pages)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.change_pdf_page(1, window, cx)
+                            })),
+                    );
+                v_flex()
+                    .size_full()
+                    .p_2()
+                    .gap_2()
+                    .child(controls)
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .when_some(image, |view, path| {
+                                view.child(
+                                    img(path)
+                                        .size_full()
+                                        .object_fit(ObjectFit::Contain)
+                                        .with_fallback(|| {
+                                            div().child("Cannot decode PDF page").into_any_element()
+                                        }),
+                                )
+                            })
+                            .when_some(error, |view, error| {
+                                view.child(div().text_color(theme.muted_foreground).child(error))
+                            })
+                            .when(
+                                self.pdf_image.is_none() && self.pdf_error.is_none(),
+                                |view| {
+                                    view.child(
+                                        div()
+                                            .text_color(theme.muted_foreground)
+                                            .child("Rendering page…"),
+                                    )
+                                },
+                            ),
+                    )
+                    .into_any_element()
+            }
             Content::Info { info } => v_flex().p_4().child(details(info, cx)).into_any_element(),
             Content::Directory {
                 dirs,
@@ -463,7 +595,7 @@ impl Render for PreviewPane {
 }
 
 /// Labelled details (EXIF, PDF info, media streams), one per line.
-fn details(info: &[(String, String)], cx: &App) -> impl IntoElement {
+fn details(info: &[(String, String)], cx: &Context<PreviewPane>) -> impl IntoElement {
     let muted = cx.theme().muted_foreground;
     v_flex()
         .flex_none()
