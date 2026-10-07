@@ -96,6 +96,14 @@ rows and 40 columns with cells capped at 1,024 characters; files over 32 MiB or
 declaring over 256 MiB uncompressed are refused. Corrupt or password-protected
 files show the reader's error.
 
+F3 previews Word (`.docx`, `.docm`, `.dotx`, `.dotm`) and OpenDocument text
+(`.odt`, `.ott`) documents as formatted text: headings, bold and italic,
+nested lists, tables, page breaks and `[image: name]` placeholders, with a word
+count. Layout, fonts, footnotes, headers and underline are not reproduced and
+deleted tracked changes are skipped. Pure Rust, bounded to 8 MiB of
+uncompressed XML, 5000 blocks and 300000 characters (then marked truncated).
+Legacy `.doc` and encrypted files show an explanatory message or the hex dump.
+
 F3 previews `.ipynb` notebooks as a lazy, read-only list of Markdown and
 highlighted code cells with their saved text, error and PNG/JPEG outputs. The
 Rust nbformat 4 reader bounds notebooks to 16 MiB and 500 cells, text items to
@@ -466,7 +474,7 @@ Where things live (`src/`):
 | `*_view.rs`, `menu_bar.rs`, `link_badge.rs`, `theme_picker.rs` | Thin views |
 
 Previews follow the same split. `src/preview/` is the model: a `Registry`
-of `Previewer`s (directory, embedded-JPEG RAW images, image with EXIF, PDF via poppler, audio/video via ffmpeg, archive, Markdown, read-only IPYNB,
+of `Previewer`s (directory, embedded-JPEG RAW images, image with EXIF, PDF via poppler, audio/video via ffmpeg, archive, DOCX/ODT documents (to Markdown), Markdown, read-only IPYNB,
 Parquet and CSV tables, text, binary fallback) turns a path into
 plain `Content` data; the first previewer whose `matches` accepts the file's
 `Probe` (name, extension, size, first 8 KiB) wins. PDF pages render on demand

@@ -100,7 +100,7 @@ fn by_extension(ext: &str) -> Option<FileIcon> {
             FileIcon::Config
         }
         "txt" | "md" | "markdown" | "rst" | "adoc" | "org" | "tex" | "log" | "pdf" | "doc"
-        | "docx" | "odt" | "rtf" | "epub" => FileIcon::Text,
+        | "docx" | "docm" | "dotx" | "dotm" | "odt" | "ott" | "rtf" | "epub" => FileIcon::Text,
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" | "ico" | "tif" | "tiff"
         | "heic" | "avif" | "psd" | "xcf" | "raw" | "cr2" | "cr3" | "nef" | "nrw" | "arw"
         | "sr2" | "srf" | "raf" | "rw2" | "orf" | "pef" | "dng" => FileIcon::Image,

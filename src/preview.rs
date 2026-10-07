@@ -15,6 +15,7 @@
 mod archive;
 mod binary;
 mod directory;
+mod document;
 mod image;
 mod markdown;
 mod media;
@@ -34,6 +35,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub use archive::ArchivePreviewer;
 pub use binary::BinaryPreviewer;
 pub use directory::DirectoryPreviewer;
+pub use document::DocumentPreviewer;
 pub use image::{ImagePreviewer, exif_fields};
 pub use markdown::MarkdownPreviewer;
 pub use media::MediaPreviewer;
@@ -213,8 +215,9 @@ impl Registry {
         registry.register(ImagePreviewer);
         registry.register(PdfPreviewer);
         registry.register(MediaPreviewer);
-        // Before the archive previewer: XLSX, XLSM and ODS are zip files.
+        // Before the archive previewer: XLSX, ODS, DOCX and ODT are zip files.
         registry.register(SpreadsheetPreviewer);
+        registry.register(DocumentPreviewer);
         registry.register(ArchivePreviewer);
         registry.register(MarkdownPreviewer);
         registry.register(NotebookPreviewer);

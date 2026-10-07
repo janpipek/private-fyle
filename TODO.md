@@ -49,12 +49,8 @@
       archive extraction and permissions. Decide default drop actions and
       modifiers before implementing; test source/destination identity through
       focus changes, cancelled drags and pending loads.
-- [ ] More F3 file types: Word
-      documents (DOC/DOCX), and OpenDocument text (ODT). Keep schema, EXIF and
-      other format metadata in the Properties perspective above. Decoding
-      libraries versus optional external converters, document fidelity, and
-      sheet/page navigation remain to be decided; implement formats as
-      separate features and keep tests independent of optional programs.
+- [ ] Legacy Word (DOC) in F3: out of scope for now (no pure-Rust reader);
+      decide later whether to add one or an optional external converter.
 - [ ] Tabular conversions in the Tools Convert group: extend the existing
       CSV conversions to cover CSV, Parquet and Excel (XLS/XLSX) in both
       directions. Reuse format readers with inspection where practical;
@@ -123,6 +119,13 @@
       and opens them through the normal background listing; a bookmark whose
       remote is no longer configured stays listed and reports "no remote named
       X is configured" on the status line when opened.
+- [x] F3 previews Word (DOCX) and OpenDocument text (ODT) documents. Pure
+      Rust: the zipped XML is parsed with `zip` and `roxmltree` into a
+      UI-independent `Document` model (`preview/document.rs`, `docx.rs`,
+      `odt.rs`) and shown through the Markdown view. Headings, bold/italic,
+      nested lists, tables, page breaks and image placeholders are kept;
+      layout is not. XML entries, blocks and characters are bounded.
+
 - [x] Toggle bookmark: Ctrl-D adds or removes the active local folder's
       bookmark (`ToggleBookmark`, one `Cmd` shared by the shortcut, menus,
       palette and F1 help, checked when bookmarked). A star in each panel's

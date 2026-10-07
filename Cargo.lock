@@ -3207,6 +3207,7 @@ dependencies = [
  "remotefs-ftp",
  "remotefs-ssh",
  "remotefs-webdav",
+ "roxmltree 0.21.1",
  "russh",
  "serde",
  "serde_json",
