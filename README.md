@@ -362,8 +362,10 @@ Linux mounts, bookmarks and frequent paths; `src/location_view.rs` renders
 them as the locations menu and the searchable picker. Path loading and place discovery run in the background.
 
 `src/archive.rs` reads zip, tar and tar.gz archives into an `Index` (a tree of
-nodes) and extracts entries. Inside an archive a panel has a typed archive
-location with its inner member (shown as `file.zip › inner/dir`); the listing
+nodes). `src/archive/extraction.rs` safely extracts selected entries. Inside
+an archive a panel uses a typed archive location with its inner member (shown
+as `file.zip › inner/dir`); `locate` only converts native path spellings at
+input boundaries. The listing
 service reads the index in the background, supports cancellation, and returns
 typed rows for navigation and sorting. Preview loads an entry by extracting it
 to the preview cache. The shared index cache is keyed by path, size and
@@ -389,7 +391,7 @@ Where things live (`src/`):
 | `columns.rs` | `ColumnKind` catalog, grouped, ids like `exif.iso`. A new column is a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |
 | `fs_ops.rs`, `transfer.rs`, `jobs.rs` | `Entry` and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
 | `remote.rs`, `remote/` | Remote providers: `Provider` trait, `Location` paths, Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `LocalCopy` keeps a typed source address separate from the cache path used at native I/O boundaries; `model/remote.rs` holds cached listings |
-| `archive.rs`, `dirsize.rs`, `links.rs` | Archive index and safe extraction; recursive sizes; symlink state |
+| `archive.rs`, `archive/extraction.rs`, `dirsize.rs`, `links.rs` | Archive index; safe extraction; recursive sizes; symlink state |
 | `preview/`, `preview_view.rs` | `Previewer`s and their `Registry` (order: directory, image, pdf, media, archive, markdown, table, text, binary); one render arm per `Content`; preview identity stays separate from materialized local bytes |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and the editor pane |
 | `tools/`, `tools_view.rs` | Tool, Action and Registry model; `defaults.toml`; built-ins; Lua plugins; `exec.rs` runs them |

@@ -106,6 +106,8 @@
 
 ## Done
 
+- [x] Split safe archive extraction helpers and their tests into
+      `archive/extraction.rs`, keeping the public API available from `archive`.
 - [x] Load owner, EXIF, extended-attribute and SELinux table values, plus
       resolved symlink tooltip paths, asynchronously for visible local rows;
       bound and invalidate metadata work by listing generation.
