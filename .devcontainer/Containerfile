@@ -10,6 +10,8 @@ FROM fedora:44
 # crates, just/uv for the Justfile, node/npm for the agent, fonts so gpui has
 # something to render, and the Vulkan/Mesa runtime used only with --gui.
 # Codex needs ps (procps-ng) to track its background app-server process.
+# poppler-utils and ffmpeg-free are the optional runtime programs behind the
+# PDF and media previews.
 RUN dnf install -y --setopt=install_weak_deps=False \
         gcc gcc-c++ make cmake git pkgconf-pkg-config procps-ng \
         libxkbcommon-devel libxkbcommon-x11-devel fontconfig-devel freetype-devel \
@@ -19,6 +21,7 @@ RUN dnf install -y --setopt=install_weak_deps=False \
         dejavu-sans-fonts dejavu-sans-mono-fonts \
         vulkan-loader mesa-vulkan-drivers mesa-dri-drivers \
         xdg-utils xorg-x11-server-Xvfb xdotool ImageMagick \
+        poppler-utils ffmpeg-free \
     && dnf clean all
 
 # Rust via rustup, so the toolchain tracks upstream stable like the host's.
