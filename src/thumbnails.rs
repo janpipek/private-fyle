@@ -343,11 +343,11 @@ mod tests {
     #[test]
     fn windows_uri_encoding() {
         use std::path::Path;
-        assert_eq!(file_uri(Path::new(r"C:\a b\c.png")), "file:///C:/a%20b/c.png");
         assert_eq!(
-            file_uri(Path::new(r"\\?\C:\a\c.png")),
-            "file:///C:/a/c.png"
+            file_uri(Path::new(r"C:\a b\c.png")),
+            "file:///C:/a%20b/c.png"
         );
+        assert_eq!(file_uri(Path::new(r"\\?\C:\a\c.png")), "file:///C:/a/c.png");
         assert_eq!(
             file_uri(Path::new(r"\\server\share\c.png")),
             "file://server/share/c.png"
