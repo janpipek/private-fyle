@@ -6,7 +6,7 @@
 
 use std::cell::Cell;
 use std::ops::Range;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
@@ -24,6 +24,7 @@ use crate::glyphs::glyph;
 use crate::grid::{self, GAP, Layout, Move, PADDING};
 use crate::icons;
 use crate::model::{Folder, Row};
+use crate::panel::metadata::{self, MetadataState};
 use crate::thumb_queue::{Key, Queue};
 use crate::thumbnails::{self, SizeClass};
 
@@ -68,6 +69,7 @@ pub enum GridEvent {
 
 pub struct IconGrid {
     folder: Entity<Folder>,
+    metadata: Entity<MetadataState>,
     /// The panel's focus handle (shared with the list), so focus and the
     /// panel key context survive switching views.
     focus: FocusHandle,
@@ -91,6 +93,7 @@ pub struct IconGrid {
     visible: Option<(Range<usize>, Layout)>,
     thumbs_scheduled: bool,
     _folder_observer: Subscription,
+    _metadata_observer: Subscription,
 }
 
 impl EventEmitter<GridEvent> for IconGrid {}
@@ -99,6 +102,7 @@ impl IconGrid {
     pub fn new(
         folder: Entity<Folder>,
         focus: FocusHandle,
+        metadata: Entity<MetadataState>,
         icon_size: u32,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -106,6 +110,7 @@ impl IconGrid {
             this.thumbs.cancel_waiting();
             cx.notify();
         });
+        let metadata_observer = cx.observe(&metadata, |_, _, cx| cx.notify());
         // Free the atlas tiles of the thumbnails still held.
         cx.on_release(|this, cx| {
             for image in this.thumbs.drain() {
@@ -115,6 +120,7 @@ impl IconGrid {
         .detach();
         Self {
             folder,
+            metadata,
             focus,
             icon_size: grid::clamp_size(icon_size),
             active: false,
@@ -128,6 +134,7 @@ impl IconGrid {
             visible: None,
             thumbs_scheduled: false,
             _folder_observer: observer,
+            _metadata_observer: metadata_observer,
         }
     }
 
@@ -214,6 +221,38 @@ impl IconGrid {
         self.start_thumbnails(cx);
     }
 
+    /// Resolves link tooltips for only the visible rows and one-row buffer.
+    fn want_metadata(&mut self, rows: Range<usize>, layout: Layout, cx: &mut Context<Self>) {
+        let folder = self.folder.read(cx);
+        let count = folder.entries().len();
+        let around = rows.start.saturating_sub(1)..(rows.end + 1).min(layout.rows(count));
+        let order = rows.clone().chain(around.filter(|row| !rows.contains(row)));
+        let generation = folder.generation();
+        let requests: Vec<_> = order
+            .flat_map(|row| layout.cells(row, count))
+            .filter_map(|ix| {
+                let row = folder.entries().get(ix)?;
+                if !matches!(&row.entry.link, crate::links::LinkState::Link { .. }) {
+                    return None;
+                }
+                row.location.as_local_path()?;
+                Some((row.location.clone(), row.entry.link.clone()))
+            })
+            .collect();
+        for (location, link) in requests {
+            self.metadata.update(cx, |metadata, cx| {
+                metadata.request(
+                    location,
+                    generation,
+                    &[metadata::Field::ResolvedLink],
+                    None,
+                    link,
+                    cx,
+                );
+            });
+        }
+    }
+
     /// Starts the waiting loads the concurrency bound allows, off the UI
     /// thread; each finished load notifies the grid and starts the next.
     fn start_thumbnails(&mut self, cx: &mut Context<Self>) {
@@ -272,6 +311,7 @@ impl IconGrid {
             let _ = this.update(cx, |this, cx| {
                 this.thumbs_scheduled = false;
                 if let Some((rows, layout)) = this.visible.take() {
+                    this.want_metadata(rows.clone(), layout, cx);
                     this.want_thumbnails(rows, layout, cx);
                 }
             });
@@ -330,7 +370,7 @@ impl IconGrid {
             .into_any_element()
     }
 
-    fn tooltip_text(row: &Row, folder: &Folder) -> String {
+    fn tooltip_text(row: &Row, folder: &Folder, resolved: Option<&Path>) -> String {
         let entry = &row.entry;
         let mut text = entry.name.clone();
         if !entry.is_parent {
@@ -346,7 +386,7 @@ impl IconGrid {
                 text += &format!("\n{}", fs_ops::format_time(modified));
             }
         }
-        if let Some(link) = entry.link.tooltip(&entry.path) {
+        if let Some(link) = entry.link.tooltip_with_resolved(resolved) {
             text += &format!("\n{link}");
         }
         text
@@ -371,7 +411,13 @@ impl IconGrid {
             theme.foreground
         };
         let (text_size, line_height, label_height) = Self::label_metrics(cx);
-        let tip = Self::tooltip_text(row, folder);
+        let resolved = row
+            .location
+            .as_local_path()
+            .and_then(|path| self.metadata.read(cx).get(path, folder.generation()))
+            .and_then(metadata::MetadataValues::resolved_link)
+            .flatten();
+        let tip = Self::tooltip_text(row, folder, resolved);
         let name = entry.name.clone();
         let (background, border, check_color) = (
             theme.list_active,

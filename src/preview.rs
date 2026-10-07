@@ -164,6 +164,8 @@ pub struct Preview {
     pub content: Content,
     /// Set when `path` is a symlink; the other fields describe its target.
     pub link: crate::links::LinkState,
+    /// Canonical symlink target, computed while the preview loads in background.
+    pub resolved_link: Option<PathBuf>,
 }
 
 pub trait Previewer: Send + Sync {
@@ -226,13 +228,16 @@ impl Registry {
             .find(|p| p.matches(&probe))
             .ok_or_else(|| format!("No preview for {}", probe.name))?;
         let content = previewer.load(&probe).map_err(error)?;
+        let link = crate::links::LinkState::of(path);
+        let resolved_link = link.resolved(path);
         Ok(Preview {
             path: probe.path,
             name: probe.name,
             size: probe.size,
             kind: previewer.name(),
             content,
-            link: crate::links::LinkState::of(path),
+            link,
+            resolved_link,
         })
     }
 
@@ -259,6 +264,7 @@ impl Registry {
                     files_size,
                 },
                 link: Default::default(),
+                resolved_link: None,
             });
         }
         let modified = fs::metadata(file).and_then(|m| m.modified()).ok();
@@ -291,6 +297,7 @@ impl Registry {
         let mut preview = self.preview(&temp)?;
         preview.path = path.to_path_buf();
         preview.name = name;
+        preview.resolved_link = None;
         Ok(preview)
     }
 }

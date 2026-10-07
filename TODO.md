@@ -97,6 +97,9 @@
 
 ## Done
 
+- [x] Load owner, EXIF, extended-attribute and SELinux table values, plus
+      resolved symlink tooltip paths, asynchronously for visible local rows;
+      bound and invalidate metadata work by listing generation.
 - [x] Persist typed locations losslessly in frequent-directory history and
       local bookmarks; keep legacy history rows and path-string bookmarks
       readable, and write history through a unique synced temporary file.

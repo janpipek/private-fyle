@@ -344,7 +344,7 @@ impl Render for PreviewPane {
                     Content::Directory { .. } => p.kind.to_string(),
                     _ => format!("{} · {}", p.kind, fs_ops::format_size(p.size)),
                 },
-                p.link.tooltip(&p.path),
+                p.link.tooltip_with_resolved(p.resolved_link.as_deref()),
             ),
             State::Loading => ("Loading…".into(), String::new(), None),
             State::Failed(_) | State::Empty => ("Preview".into(), String::new(), None),

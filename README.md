@@ -105,7 +105,9 @@ command palette) picks the columns from a grouped catalog: file, owner and permi
 extended attributes, and EXIF fields of photos (date taken, camera, lens,
 exposure, aperture, ISO, focal length, dimensions, GPS). With the Ext column
 shown, names leave out their extension (`.gitignore` and other dotfiles stay
-whole).
+whole). EXIF, owner, extended-attribute and SELinux values load for visible
+local rows in the background; remote and archive locations are never treated
+as native paths for these fields.
 
 Windows: ".." from a drive root lists all drives; files with the hidden
 attribute count as hidden.
@@ -376,7 +378,7 @@ Where things live (`src/`):
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
 | `model.rs`, `location.rs`, `location_codec.rs` | `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; `Location` native, remote and archive addresses; versioned lossless location persistence |
 | `listing.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; typed snapshots and bounded per-panel remote listing cache |
-| `panel.rs` | `FolderView` (DataTable delegate `FileTable`), header with breadcrumbs, filter bar; shows the list or the icon grid |
+| `panel.rs`, `panel/metadata.rs` | `FolderView` and table wiring; bounded metadata request/cache model shared by list and icon views, with local metadata reads in background workers |
 | `thumbnails.rs`, `thumb_queue.rs` | Icon view thumbnails: the freedesktop cache (URI and MD5 names, validity by `Thumb::MTime`, atomic writes, failure records) and the load scheduler with its LRU, both UI-independent and tested |
 | `grid.rs`, `icon_view.rs`, `glyphs.rs`, `context_menu.rs` | Icon view: `ViewMode`, icon sizes, `Layout` (columns for a width) and cursor moves (UI-independent, tested); the lazy `IconGrid` view; the `FileIcon` → glyph table and the right-click menu shared with the list |
 | `columns.rs` | `ColumnKind` catalog, grouped, ids like `exif.iso`. A new column is a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |
