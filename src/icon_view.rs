@@ -189,11 +189,14 @@ impl IconGrid {
             return None;
         }
         let mtime = entry.modified?.duration_since(UNIX_EPOCH).ok()?.as_secs() as i64;
-        thumbnails::eligible(&entry.path, entry.size, root).then(|| Key {
-            path: entry.path.clone(),
-            mtime,
-            class: SizeClass::for_pixels((self.icon_size as f32 * self.scale).ceil() as u32),
-        })
+        entry
+            .size
+            .is_some_and(|size| thumbnails::eligible(&entry.path, size, root))
+            .then(|| Key {
+                path: entry.path.clone(),
+                mtime,
+                class: SizeClass::for_pixels((self.icon_size as f32 * self.scale).ceil() as u32),
+            })
     }
 
     /// Asks for the thumbnails of the cells in `rows` (visible rows first,
@@ -334,7 +337,7 @@ impl IconGrid {
             let size = if entry.is_dir {
                 folder.dir_size(&entry.path).map(|size| size.label())
             } else {
-                Some(fs_ops::format_size(entry.size))
+                Some(entry.size.map_or_else(|| "—".into(), fs_ops::format_size))
             };
             if let Some(size) = size {
                 text += &format!("\n{size}");

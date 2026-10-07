@@ -168,7 +168,7 @@ impl Folder {
                 path,
                 is_dir: true,
                 is_parent: true,
-                size: 0,
+                size: Some(0),
                 modified: None,
                 attrs: Default::default(),
                 link: Default::default(),
@@ -209,7 +209,7 @@ mod tests {
         let item = Item {
             name: "a.txt".into(),
             is_dir: false,
-            size: 1,
+            size: Some(1),
             modified: None,
             created: None,
         };
@@ -272,14 +272,14 @@ mod tests {
             Item {
                 name: "d".into(),
                 is_dir: true,
-                size: 0,
+                size: Some(0),
                 modified: None,
                 created: None,
             },
             Item {
                 name: "f".into(),
                 is_dir: false,
-                size: 1,
+                size: Some(1),
                 modified: None,
                 created: None,
             },

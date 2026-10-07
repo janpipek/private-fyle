@@ -276,7 +276,7 @@ fn item_from(file: &File) -> Item {
     Item {
         name: file.name(),
         is_dir: file.is_dir(),
-        size: meta.size.unwrap_or(0),
+        size: meta.size,
         modified: meta.modified,
         created: meta.created,
     }
@@ -674,9 +674,11 @@ mod tests {
         let file = File::new("/srv/a.txt", Metadata::default().size(42).modified(when));
         let (dir, file) = (item_from(&dir), item_from(&file));
         assert!(dir.is_dir);
+        let unknown = File::new("/srv/unknown", Metadata::default());
+        assert_eq!(item_from(&unknown).size, None);
         assert_eq!(
             (file.name.as_str(), file.size, file.modified),
-            ("a.txt", 42, Some(when))
+            ("a.txt", Some(42), Some(when))
         );
     }
 

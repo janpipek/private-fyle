@@ -482,7 +482,7 @@ mod tests {
                 .map(|name| crate::remote::Item {
                     name: (*name).into(),
                     is_dir: false,
-                    size: 0,
+                    size: Some(0),
                     modified: None,
                     created: None,
                 })

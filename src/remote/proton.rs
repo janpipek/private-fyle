@@ -426,9 +426,7 @@ fn parse_listing(dir: &Location, bytes: &[u8]) -> io::Result<Listing> {
             Ok(Item {
                 name,
                 is_dir,
-                size: revision
-                    .and_then(|r| r.claimed_size.or(r.storage_size))
-                    .unwrap_or(0),
+                size: revision.and_then(|r| r.claimed_size.or(r.storage_size)),
                 modified: timestamp(claimed.or(node.modification_time.as_deref())),
                 created: timestamp(node.creation_time.as_deref()),
             })
@@ -531,7 +529,8 @@ mod tests {
             br#"[
             {"uid":"v~1","name":{"ok":true,"value":"Reports"},"type":"folder","creationTime":"2026-01-01T00:00:00.000Z","modificationTime":"2026-03-01T00:00:00.000Z","folder":{"claimedModificationTime":"2026-02-01T00:00:00.000Z","isImported":false}},
             {"uid":"v~2","name":{"ok":true,"value":"a.txt"},"type":"file","mediaType":"text/plain","creationTime":"2026-10-06T12:00:01.000Z","modificationTime":"2026-10-06T12:00:02.000Z","activeRevision":{"uid":"v~3","claimedSize":42,"storageSize":64,"claimedModificationTime":"2026-10-06T12:00:00.000Z"}},
-            {"uid":"v~4","name":{"ok":true,"value":"Notes"},"type":"file","mediaType":"application/vnd.proton.doc","creationTime":"2026-10-06T12:00:01.000Z","modificationTime":"2026-10-06T12:00:02.000Z","activeRevision":{"storageSize":10}}
+            {"uid":"v~4","name":{"ok":true,"value":"Notes"},"type":"file","mediaType":"application/vnd.proton.doc","creationTime":"2026-10-06T12:00:01.000Z","modificationTime":"2026-10-06T12:00:02.000Z","activeRevision":{"storageSize":10}},
+            {"uid":"v~5","name":{"ok":true,"value":"Unknown"},"type":"file"}
         ]"#,
         )
         .unwrap()
@@ -539,13 +538,14 @@ mod tests {
         assert!(entries[0].is_dir);
         let folder_time = crate::remote::timestamp(Some("2026-02-01T00:00:00Z"));
         assert_eq!(entries[0].modified, folder_time);
-        assert_eq!(entries[1].size, 42);
+        assert_eq!(entries[1].size, Some(42));
         let file_time = crate::remote::timestamp(Some("2026-10-06T12:00:00Z"));
         assert_eq!(entries[1].modified, file_time);
         assert_eq!(entries[1].path, Path::new("proton:/a.txt"));
         // Docs are listed like files; storage size stands in for a missing claim.
-        assert_eq!(entries[2].size, 10);
+        assert_eq!(entries[2].size, Some(10));
         assert!(!entries[2].is_dir);
+        assert_eq!(entries[3].size, None);
     }
 
     #[test]

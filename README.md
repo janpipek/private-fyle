@@ -100,8 +100,8 @@ that fail to decode are recorded under `fail/fyle/` and not retried until they
 change. Files inside archives keep their icons.
 
 Click a column's sort icon to sort (directories always stay on top); drag
-header borders to resize. Columns… (in the command palette) picks the
-columns from a grouped catalog: file, owner and permissions, Git status,
+header borders to resize. Unknown file sizes show as `—`. Columns… (in the
+command palette) picks the columns from a grouped catalog: file, owner and permissions, Git status,
 extended attributes, and EXIF fields of photos (date taken, camera, lens,
 exposure, aperture, ISO, focal length, dimensions, GPS). With the Ext column
 shown, names leave out their extension (`.gitignore` and other dotfiles stay
@@ -236,7 +236,9 @@ Google Drive through rclone:
 - Drive allows several items with one name. Only the first of each name is
   listed; the status line warns (e.g. "gdrive:/X: 2 items share a name with
   another item and are hidden; run rclone dedupe").
-- Native Google Docs, Sheets and Slides have no size (shown as 0). Downloading
+- Native Google Docs, Sheets and Slides have unknown size (shown as `—`, not
+  zero). The marked total treats them as unknown bytes; quick view waits until
+  a size is available instead of starting an unbounded download. Downloading
   one exports it with rclone's default export formats (docx, xlsx, pptx, svg
   for drawings), so a Doc is listed and saved as `Report.docx`.
 - Every Drive remote also gets a read-only `<name>.shared` remote,
@@ -320,7 +322,8 @@ the current result; `Folder` sorts and filters the cached rows without I/O.
 Each panel keeps a bounded cache of its last 32 remote listings, while explicit
 refreshes bypass that cache.
 `src/commander.rs` owns the two models and their views and implements the
-commands. `src/fs_ops.rs` contains the file system operations.
+commands. `src/fs_ops.rs` contains the file system operations. `Entry.size` is optional,
+so a provider's missing size stays distinct from a known zero.
 `src/location.rs` identifies local paths, configured remote paths and archive
 members without a live connection. Local paths retain native bytes and symlink
 spelling; archive members are validated. `Folder` derives its path spelling

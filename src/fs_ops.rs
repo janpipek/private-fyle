@@ -13,7 +13,7 @@ pub struct Entry {
     pub path: PathBuf,
     pub is_dir: bool,
     pub is_parent: bool,
-    pub size: u64,
+    pub size: Option<u64>,
     pub modified: Option<SystemTime>,
     pub attrs: Attrs,
     /// Symlink state; the other fields describe the link's target.
@@ -158,11 +158,21 @@ pub fn compare_entries(a: &Entry, b: &Entry, key: SortKey, descending: bool) -> 
                     .to_lowercase()
                     .cmp(&b.ext().to_lowercase())
                     .then_with(by_name),
-                SortKey::Size => a.size.cmp(&b.size).then_with(by_name),
+                SortKey::Size => size_order(a.size, b.size).then_with(by_name),
                 SortKey::Modified => a.modified.cmp(&b.modified).then_with(by_name),
             };
             if descending { ord.reverse() } else { ord }
         })
+}
+
+/// Orders known sizes numerically, with unknown sizes last in ascending order.
+pub fn size_order(a: Option<u64>, b: Option<u64>) -> Ordering {
+    match (a, b) {
+        (Some(a), Some(b)) => a.cmp(&b),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    }
 }
 
 /// Case-insensitive "natural" order: runs of digits compare by numeric
@@ -263,7 +273,7 @@ fn read_dir_with_check(
             path: parent,
             is_dir: true,
             is_parent: true,
-            size: 0,
+            size: Some(0),
             modified: None,
             attrs: Attrs::default(),
             link: Default::default(),
@@ -296,7 +306,7 @@ fn read_dir_with_check(
             path,
             is_dir: meta.as_ref().is_some_and(|m| m.is_dir()),
             is_parent: false,
-            size: meta.as_ref().map_or(0, |m| m.len()),
+            size: meta.as_ref().map(|m| m.len()),
             attrs: meta.as_ref().map(Attrs::from_meta).unwrap_or_default(),
             link,
             modified: meta.and_then(|m| m.modified().ok()),
@@ -329,7 +339,7 @@ fn drives() -> Vec<Entry> {
                 path: root,
                 is_dir: true,
                 is_parent: false,
-                size: 0,
+                size: Some(0),
                 modified: None,
                 attrs: Default::default(),
                 link: Default::default(),
@@ -488,7 +498,7 @@ mod tests {
             path: PathBuf::from(name),
             is_dir,
             is_parent: false,
-            size: 0,
+            size: Some(0),
             modified: None,
             attrs: Attrs::default(),
             link: Default::default(),
@@ -517,11 +527,32 @@ mod tests {
             path: PathBuf::from(name),
             is_dir,
             is_parent: name == "..",
-            size,
+            size: Some(size),
             modified: None,
             attrs: Default::default(),
             link: Default::default(),
         }
+    }
+
+    #[test]
+    fn size_order_keeps_unknown_sizes_distinct_and_deterministic() {
+        let mut rows = vec![
+            entry("unknown", false, 0),
+            entry("zero", false, 0),
+            entry("large", false, 9),
+        ];
+        rows[0].size = None;
+        sort_entries(&mut rows, SortKey::Size, false);
+        assert_eq!(
+            rows.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+            ["zero", "large", "unknown"]
+        );
+        sort_entries(&mut rows, SortKey::Size, true);
+        assert_eq!(
+            rows.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+            ["unknown", "large", "zero"]
+        );
+        assert_eq!(rows[2].size, Some(0));
     }
 
     #[test]

@@ -265,7 +265,7 @@ fn unsupported(label: &str, what: &str) -> io::Error {
 pub struct Item {
     pub name: String,
     pub is_dir: bool,
-    pub size: u64,
+    pub size: Option<u64>,
     pub modified: Option<SystemTime>,
     pub created: Option<SystemTime>,
 }
@@ -523,18 +523,26 @@ mod tests {
             modified: None,
             created: None,
         };
-        let listed = entries(&root, vec![item("a", 1), item("b", 2)]);
+        let listed = entries(
+            &root,
+            vec![
+                item("a", Some(1)),
+                item("b", Some(2)),
+                item("unknown", None),
+            ],
+        );
         assert_eq!(listed.entries[1].path, Path::new("gdrive:/b"));
+        assert_eq!(listed.entries[2].size, None);
         assert!(listed.warnings.is_empty());
 
         let listed = entries_with_hint(
             &root,
             vec![
-                item("a", 1),
-                item("b", 2),
-                item("a", 3),
-                item("a", 4),
-                item("../x", 5),
+                item("a", Some(1)),
+                item("b", Some(2)),
+                item("a", Some(3)),
+                item("a", Some(4)),
+                item("../x", Some(5)),
             ],
             "; run rclone dedupe",
         );
@@ -543,7 +551,7 @@ mod tests {
             .iter()
             .map(|e| (e.name.as_str(), e.size))
             .collect();
-        assert_eq!(names, [("a", 1), ("b", 2)]);
+        assert_eq!(names, [("a", Some(1)), ("b", Some(2))]);
         assert_eq!(
             listed.warnings,
             [
@@ -551,7 +559,7 @@ mod tests {
                 "gdrive:/: 1 item with unusable names skipped"
             ]
         );
-        let one = entries(&root, vec![item("a", 1), item("a", 1)]);
+        let one = entries(&root, vec![item("a", Some(1)), item("a", Some(1))]);
         assert_eq!(
             one.warnings,
             ["gdrive:/: 1 item shares a name with another item and is hidden"]

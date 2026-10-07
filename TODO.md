@@ -73,8 +73,7 @@
       and remote (copy then remove); bulk rename and per-byte progress; uploading
       edited cache copies back; search, tools, thumbnails and folder sizes on
       remotes; remote bookmarks; automatic refresh when a remote changes;
-      sizes of native Google Docs show as 0 (the size column cannot say
-      "unknown"); a web view for WebDAV and a check of the Proton share-ID
+      a web view for WebDAV and a check of the Proton share-ID
       address; per-remote "Shared with me" is read-only on purpose.
 - [ ] Embedded terminal (idea, undecided): alacritty_terminal + PTY rendered
       in gpui as Zed does, vs. libghostty. Recommendation so far: none for
@@ -101,6 +100,9 @@
 - [x] Persist typed locations losslessly in frequent-directory history and
       local bookmarks; keep legacy history rows and path-string bookmarks
       readable, and write history through a unique synced temporary file.
+- [x] Preserve unknown file sizes from providers; show unknown values distinctly,
+      keep size sorting deterministic, count marked totals as lower bounds, and
+      refuse remote quick-view downloads when the size is unknown.
 - [x] Introduce typed local, remote and archive addresses for panel folders,
       rows, marks, history, activation and remote transfer selections; model
       Directory, Search and Places panel content explicitly; key remote listing

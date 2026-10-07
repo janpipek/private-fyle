@@ -216,7 +216,7 @@ impl Folder {
                 path,
                 is_dir: true,
                 is_parent: true,
-                size: 0,
+                size: Some(0),
                 modified: None,
                 attrs: Default::default(),
                 link: Default::default(),
@@ -227,7 +227,7 @@ impl Folder {
             path: archive::virtual_path(&mount.file, &node.path),
             is_dir: node.is_dir(),
             is_parent: false,
-            size: node.size,
+            size: Some(node.size),
             modified: node.modified,
             attrs: fs_ops::Attrs {
                 mode: node.mode,

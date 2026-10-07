@@ -419,7 +419,7 @@ impl Folder {
     fn apply_sizes_to_rows(&mut self) {
         for row in &mut self.all {
             if let Some(size) = self.sizes.get(&row.path) {
-                row.entry.size = size.bytes;
+                row.entry.size = Some(size.bytes);
             }
         }
     }
@@ -798,7 +798,7 @@ mod tests {
                 path: vanished.clone(),
                 is_dir: false,
                 is_parent: false,
-                size: 1,
+                size: Some(1),
                 modified: None,
                 attrs: Default::default(),
                 link: Default::default(),

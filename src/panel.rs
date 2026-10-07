@@ -975,7 +975,7 @@ impl TableDelegate for FileTable {
                         .dir_size(&entry.path)
                         .map_or_else(|| "<DIR>".to_string(), |size| size.label())
                 } else {
-                    fs_ops::format_size(entry.size)
+                    entry.size.map_or_else(|| "—".into(), fs_ops::format_size)
                 })
                 .into_any_element(),
             ColumnKind::Modified => div()

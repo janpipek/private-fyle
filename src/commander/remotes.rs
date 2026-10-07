@@ -767,7 +767,7 @@ impl Commander {
     pub fn remote_preview_target(
         &mut self,
         address: TargetLocation,
-        size: u64,
+        size: Option<u64>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<PathBuf> {
@@ -782,7 +782,7 @@ impl Commander {
         }
         self.remote_preview.task = None;
         self.remote_preview.shown = Some((address.clone(), None));
-        if size > PREVIEW_LIMIT {
+        if !remote_preview_eligible(size) {
             return None;
         }
         let (provider, location) = self.resolve_remote(&address).ok()?;
@@ -825,5 +825,23 @@ impl Commander {
             Side::of(self.folders[self.active].read(cx).location()),
             Side::of(self.folders[1 - self.active].read(cx).location()),
         )
+    }
+}
+
+/// Whether a remote quick view can safely download a file without measuring it first.
+pub fn remote_preview_eligible(size: Option<u64>) -> bool {
+    size.is_some_and(|size| size <= PREVIEW_LIMIT)
+}
+
+#[cfg(test)]
+mod size_tests {
+    use super::remote_preview_eligible;
+
+    #[test]
+    fn unknown_remote_size_is_not_an_unbounded_preview_download() {
+        assert!(!remote_preview_eligible(None));
+        assert!(remote_preview_eligible(Some(0)));
+        assert!(remote_preview_eligible(Some(8 * 1024 * 1024)));
+        assert!(!remote_preview_eligible(Some(8 * 1024 * 1024 + 1)));
     }
 }

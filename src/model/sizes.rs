@@ -15,23 +15,47 @@ pub struct MarkedTotal {
     pub bytes: u64,
     /// Marked directories without a computed size (not counted in `bytes`).
     pub unknown_dirs: usize,
+    /// Marked files whose provider did not report a size.
+    pub unknown_files: usize,
     /// Some computed size is a lower bound (running, cancelled or errors).
     pub inexact: bool,
 }
 
 impl MarkedTotal {
-    /// For the footer, e.g. "1.2 G" or "≥ 1.2 G (2 folders not measured)".
+    /// For the footer, marking partial totals when any size is unknown.
     pub fn label(&self) -> String {
         let size = fs_ops::format_size(self.bytes);
-        let bound = if self.inexact || self.unknown_dirs > 0 {
+        let bound = if self.inexact || self.unknown_dirs > 0 || self.unknown_files > 0 {
             "≥ "
         } else {
             ""
         };
-        match self.unknown_dirs {
-            0 => format!("{bound}{size}"),
-            1 => format!("{bound}{size} (1 folder not measured)"),
-            n => format!("{bound}{size} ({n} folders not measured)"),
+        let folder_note = match self.unknown_dirs {
+            0 => String::new(),
+            1 => "1 folder not measured".to_string(),
+            n => format!("{n} folders not measured"),
+        };
+        let file_note = match self.unknown_files {
+            0 => String::new(),
+            1 => "1 file size unknown".to_string(),
+            n => format!("{n} file sizes unknown"),
+        };
+        let note = [folder_note, file_note]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(", ");
+        if note.is_empty() {
+            format!("{bound}{size}")
+        } else {
+            format!("{bound}{size} ({note})")
+        }
+    }
+
+    fn include_file(&mut self, size: Option<u64>) {
+        match size {
+            Some(bytes) => self.bytes += bytes,
+            None => self.unknown_files += 1,
         }
     }
 }
@@ -93,7 +117,7 @@ impl Folder {
         self.sizes.insert(path.to_path_buf(), size);
         for row in self.all.iter_mut().chain(self.entries.iter_mut()) {
             if row.path == path {
-                row.entry.size = size.bytes;
+                row.entry.size = Some(size.bytes);
             }
         }
     }
@@ -121,7 +145,7 @@ impl Folder {
         }
         for entry in entries.iter_mut().filter(|e| e.is_dir && !e.is_parent) {
             if let Some(size) = self.sizes.get(&entry.path) {
-                entry.size = size.bytes;
+                entry.size = Some(size.bytes);
             }
         }
     }
@@ -147,7 +171,7 @@ impl Folder {
                 continue;
             }
             if !row.is_dir {
-                total.bytes += row.size;
+                total.include_file(row.size);
             } else if let Some(size) = self.sizes.get(&row.path) {
                 total.bytes += size.bytes;
                 total.inexact |= !size.is_exact();
@@ -241,6 +265,17 @@ mod tests {
         folder.navigate(sub.clone()).unwrap();
         folder.go_up().unwrap();
         assert_eq!(folder.dir_size(&sub), None);
+    }
+
+    #[test]
+    fn unknown_marked_files_make_the_total_a_lower_bound() {
+        let mut total = MarkedTotal::default();
+        total.include_file(Some(0));
+        total.include_file(Some(12));
+        total.include_file(None);
+        assert_eq!(total.bytes, 12);
+        assert_eq!(total.unknown_files, 1);
+        assert_eq!(total.label(), "≥ 12 B (1 file size unknown)");
     }
 
     #[test]
