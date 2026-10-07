@@ -72,8 +72,7 @@
       archive extraction and permissions. Decide default drop actions and
       modifiers before implementing; test source/destination identity through
       focus changes, cancelled drags and pending loads.
-- [ ] More F3 file types, priorities: camera RAW images (image or embedded
-      preview), spreadsheets (XLS/XLSX), Word
+- [ ] More F3 file types: spreadsheets (XLS/XLSX), Word
       documents (DOC/DOCX), and OpenDocument text (ODT). Keep schema, EXIF and
       other format metadata in the Properties perspective above. Decoding
       libraries versus optional external converters, document fidelity, and
@@ -131,6 +130,11 @@
       1,024 characters per cell; 8 MiB metadata and a 64 MiB selected column
       chunk decoding budget), with common codecs; repeated/list/map columns report an
       unsupported-format message.
+- [x] F3 previews and icon thumbnails for common camera RAW extensions by
+      extracting an embedded JPEG preview when available. Bounded prefix scan,
+      candidate count, JPEG dimensions and decode memory; source-aware atomic
+      extraction cache and freedesktop thumbnails keyed to the original RAW
+      file. JPEG extraction is best-effort and does not decode sensor data.
 - [x] Make Ctrl-wheel zoom consistently over table rows, headers, blank
       space and the icon grid; keep ordinary wheel input scrolling.
 - [x] Split safe archive extraction helpers and their tests into
