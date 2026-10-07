@@ -500,6 +500,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::copy_location))
             .on_action(cx.listener(Self::toggle_bookmark))
             .on_action(cx.listener(Self::go_to_other_folder))
+            .on_action(cx.listener(Self::swap_panels))
             .on_action(cx.listener(Self::open_terminal))
             .on_action(cx.listener(Self::select_columns))
             .on_action(cx.listener(Self::select_all))

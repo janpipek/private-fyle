@@ -53,6 +53,7 @@ palette. The bottom area shows status messages and running jobs.
 | Alt-F7 / Ctrl-Shift-F | Find files by name (glob or substring) and/or containing text (literal or regex; hits show the matching line, and F3 preview scrolls to it), below the panel directory; results fill the panel (Enter shows a hit in its folder, Backspace returns, Esc stops) |
 | Ctrl-G / Alt-F1     | Locations: drives/mounted volumes, desktop places (home, user folders, GTK/KDE bookmarks), fyle bookmarks and frequent directories |
 | Ctrl-L              | Edit or paste the active panel's full path |
+| Ctrl-U              | Swap Panels: exchange the two panels' content (typed local, remote, archive or search location), cursor, marks, filter, sort, tree state, history and list/icon view; the active side stays active. Unavailable with an explanation while the F4 editor or F3 preview covers a panel, or while a folder is loading or a search / size scan is running (Esc cancels it) |
 | Ctrl-Left / Ctrl-Right | Go to Other Panel's Folder: the active panel shows the other panel's folder (local, remote or archive location kept; search results lead to their root; a navigation still loading there is followed to its destination; unavailable when the other panel shows Places) |
 | Ctrl-D              | Add or remove the current directory's bookmark (saved in `config.toml`); the star in the location bar shows and toggles it |
 | F9                  | Open a terminal in the panel directory (`[terminal]` in `config.toml`) |

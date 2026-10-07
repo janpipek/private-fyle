@@ -62,6 +62,7 @@ pub enum Cmd {
     CopyLocation,
     GoTo,
     GoToOtherFolder,
+    SwapPanels,
     ToggleBookmark,
     OpenTerminal,
     ToolsMenu,
@@ -85,6 +86,8 @@ pub struct State {
     pub has_marks: bool,
     /// Why the active panel cannot follow the other panel's folder.
     pub other_folder_blocked: Option<&'static str>,
+    /// Why the two panels cannot be swapped now.
+    pub swap_blocked: Option<&'static str>,
     /// The cursor is on a regular file (not a directory).
     pub cursor_on_file: bool,
     /// Entries were yanked or cut and can be pasted.
@@ -121,7 +124,7 @@ pub struct State {
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 63] = [
+    pub const ALL: [Cmd; 64] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::OpenInBrowser,
@@ -178,6 +181,7 @@ impl Cmd {
         Cmd::PasteFiles,
         Cmd::GoTo,
         Cmd::GoToOtherFolder,
+        Cmd::SwapPanels,
         Cmd::ToggleBookmark,
         Cmd::OpenTerminal,
         Cmd::CommandPalette,
@@ -241,6 +245,7 @@ impl Cmd {
             Cmd::CopyLocation => "Copy Full Path",
             Cmd::GoTo => "Go To… (Bookmarks, Places, Frequent)",
             Cmd::GoToOtherFolder => "Go to Other Panel's Folder",
+            Cmd::SwapPanels => "Swap Panels",
             Cmd::ToggleBookmark => "Bookmark This Folder",
             Cmd::OpenTerminal => "Terminal Here",
             Cmd::ToolsMenu => "Tools for Selection…",
@@ -419,6 +424,7 @@ impl Cmd {
             Cmd::GoToOtherFolder if state.other_folder_blocked.is_some() => {
                 state.other_folder_blocked
             }
+            Cmd::SwapPanels if state.swap_blocked.is_some() => state.swap_blocked,
             Cmd::ClearSelection if !state.has_marks => Some("Nothing is marked"),
             Cmd::PasteFiles if !state.can_paste => Some("Copy or cut entries first"),
             Cmd::PasteFiles | Cmd::NewFile | Cmd::MakeDir | Cmd::ToggleBookmark
@@ -551,6 +557,7 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
                     CopyLocation,
                     GoTo,
                     GoToOtherFolder,
+                    SwapPanels,
                     ToggleBookmark,
                 ],
                 &[OpenTerminal],
@@ -677,6 +684,16 @@ mod tests {
             Cmd::GoToOtherFolder.unavailable(&places),
             Some("The other panel shows Places")
         );
+    }
+
+    #[test]
+    fn swap_panels_explains_why_it_is_blocked() {
+        assert_eq!(Cmd::SwapPanels.unavailable(&State::default()), None);
+        let busy = State {
+            swap_blocked: Some("busy"),
+            ..State::default()
+        };
+        assert_eq!(Cmd::SwapPanels.unavailable(&busy), Some("busy"));
     }
 
     #[test]

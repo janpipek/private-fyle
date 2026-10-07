@@ -13,6 +13,7 @@ mod marks;
 mod remote;
 mod results;
 mod sizes;
+mod swap;
 #[cfg(test)]
 pub mod test_support;
 mod view;

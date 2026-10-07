@@ -2,11 +2,6 @@
 
 - [ ] Menus and selection, remaining parts: output/history in Tools.
       Implement missing actions as separate features.
-- [ ] Swap Panels command: exchange the two panels' content, cursor, marks,
-      navigation history and view state. Register it in `Cmd`, menus, the
-      palette and F1 help; decide its shortcut and focus behavior. Handle
-      pending loads and the preview/editor pane explicitly, with model tests
-      for swaps across local, remote, archive and search modes.
 - [ ] Keymap editor and presets: build on existing `[[keymap]]` overrides
       and unbinding, with selectable fyle, Krusader, Midnight Commander and
       Finder-style presets beneath user overrides. Keep stable command IDs,
@@ -103,6 +98,15 @@
 
 ## Done
 
+- [x] Swap Panels (`SwapPanels`, Ctrl-U, Go menu, palette, F1): `Folder::swap_with`
+      exchanges the two panel models (content, cursor, marks, filter, sort,
+      history), the view modes follow (and are saved as `left_view` /
+      `right_view`), the active side stays active. Background work is bound to
+      a panel position, so the command is unavailable (with a reason) while a
+      navigation, remote reload, search or size scan runs; metadata and
+      thumbnail work is keyed by the listing generation, which the swap
+      renews. The F4 editor and F3 preview cover a panel, so they block it too
+      (`panels::swap_blocked`).
 - [x] Go to Other Panel's Folder (`GoToOtherFolder`, Ctrl-Left / Ctrl-Right,
       Go menu, palette, F1): the active panel navigates to the other panel's
       typed location; search results use their root, a load in flight there is

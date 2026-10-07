@@ -25,11 +25,46 @@ pub fn other_panel_target(
     }
 }
 
+/// What the window is doing that decides whether the panels can be swapped.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Activity {
+    /// The F4 editor covers the inactive panel.
+    pub editor_open: bool,
+    /// The F3 quick view covers the inactive panel.
+    pub preview_open: bool,
+    /// A navigation, archive read or remote reload is in flight.
+    pub loading: bool,
+    /// A search or a folder size scan is running.
+    pub scanning: bool,
+}
+
+/// Why the panels cannot be swapped now, if they cannot.
+///
+/// Background work is bound to a panel by its position, so rather than
+/// re-pointing it, swapping waits until it is finished or cancelled (Esc).
+/// Metadata and thumbnails are not affected: they are keyed by the listing
+/// generation, which [`crate::model::Folder::swap_with`] renews. The editor
+/// and the quick view cover the inactive panel, so the swap would be
+/// invisible on one side; close them first.
+pub fn swap_blocked(activity: &Activity) -> Option<&'static str> {
+    if activity.editor_open {
+        Some("Close the editor first")
+    } else if activity.preview_open {
+        Some("Close the preview (F3) first")
+    } else if activity.loading {
+        Some("A folder is still loading (Esc cancels)")
+    } else if activity.scanning {
+        Some("A search or size scan is running (Esc stops it)")
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
-    use super::{OTHER_IS_PLACES, other_panel_target};
+    use super::{Activity, OTHER_IS_PLACES, other_panel_target, swap_blocked};
     use crate::location::{Location, PanelTarget};
     use crate::model::Folder;
     use crate::model::test_support::{fixture, loaded};
@@ -107,5 +142,30 @@ mod tests {
             other_panel_target(&shown, Some(&PanelTarget::Places)),
             Err(OTHER_IS_PLACES)
         );
+    }
+
+    #[test]
+    fn swapping_waits_for_work_and_covering_panes() {
+        assert_eq!(swap_blocked(&Activity::default()), None);
+        for activity in [
+            Activity {
+                editor_open: true,
+                ..Default::default()
+            },
+            Activity {
+                preview_open: true,
+                ..Default::default()
+            },
+            Activity {
+                loading: true,
+                ..Default::default()
+            },
+            Activity {
+                scanning: true,
+                ..Default::default()
+            },
+        ] {
+            assert!(swap_blocked(&activity).is_some(), "{activity:?}");
+        }
     }
 }

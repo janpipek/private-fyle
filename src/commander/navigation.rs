@@ -10,7 +10,7 @@ use gpui_kit::*;
 use super::Commander;
 use super::keys::{
     CopyLocation, EditLocation, GoBack, GoFirst, GoForward, GoLast, GoTo, GoToOtherFolder, GoUp,
-    Open, OpenTerminal, OpenWith, SwitchPanel, ToggleBookmark,
+    Open, OpenTerminal, OpenWith, SwapPanels, SwitchPanel, ToggleBookmark,
 };
 use super::location::ListingCommit;
 use crate::bookmarks;
@@ -160,6 +160,58 @@ impl Commander {
                 cx.notify();
             }
         }
+    }
+
+    /// Why the panels cannot be swapped now (see [`crate::panels::swap_blocked`]).
+    pub fn swap_blocked(&self, cx: &App) -> Option<&'static str> {
+        crate::panels::swap_blocked(&crate::panels::Activity {
+            editor_open: self.editor.is_some(),
+            preview_open: self.preview_on,
+            loading: self.navigation_pending.iter().any(|&pending| pending)
+                || self.reload_cancel.iter().any(Option::is_some)
+                || self.remote_check.is_some()
+                || self
+                    .folders
+                    .iter()
+                    .any(|folder| folder.read(cx).is_loading()),
+            scanning: self.search_cancel.is_some() || self.size_cancel.iter().any(Option::is_some),
+        })
+    }
+
+    /// Ctrl-U: exchanges what the two panels show, with cursor, marks,
+    /// history, sort and view mode. The active side stays active.
+    pub fn swap_panels(&mut self, _: &SwapPanels, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(reason) = self.swap_blocked(cx) {
+            self.status = reason.into();
+            cx.notify();
+            return;
+        }
+        let [left, right] = self.folders.clone();
+        left.update(cx, |left, cx| {
+            right.update(cx, |right, _| left.swap_with(right));
+            cx.notify();
+        });
+        right.update(cx, |_, cx| cx.notify());
+        // Per-panel state kept next to the content: the remote listing
+        // caches, and a remote path still waiting to open at startup.
+        self.listing_caches.swap(0, 1);
+        self.start_remote.swap(0, 1);
+        let modes = [0, 1].map(|ix| self.views[ix].read(cx).view_mode());
+        self.status = "Swapped panels".into();
+        for ix in 0..2 {
+            self.views[ix].update(cx, |view, cx| {
+                view.set_view_mode(modes[1 - ix], cx);
+                view.close_inputs(cx);
+            });
+            if modes[0] != modes[1]
+                && let Err(error) = crate::settings::save_panel_view(ix, modes[1 - ix])
+            {
+                self.status = error.into();
+            }
+        }
+        self.focus_active(window, cx);
+        self.update_preview(window, cx);
+        cx.notify();
     }
 
     pub fn switch_panel(&mut self, _: &SwitchPanel, window: &mut Window, cx: &mut Context<Self>) {

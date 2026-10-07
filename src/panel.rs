@@ -428,6 +428,16 @@ impl FolderView {
         }
     }
 
+    /// Closes the filter bar and the location editor, which belong to the
+    /// content this panel no longer shows after a swap.
+    pub fn close_inputs(&mut self, cx: &mut Context<Self>) {
+        self.filter_input = None;
+        self._filter_subscription = None;
+        self.location_input = None;
+        self._location_subscription = None;
+        cx.notify();
+    }
+
     fn close_filter(&mut self, _: &CloseFilter, window: &mut Window, cx: &mut Context<Self>) {
         self.folder.update(cx, |folder, cx| {
             folder.set_filter("");
