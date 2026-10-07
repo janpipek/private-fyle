@@ -20,11 +20,12 @@ use super::Commander;
 use super::files::describe;
 use super::jobs::Transfer;
 use crate::jobs::JobKind;
+use crate::listing::ListingService;
 use crate::location::Location as TargetLocation;
 use crate::menus::Cmd;
 use crate::model::Folder;
 use crate::remote::jobs::{self as rjobs, RemoteInfo, Side, TransferPlan};
-use crate::remote::{self, Control, Location, Provider, Registry};
+use crate::remote::{Control, Location as RemoteLocation, Provider, Registry};
 use crate::remote_labels::RemoteLabels;
 
 /// Remote files up to this size are downloaded for the quick view
@@ -42,12 +43,12 @@ pub struct RemoteCheck {
 pub struct RemotePreview {
     /// The remote path being fetched or shown, and the local copy once
     /// it arrived.
-    shown: Option<(PathBuf, Option<PathBuf>)>,
+    shown: Option<(TargetLocation, Option<PathBuf>)>,
     cancel: Option<Arc<AtomicBool>>,
     task: Option<Task<()>>,
 }
 
-type Resolved = (Arc<dyn Provider>, Location);
+type Resolved = (Arc<dyn Provider>, RemoteLocation);
 
 impl Commander {
     /// Looks for configured remotes in the background; the Locations list
@@ -86,6 +87,9 @@ impl Commander {
     }
 
     fn set_remotes(&mut self, registry: Registry, errors: Vec<io::Error>, cx: &mut Context<Self>) {
+        for cache in &self.listing_caches {
+            cache.clear();
+        }
         let labels: HashMap<String, String> = registry
             .providers()
             .iter()
@@ -125,9 +129,9 @@ impl Commander {
             .collect()
     }
 
-    /// The provider and location for a remote panel path, or the message
-    /// for the status line.
-    pub fn resolve_remote(&self, path: &std::path::Path) -> Result<Resolved, String> {
+    /// Resolves a typed remote address to its configured provider.
+    pub fn resolve_remote(&self, address: &TargetLocation) -> Result<Resolved, String> {
+        let path = address.panel_path();
         let error = |e: &dyn std::fmt::Display| {
             let pending = if self.remotes_pending {
                 " (still looking for remotes)"
@@ -136,11 +140,16 @@ impl Commander {
             };
             format!("{}: {e}{pending}", path.display())
         };
-        match self.remotes.resolve(path) {
-            Ok(Some(found)) => Ok(found),
-            Ok(None) => Err(error(&"not a remote folder")),
-            Err(e) => Err(error(&e)),
-        }
+        let TargetLocation::Remote(location) = address else {
+            return Err(error(&"not a remote folder"));
+        };
+        let provider = self.remotes.get(location.remote()).ok_or_else(|| {
+            error(&format!(
+                "no remote named {} is configured",
+                location.remote()
+            ))
+        })?;
+        Ok((provider.clone(), location.clone()))
     }
 
     /// Stops the listing under way for `panel`, if any.
@@ -148,130 +157,71 @@ impl Commander {
         if let Some(cancel) = self.remote_cancel[panel].take() {
             cancel.store(true, Ordering::Relaxed);
         }
-    }
-
-    /// When `target` is a remote folder that is not cached, shows the panel
-    /// as loading, lists it in the background and then runs `then` (which
-    /// finds it cached and so does not block). Returns whether the work was
-    /// deferred, or refused with a message. Esc, or any other navigation of
-    /// the panel, drops the result (see `cancel_location_work`).
-    pub fn defer_remote_list(
-        &mut self,
-        panel: usize,
-        target: Option<PathBuf>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-        then: impl FnOnce(&mut Self, &mut Window, &mut Context<Self>) + 'static,
-    ) -> bool {
-        let Some(target) = target else {
-            return false;
-        };
-        if !self.folders[panel].read(cx).remote_needed(&target) {
-            return false;
+        if let Some(cancel) = self.reload_cancel[panel].take() {
+            cancel.store(true, Ordering::Relaxed);
+            self.reload_generation[panel] = self.reload_generation[panel].wrapping_add(1);
         }
-        let (provider, location) = match self.resolve_remote(&target) {
-            Ok(found) => found,
-            Err(message) => {
-                self.status = message.into();
-                cx.notify();
-                return true;
-            }
-        };
-        self.cancel_remote(panel);
-        self.navigation_generation[panel] = self.navigation_generation[panel].wrapping_add(1);
-        let request = self.navigation_generation[panel];
-        let cancel = Arc::new(AtomicBool::new(false));
-        self.remote_cancel[panel] = Some(cancel.clone());
-        self.folders[panel].update(cx, |folder, cx| {
-            folder.begin_remote_load(target.clone());
-            cx.notify();
-        });
-        self.navigation_pending[panel] = true;
-        self.status = format!("Loading {}…", target.display()).into();
-        cx.notify();
-        self.navigation_tasks[panel] = cx.spawn_in(window, async move |this, cx| {
-            let result = cx
-                .background_spawn(async move { provider.list(&location, &Control::new(&cancel)) })
-                .await;
-            let _ = this.update_in(cx, |this, window, cx| {
-                if this.navigation_generation[panel] != request {
-                    return;
-                }
-                this.navigation_pending[panel] = false;
-                this.remote_cancel[panel] = None;
-                let loading = this.folders[panel].update(cx, |folder, cx| {
-                    let loading = folder.is_loading();
-                    folder.end_archive_load(false);
-                    cx.notify();
-                    loading
-                });
-                if !loading {
-                    return;
-                }
-                match result {
-                    Ok(listing) => {
-                        this.folders[panel]
-                            .update(cx, |folder, _| folder.cache_remote(target, listing.entries));
-                        this.status = listing.warnings.join("; ").into();
-                        this.listing_warning =
-                            (!listing.warnings.is_empty()).then(|| listing.warnings.join("; "));
-                        then(this, window, cx);
-                    }
-                    Err(e) => this.status = format!("{}: {e}", target.display()).into(),
-                }
-                cx.notify();
-            });
-        });
-        true
     }
 
     /// Lists the remote folder of `panel` again in the background and
     /// refreshes it in place (cursor and marks stay). Does nothing for
     /// local folders.
-    pub fn reload_remote(&mut self, panel: usize, cx: &mut Context<Self>) {
-        let (path, loading) = {
-            let folder = self.folders[panel].read(cx);
-            (folder.path().to_path_buf(), folder.is_loading())
-        };
-        if loading || !remote::is_remote(&path) {
+    pub fn reload_remote(
+        &mut self,
+        panel: usize,
+        selected: Option<TargetLocation>,
+        cx: &mut Context<Self>,
+    ) {
+        // A mutation may finish while navigation is in flight. Invalidate
+        // cached rows even if that navigation means this refresh cannot apply.
+        self.listing_caches[panel].clear();
+        // A navigation owns the panel until its listing completes. Applying a
+        // remote reload in that interval would advance the folder generation
+        // and make the newer navigation's guard reject its result.
+        if self.navigation_pending[panel] {
             return;
         }
-        let (provider, location) = match self.resolve_remote(&path) {
-            Ok(found) => found,
-            Err(message) => {
-                self.status = message.into();
-                cx.notify();
-                return;
-            }
+        let (path, listing, guard) = {
+            let folder = self.folders[panel].read(cx);
+            (
+                folder.path(),
+                folder.listing_request(folder.target(), false, false),
+                crate::breadcrumbs::NavigationGuard::new(folder.target(), folder.generation()),
+            )
         };
+        if !self.folders[panel].read(cx).is_remote() {
+            return;
+        }
+        self.cancel_remote(panel);
         self.reload_generation[panel] = self.reload_generation[panel].wrapping_add(1);
         let request = self.reload_generation[panel];
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.reload_cancel[panel] = Some(cancel.clone());
+        let mut listing = listing;
+        listing.force_remote_refresh = true;
+        let service =
+            ListingService::with_cache(self.remotes.clone(), self.listing_caches[panel].clone());
         self.reload_tasks[panel] = cx.spawn(async move |this, cx| {
-            let listed = path.clone();
             let result = cx
-                .background_spawn(async move {
-                    let cancel = AtomicBool::new(false);
-                    provider.list(&location, &Control::new(&cancel))
-                })
+                .background_spawn(async move { service.list(&listing, &cancel) })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.reload_generation[panel] != request {
                     return;
                 }
+                this.reload_cancel[panel] = None;
                 match result {
-                    Ok(listing) => {
-                        let warnings = listing.warnings.join("; ");
-                        let error = this.folders[panel].update(cx, |folder, cx| {
-                            if folder.path() != listed || folder.is_loading() {
-                                return None;
+                    Ok(snapshot) => {
+                        let warnings = snapshot.warnings.join("; ");
+                        this.folders[panel].update(cx, |folder, cx| {
+                            if !guard.matches(&folder.target(), folder.generation()) {
+                                return;
                             }
-                            folder.cache_remote(listed, listing.entries);
+                            folder.clear_sizes();
+                            folder.apply_listing(snapshot, selected);
                             cx.notify();
-                            folder.load().err()
                         });
-                        if let Some(e) = error {
-                            this.status = e.into();
-                        } else if !warnings.is_empty() {
+                        if !warnings.is_empty() {
                             this.status = warnings.into();
                         }
                     }
@@ -295,7 +245,11 @@ impl Commander {
 
     /// The active remote folder with its provider.
     fn active_remote(&self, cx: &App) -> Result<Resolved, String> {
-        self.resolve_remote(&self.folders[self.active].read(cx).path())
+        let folder = self.folders[self.active].read(cx);
+        folder
+            .location()
+            .map(|location| self.resolve_remote(location))
+            .unwrap_or_else(|| Err("Drives: not a remote folder".into()))
     }
 
     /// Why `cmd` cannot run in the current state, as a status message.
@@ -322,13 +276,20 @@ impl Commander {
         cx: &mut Context<Self>,
     ) {
         let sources = Rc::new(self.folders[self.active].read(cx).target_locations());
-        let dest = self.folders[1 - self.active].read(cx).path().to_path_buf();
-        if sources.is_empty() || dest.as_os_str().is_empty() {
+        let Some(dest) = self.folders[1 - self.active].read(cx).location().cloned() else {
+            return;
+        };
+        if sources.is_empty() {
             return;
         }
+        let dest_path = dest.panel_path();
         let verb = if op == Transfer::Copy { "Copy" } else { "Move" };
         let source_paths: Vec<_> = sources.iter().map(TargetLocation::panel_path).collect();
-        let description = format!("{verb} {} to {}?", describe(&source_paths), dest.display());
+        let description = format!(
+            "{verb} {} to {}?",
+            describe(&source_paths),
+            dest_path.display()
+        );
         let this = cx.entity().downgrade();
         window.open_alert_dialog(cx, move |dialog, _, _| {
             let (this, sources, dest) = (this.clone(), sources.clone(), dest.clone());
@@ -357,7 +318,7 @@ impl Commander {
         &self,
         plan: TransferPlan,
         sources: Vec<TargetLocation>,
-        dest: &std::path::Path,
+        dest: &TargetLocation,
         cx: &App,
     ) -> Result<rjobs::Transfer, String> {
         let source_folder = self.folders[self.active].read(cx);
@@ -386,7 +347,16 @@ impl Commander {
             }
             TransferPlan::Download => {
                 let items = source_folder.remote_items(&sources);
-                let (provider, _) = self.resolve_remote(&source_folder.path())?;
+                let source = source_folder
+                    .location()
+                    .ok_or("not a remote source folder")?;
+                let (provider, _) = self.resolve_remote(source)?;
+                let dest = dest.as_local_path().ok_or_else(|| {
+                    format!(
+                        "{}: download destination is not local",
+                        dest.panel_path().display()
+                    )
+                })?;
                 Ok(rjobs::Transfer::Download {
                     provider,
                     items,
@@ -395,7 +365,10 @@ impl Commander {
             }
             TransferPlan::MoveWithin => {
                 let items = source_folder.remote_items(&sources);
-                let (provider, _) = self.resolve_remote(&source_folder.path())?;
+                let source = source_folder
+                    .location()
+                    .ok_or("not a remote source folder")?;
+                let (provider, _) = self.resolve_remote(source)?;
                 let (_, dest) = self.resolve_remote(dest)?;
                 Ok(rjobs::Transfer::Move {
                     provider,
@@ -410,10 +383,11 @@ impl Commander {
         &mut self,
         plan: TransferPlan,
         sources: Vec<TargetLocation>,
-        dest: PathBuf,
+        dest: TargetLocation,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let display_dest = dest.panel_path();
         let transfer = match self.prepare_transfer(plan, sources, &dest, cx) {
             Ok(transfer) if !transfer.is_empty() => transfer,
             Ok(_) => return,
@@ -423,7 +397,7 @@ impl Commander {
                 return;
             }
         };
-        self.status = format!("Checking {}…", dest.display()).into();
+        self.status = format!("Checking {}…", display_dest.display()).into();
         cx.notify();
         let cancel = Arc::new(AtomicBool::new(false));
         let worker_cancel = cancel.clone();
@@ -437,8 +411,10 @@ impl Commander {
             let _ = this.update_in(cx, |this, window, cx| {
                 this.remote_check = None;
                 match result {
-                    Ok((free, taken)) => this.ask_skip_existing(free, taken, &dest, window, cx),
-                    Err(e) => this.status = format!("{}: {e}", dest.display()).into(),
+                    Ok((free, taken)) => {
+                        this.ask_skip_existing(free, taken, &display_dest, window, cx)
+                    }
+                    Err(e) => this.status = format!("{}: {e}", display_dest.display()).into(),
                 }
                 cx.notify();
             });
@@ -581,27 +557,32 @@ impl Commander {
         if self.refuse_cmd(Cmd::MakeDir, cx) {
             return;
         }
-        let parent = self.folders[self.active].read(cx).path().to_path_buf();
-        let child = Location::parse(&parent)
-            .ok()
-            .flatten()
-            .and_then(|location| location.child(name).ok());
+        let parent = match self.active_remote(cx) {
+            Ok((_, location)) => location,
+            Err(message) => {
+                self.status = message.into();
+                cx.notify();
+                return;
+            }
+        };
+        let child = parent.child(name).ok();
         let Some(child) = child else {
-            self.status = format!("{}: invalid folder name {name:?}", parent.display()).into();
+            self.status = format!(
+                "{}: invalid folder name {name:?}",
+                parent.panel_path().display()
+            )
+            .into();
             cx.notify();
             return;
         };
         let name = name.to_owned();
-        let Ok((_, parent_location)) = self.active_remote(cx) else {
-            return;
-        };
         self.remote_mutate(
             self.active,
             format!("Created {}", child.panel_path().display()),
             child.panel_path(),
-            Some(child.panel_path()),
+            Some(TargetLocation::Remote(child.clone())),
             cx,
-            move |provider, control| provider.create_folder(&parent_location, &name, control),
+            move |provider, control| provider.create_folder(&parent, &name, control),
         );
     }
 
@@ -650,7 +631,7 @@ impl Commander {
     fn apply_remote_rename(
         &mut self,
         panel: usize,
-        location: &Location,
+        location: &RemoteLocation,
         name: String,
         cx: &mut Context<Self>,
     ) {
@@ -669,7 +650,7 @@ impl Commander {
             panel,
             format!("Renamed to {}", renamed.panel_path().display()),
             shown,
-            Some(renamed.panel_path()),
+            Some(TargetLocation::Remote(renamed.clone())),
             cx,
             move |provider, control| provider.rename(&target, &name, control),
         );
@@ -682,12 +663,14 @@ impl Commander {
         panel: usize,
         done: String,
         target: PathBuf,
-        select: Option<PathBuf>,
+        select: Option<TargetLocation>,
         cx: &mut Context<Self>,
         work: impl FnOnce(&dyn Provider, &Control) -> io::Result<()> + Send + 'static,
     ) {
-        let folder_path = self.folders[panel].read(cx).path().to_path_buf();
-        let (provider, location) = match self.resolve_remote(&folder_path) {
+        let Some(folder_location) = self.folders[panel].read(cx).location().cloned() else {
+            return;
+        };
+        let (provider, _) = match self.resolve_remote(&folder_location) {
             Ok(found) => found,
             Err(message) => {
                 self.status = message.into();
@@ -698,27 +681,25 @@ impl Commander {
         self.status = format!("{}…", target.display()).into();
         cx.notify();
         self._remote_op = cx.spawn(async move |this, cx| {
-            let result = cx
+            let result: io::Result<()> = cx
                 .background_spawn(async move {
                     let cancel = AtomicBool::new(false);
                     let control = Control::new(&cancel);
                     work(provider.as_ref(), &control)?;
-                    provider.list(&location, &control)
+                    Ok(())
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 match result {
-                    Ok(listing) => {
+                    Ok(()) => {
                         this.folders[panel].update(cx, |folder, cx| {
-                            if folder.path() == folder_path && !folder.is_loading() {
-                                folder.cache_remote(folder_path.clone(), listing.entries);
+                            if folder.location() == Some(&folder_location) {
                                 folder.clear_marks();
-                                let _ = folder.load();
-                                folder.select_path(select.as_deref());
                             }
                             cx.notify();
                         });
-                        this.reload_remote(1 - panel, cx);
+                        this.reload_remote(panel, select, cx);
+                        this.reload_remote(1 - panel, None, cx);
                         this.status = done.into();
                     }
                     Err(e) => this.status = format!("{}: {e}", target.display()).into(),
@@ -732,8 +713,14 @@ impl Commander {
 
     /// Enter on a remote file: downloads it into the cache in the
     /// background, then opens the copy as usual.
-    pub fn open_remote_file(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        let (provider, location) = match self.resolve_remote(&path) {
+    pub fn open_remote_file(
+        &mut self,
+        address: TargetLocation,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let path = address.panel_path();
+        let (provider, location) = match self.resolve_remote(&address) {
             Ok(found) => found,
             Err(message) => {
                 self.status = message.into();
@@ -779,13 +766,14 @@ impl Commander {
     /// cursor, once downloaded. Starts the download (small files only).
     pub fn remote_preview_target(
         &mut self,
-        path: PathBuf,
+        address: TargetLocation,
         size: u64,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<PathBuf> {
+        let path = address.panel_path();
         if let Some((shown, local)) = &self.remote_preview.shown
-            && *shown == path
+            && *shown == address
         {
             return local.clone();
         }
@@ -793,11 +781,11 @@ impl Commander {
             cancel.store(true, Ordering::Relaxed);
         }
         self.remote_preview.task = None;
-        self.remote_preview.shown = Some((path.clone(), None));
+        self.remote_preview.shown = Some((address.clone(), None));
         if size > PREVIEW_LIMIT {
             return None;
         }
-        let (provider, location) = self.resolve_remote(&path).ok()?;
+        let (provider, location) = self.resolve_remote(&address).ok()?;
         let root = rjobs::cache_root()?;
         let cancel = Arc::new(AtomicBool::new(false));
         self.remote_preview.cancel = Some(cancel.clone());
@@ -807,6 +795,7 @@ impl Commander {
                 .timer(Duration::from_millis(300))
                 .await;
             let fetch_path = path.clone();
+            let fetch_address = address.clone();
             let result = cx
                 .background_spawn(async move {
                     rjobs::fetch(provider.as_ref(), &location, &root, &Control::new(&cancel))
@@ -814,12 +803,12 @@ impl Commander {
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
                 let current = this.remote_preview.shown.as_ref().map(|(p, _)| p);
-                if current != Some(&fetch_path) {
+                if current != Some(&fetch_address) {
                     return;
                 }
                 match result {
                     Ok(local) => {
-                        this.remote_preview.shown = Some((fetch_path, Some(local)));
+                        this.remote_preview.shown = Some((fetch_address, Some(local)));
                         this.update_preview(window, cx);
                     }
                     Err(e) => this.status = format!("{}: {e}", fetch_path.display()).into(),
@@ -833,8 +822,8 @@ impl Commander {
     /// The remote sides of the two panels, for [`crate::menus::State`].
     pub fn panel_sides(&self, cx: &App) -> (Side, Side) {
         (
-            Side::of(&self.folders[self.active].read(cx).path()),
-            Side::of(&self.folders[1 - self.active].read(cx).path()),
+            Side::of(self.folders[self.active].read(cx).location()),
+            Side::of(self.folders[1 - self.active].read(cx).location()),
         )
     }
 }

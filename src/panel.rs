@@ -2,7 +2,7 @@
 //! renders the model and forwards cursor moves, sorting and activation.
 
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -33,6 +33,9 @@ use gpui_kit::assets::IconName as Lucide;
 
 /// Emitted when the user activates the cursor entry with the mouse.
 pub struct Activate;
+
+/// Emitted when a tree chevron changes which folders should be listed.
+pub struct TreeExpansionChanged;
 
 /// Requests from a panel header, carrying enough data for Commander to keep
 /// the originating panel when the other panel was active.
@@ -79,12 +82,14 @@ pub struct FolderView {
     _locations_menu_dismiss: Option<Subscription>,
     /// Listing generation the Git column was last computed for.
     git_generation: Option<u64>,
+    expanded_snapshot: HashSet<crate::location::Location>,
     _git_task: Task<()>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl EventEmitter<Activate> for FolderView {}
 impl EventEmitter<HeaderEvent> for FolderView {}
+impl EventEmitter<TreeExpansionChanged> for FolderView {}
 
 impl FolderView {
     pub fn new(
@@ -123,7 +128,12 @@ impl FolderView {
                     cx.emit(Activate);
                 }
             }),
-            cx.observe(&folder, |this, _, cx| {
+            cx.observe(&folder, |this, folder, cx| {
+                let expanded = folder.read(cx).expanded_locations();
+                if expanded != this.expanded_snapshot {
+                    this.expanded_snapshot = expanded;
+                    cx.emit(TreeExpansionChanged);
+                }
                 this.sync_cursor(cx);
                 this.refresh_git(cx);
             }),
@@ -136,6 +146,7 @@ impl FolderView {
                 _ => {}
             }),
         ];
+        let expanded_snapshot = folder.read(cx).expanded_locations();
         let mut this = Self {
             folder,
             table,
@@ -150,6 +161,7 @@ impl FolderView {
             locations_menu: None,
             _locations_menu_dismiss: None,
             git_generation: None,
+            expanded_snapshot,
             _git_task: Task::ready(()),
             _subscriptions: subscriptions,
         };

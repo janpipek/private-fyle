@@ -23,10 +23,13 @@ impl Commander {
         if self.refuse_in_archive(cx) || self.refuse_on_remote(cx) {
             return;
         }
-        let root = self.folders[self.active].read(cx).path().to_path_buf();
-        if root.as_os_str().is_empty() {
+        let Some(root) = self.folders[self.active]
+            .read(cx)
+            .local_directory()
+            .map(Path::to_path_buf)
+        else {
             return;
-        }
+        };
         let name = cx.new(|cx| InputState::new(window, cx).placeholder("e.g. *.rs or report"));
         let content = cx.new(|cx| InputState::new(window, cx).placeholder("optional"));
         let this = cx.entity().downgrade();

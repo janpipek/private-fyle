@@ -6,10 +6,31 @@ use gpui_kit::*;
 
 use super::Commander;
 use crate::breadcrumbs::NavigationGuard;
-use crate::location::{Location, PanelTarget};
+use crate::fs_ops;
+use crate::listing::ListingService;
+use crate::location::PanelTarget;
 use crate::location_view::LocationDelegate;
 use crate::places;
-use crate::remote;
+
+#[derive(Clone)]
+pub enum ListingCommit {
+    /// Commit a user navigation and record the directory left behind.
+    Navigate,
+    /// Replace the current rows without adding a history visit.
+    Refresh,
+    /// Refresh after creating a local directory and select that row.
+    RefreshSelect(crate::location::Location),
+    /// Re-list after changing hidden-file or tree options without clearing cached sizes.
+    Options,
+    /// Load a panel's first directory without creating a history visit.
+    Startup,
+    /// Commit Back or Forward and restore its selection and remote origin.
+    History {
+        back: bool,
+        selected: Option<crate::location::Location>,
+        remote_origin: Option<crate::location::Location>,
+    },
+}
 
 impl Commander {
     /// Loads `path` away from the UI thread and applies it only if it is still
@@ -23,42 +44,59 @@ impl Commander {
     ) {
         self.set_active(panel, cx);
         self.focus_active(window, cx);
+        self.load_panel_listing(panel, target, ListingCommit::Navigate, false, window, cx);
+    }
+
+    /// Loads a typed panel target off the UI thread and commits only the
+    /// newest successful result. Existing rows remain visible while loading.
+    pub fn load_panel_listing(
+        &mut self,
+        panel: usize,
+        target: PanelTarget,
+        commit: ListingCommit,
+        fallback: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let path = target.panel_path();
-        if !remote::is_remote(&path) {
-            self.listing_warning = None;
-        }
-        if matches!(target.location(), Some(Location::Remote(_))) {
-            // A remote folder is listed in the background first, then shown.
-            let again = target.clone();
-            if self.defer_remote_list(
-                panel,
-                Some(path.clone()),
-                window,
-                cx,
-                move |this, window, cx| this.navigate_panel(panel, again, window, cx),
-            ) {
-                return;
-            }
-        }
         self.cancel_remote(panel);
-        self.folders[panel].update(cx, |folder, _| folder.end_archive_load(false));
         self.navigation_generation[panel] = self.navigation_generation[panel].wrapping_add(1);
         let request = self.navigation_generation[panel];
-        let mut folder = self.folders[panel].read(cx).clone();
-        let guard = NavigationGuard::new(folder.target(), folder.generation());
+        let (mut listing, guard) = {
+            let folder = self.folders[panel].read(cx);
+            let preserve_search = matches!(
+                &commit,
+                ListingCommit::Refresh | ListingCommit::RefreshSelect(_) | ListingCommit::Options
+            ) && folder.target() == target;
+            (
+                folder.listing_request(target.clone(), fallback, preserve_search),
+                NavigationGuard::new(folder.target(), folder.generation()),
+            )
+        };
+        if let ListingCommit::History { remote_origin, .. } = &commit {
+            listing.remote_origin = remote_origin.clone();
+        }
+        listing.force_remote_refresh = matches!(&commit, ListingCommit::Refresh);
+        let service =
+            ListingService::with_cache(self.remotes.clone(), self.listing_caches[panel].clone());
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.remote_cancel[panel] = Some(cancel.clone());
         self.navigation_pending[panel] = true;
         let shown = path.display().to_string();
         self.status = format!("Opening {shown}").into();
         cx.notify();
         self.navigation_tasks[panel] = cx.spawn_in(window, async move |this, cx| {
             let result = cx
-                .background_spawn(async move { folder.navigate_target(target).map(|()| folder) })
+                .background_spawn(
+                    async move { service.list_with_ancestor_fallback(&listing, &cancel) },
+                )
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
                 if this.navigation_generation[panel] != request {
                     return;
                 }
                 this.navigation_pending[panel] = false;
+                this.remote_cancel[panel] = None;
                 let current = {
                     let live = this.folders[panel].read(cx);
                     guard.matches(&live.target(), live.generation())
@@ -67,21 +105,58 @@ impl Commander {
                     return;
                 }
                 match result {
-                    Ok(loaded) => {
+                    Ok(outcome) => {
+                        let warnings = outcome.snapshot.warnings.join("; ");
+                        let first_error = outcome.first_error.map(|error| {
+                            format!(
+                                "{}: {error}",
+                                fs_ops::display_path(&outcome.requested.panel_path())
+                            )
+                        });
                         this.folders[panel].update(cx, |folder, cx| {
-                            *folder = loaded;
+                            let selected = match commit.clone() {
+                                ListingCommit::Navigate | ListingCommit::Startup => {
+                                    folder.selection_for_navigation(&outcome.snapshot.target)
+                                }
+                                ListingCommit::Refresh
+                                | ListingCommit::RefreshSelect(_)
+                                | ListingCommit::Options => {
+                                    folder.current().map(|row| row.location.clone())
+                                }
+                                ListingCommit::History { selected, .. } => selected,
+                            };
+                            match commit {
+                                ListingCommit::Navigate | ListingCommit::Startup => {
+                                    folder.commit_navigation_listing(outcome.snapshot, selected);
+                                }
+                                ListingCommit::Refresh => {
+                                    folder.clear_sizes();
+                                    folder.apply_listing(outcome.snapshot, selected);
+                                }
+                                ListingCommit::RefreshSelect(location) => {
+                                    folder.clear_sizes();
+                                    folder.apply_listing(outcome.snapshot, Some(location));
+                                }
+                                ListingCommit::Options => {
+                                    folder.apply_listing(outcome.snapshot, selected);
+                                }
+                                ListingCommit::History { back, .. } => {
+                                    folder.commit_history_listing(outcome.snapshot, back, selected);
+                                }
+                            }
                             cx.notify();
                         });
                         this.views[panel]
                             .update(cx, |view, cx| view.finish_location_navigation(window, cx));
-                        this.status = match this.listing_warning.take() {
-                            Some(warning) => warning,
-                            None => format!("Opened {shown}"),
-                        }
-                        .into();
+                        this.status = first_error
+                            .or_else(|| (!warnings.is_empty()).then_some(warnings))
+                            .unwrap_or_else(|| format!("Opened {shown}"))
+                            .into();
                         this.update_preview(window, cx);
                     }
-                    Err(error) => this.status = error.into(),
+                    Err(error) => {
+                        this.status = format!("{}: {error}", fs_ops::display_path(&path)).into()
+                    }
                 }
                 cx.notify();
             });
@@ -143,10 +218,6 @@ impl Commander {
         for panel in 0..self.navigation_pending.len() {
             if self.navigation_pending[panel] {
                 self.cancel_remote(panel);
-                self.folders[panel].update(cx, |folder, cx| {
-                    folder.end_archive_load(true);
-                    cx.notify();
-                });
                 self.navigation_generation[panel] =
                     self.navigation_generation[panel].wrapping_add(1);
                 self.navigation_pending[panel] = false;

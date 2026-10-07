@@ -12,51 +12,37 @@ use super::keys::{
     AddBookmark, CopyLocation, EditLocation, GoBack, GoFirst, GoForward, GoLast, GoTo, GoUp, Open,
     OpenTerminal, OpenWith, SwitchPanel,
 };
+use super::location::ListingCommit;
 use crate::editor::Document;
-use crate::model::{Activation, Folder};
+use crate::model::Folder;
 use crate::places::{self, History};
 use crate::settings::{self};
 use crate::tools::{self};
 use crate::tools_view::PickDelegate;
 
 impl Commander {
-    pub fn open(&mut self, action: &Open, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn open(&mut self, _: &Open, window: &mut Window, cx: &mut Context<Self>) {
         let target = self.folders[self.active].read(cx).activation_target();
-        let (remote_action, action) = (action.clone(), action.clone());
-        if self.defer_remote_list(
-            self.active,
-            target.as_ref().map(|location| location.panel_path()),
-            window,
-            cx,
-            move |this, window, cx| this.open(&remote_action, window, cx),
-        ) {
+        if let Some(target) = target {
+            self.navigate_panel(self.active, target, window, cx);
             return;
         }
-        if self.defer_archive_read(
-            self.active,
-            target.map(|location| location.panel_path()),
-            window,
-            cx,
-            move |this, window, cx| this.open(&action, window, cx),
-        ) {
-            return;
-        }
-        match self.update_folder(cx, Folder::activate) {
-            Ok(Activation::OpenFile(_))
-                if self.folders[self.active].read(cx).archive().is_some() =>
-            {
-                self.status = "Inside an archive: F3 previews, F5 extracts".into();
-            }
-            Ok(Activation::OpenFile(crate::location::Location::Remote(location))) => {
-                self.open_remote_file(location.panel_path(), window, cx);
-            }
-            Ok(Activation::OpenFile(location)) => {
-                if let Some(path) = location.as_local_path() {
-                    self.open_local_file(path);
+        if self.folders[self.active].read(cx).archive().is_some() {
+            self.status = "Inside an archive: F3 previews, F5 extracts".into();
+        } else if let Some(location) = self.folders[self.active]
+            .read(cx)
+            .current()
+            .map(|row| row.location.clone())
+        {
+            match location {
+                crate::location::Location::Remote(location) => {
+                    self.open_remote_file(crate::location::Location::Remote(location), window, cx)
                 }
+                crate::location::Location::Local(path) => {
+                    self.open_local_file(path.as_path());
+                }
+                crate::location::Location::Archive { .. } => {}
             }
-            Ok(_) => {}
-            Err(e) => self.status = e.into(),
         }
         cx.notify();
     }
@@ -81,72 +67,49 @@ impl Commander {
         }
     }
 
-    pub fn go_up(&mut self, action: &GoUp, window: &mut Window, cx: &mut Context<Self>) {
-        // Up from a remote folder may need its parent listed first.
-        let target = {
-            let folder = self.folders[self.active].read(cx);
-            (folder.is_remote() && !folder.is_loading() && folder.results().is_none())
-                .then(|| folder.parent_location())
-                .flatten()
-        };
-        let action = action.clone();
-        if self.defer_remote_list(self.active, target, window, cx, move |this, window, cx| {
-            this.go_up(&action, window, cx)
-        }) {
-            return;
+    pub fn go_up(&mut self, _: &GoUp, window: &mut Window, cx: &mut Context<Self>) {
+        let target = self.folders[self.active].read(cx).parent_target();
+        if let Some(target) = target {
+            self.navigate_panel(self.active, target, window, cx);
         }
-        let result = self.update_folder(cx, Folder::go_up);
-        self.set_error(result, cx);
     }
 
-    pub fn go_back(&mut self, action: &GoBack, window: &mut Window, cx: &mut Context<Self>) {
-        let target = self.folders[self.active].read(cx).history_target(true);
-        let (remote_action, action) = (action.clone(), action.clone());
-        if self.defer_remote_list(
-            self.active,
-            target.as_ref().map(|location| location.panel_path()),
-            window,
-            cx,
-            move |this, window, cx| this.go_back(&remote_action, window, cx),
-        ) {
-            return;
+    pub fn go_back(&mut self, _: &GoBack, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some((target, selected, remote_origin)) =
+            self.folders[self.active].read(cx).history_visit(true)
+        {
+            self.load_panel_listing(
+                self.active,
+                crate::location::PanelTarget::Location(target),
+                ListingCommit::History {
+                    back: true,
+                    selected,
+                    remote_origin,
+                },
+                false,
+                window,
+                cx,
+            );
         }
-        if self.defer_archive_read(
-            self.active,
-            target.map(|location| location.panel_path()),
-            window,
-            cx,
-            move |this, window, cx| this.go_back(&action, window, cx),
-        ) {
-            return;
-        }
-        let result = self.update_folder(cx, Folder::go_back);
-        self.set_error(result.map(drop), cx);
     }
 
-    pub fn go_forward(&mut self, action: &GoForward, window: &mut Window, cx: &mut Context<Self>) {
-        let target = self.folders[self.active].read(cx).history_target(false);
-        let (remote_action, action) = (action.clone(), action.clone());
-        if self.defer_remote_list(
-            self.active,
-            target.as_ref().map(|location| location.panel_path()),
-            window,
-            cx,
-            move |this, window, cx| this.go_forward(&remote_action, window, cx),
-        ) {
-            return;
+    pub fn go_forward(&mut self, _: &GoForward, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some((target, selected, remote_origin)) =
+            self.folders[self.active].read(cx).history_visit(false)
+        {
+            self.load_panel_listing(
+                self.active,
+                crate::location::PanelTarget::Location(target),
+                ListingCommit::History {
+                    back: false,
+                    selected,
+                    remote_origin,
+                },
+                false,
+                window,
+                cx,
+            );
         }
-        if self.defer_archive_read(
-            self.active,
-            target.map(|location| location.panel_path()),
-            window,
-            cx,
-            move |this, window, cx| this.go_forward(&action, window, cx),
-        ) {
-            return;
-        }
-        let result = self.update_folder(cx, Folder::go_forward);
-        self.set_error(result.map(drop), cx);
     }
 
     pub fn go_first(&mut self, _: &GoFirst, _: &mut Window, cx: &mut Context<Self>) {
@@ -194,7 +157,9 @@ impl Commander {
         if entry.is_dir {
             return;
         }
-        let path = entry.path.clone();
+        let Some(path) = entry.location.as_local_path().map(Path::to_path_buf) else {
+            return;
+        };
         let rules: Vec<_> = crate::openers::matching(&self.openers, &path)
             .into_iter()
             .cloned()
@@ -239,19 +204,17 @@ impl Commander {
     /// Remembers directories the active panel shows, for frecency.
     pub fn record_visit(&mut self, folder: &Entity<Folder>, cx: &mut Context<Self>) {
         let folder = folder.read(cx);
-        if folder.results().is_some()
-            || folder.archive().is_some()
-            || folder.is_loading()
-            || folder.path().as_os_str().is_empty()
-        {
+        if folder.results().is_some() || folder.archive().is_some() || folder.is_loading() {
             return;
         }
-        let dir = folder.path();
-        if self.last_visited.as_deref() == Some(&dir) {
+        let Some(dir) = folder.local_directory() else {
+            return;
+        };
+        if self.last_visited.as_deref() == Some(dir) {
             return;
         }
         self.last_visited = Some(dir.to_path_buf());
-        self.history.visit(&dir, places::now());
+        self.history.visit(dir, places::now());
         if let Some(path) = History::path() {
             let _ = self.history.save(&path);
         }
@@ -262,10 +225,13 @@ impl Commander {
         if self.refuse_in_archive(cx) || self.refuse_on_remote(cx) {
             return;
         }
-        let dir = self.folders[self.active].read(cx).path().to_path_buf();
-        if dir.as_os_str().is_empty() {
+        let Some(dir) = self.folders[self.active]
+            .read(cx)
+            .local_directory()
+            .map(std::path::Path::to_path_buf)
+        else {
             return;
-        }
+        };
         let env = std::env::var("TERMINAL").ok();
         let command =
             crate::terminal::command(&self.terminal_command, env.as_deref(), &dir, |name| {
@@ -292,10 +258,13 @@ impl Commander {
         if self.refuse_in_archive(cx) || self.refuse_on_remote(cx) {
             return;
         }
-        let dir = self.folders[self.active].read(cx).path().to_path_buf();
-        if dir.as_os_str().is_empty() {
+        let Some(dir) = self.folders[self.active]
+            .read(cx)
+            .local_directory()
+            .map(std::path::Path::to_path_buf)
+        else {
             return;
-        }
+        };
         self.status = match settings::add_bookmark(&dir) {
             Ok(_) => {
                 if !self.bookmarks.contains(&dir) {

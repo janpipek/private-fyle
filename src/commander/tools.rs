@@ -77,19 +77,25 @@ impl Commander {
     /// What the tools see: the active panel and the other panel's directory.
     pub fn tool_context(&self, cx: &App) -> ToolContext {
         let folder = self.folders[self.active].read(cx);
-        let other = self.folders[1 - self.active].read(cx).path();
+        let other = self.folders[1 - self.active].read(cx);
         ToolContext {
-            dir: folder.path().to_path_buf(),
+            dir: folder
+                .local_directory()
+                .map_or_else(Default::default, |path| path.to_path_buf()),
             targets: folder
                 .target_locations()
                 .into_iter()
                 .filter_map(|location| {
                     let path = location.as_local_path()?.to_path_buf();
-                    let is_dir = path.is_dir();
+                    let is_dir = folder
+                        .entries()
+                        .iter()
+                        .find(|row| row.location == location)
+                        .is_some_and(|row| row.is_dir);
                     Some(Target::new(path, is_dir))
                 })
                 .collect(),
-            other_dir: (!other.as_os_str().is_empty()).then(|| other.to_path_buf()),
+            other_dir: other.local_directory().map(|path| path.to_path_buf()),
         }
     }
 
@@ -367,7 +373,7 @@ impl Commander {
                     Ok(report) => {
                         this.status = format!("{label}: {}", report.summary).into();
                         if report.refresh {
-                            this.reload_all(cx);
+                            this.reload_all(window, cx);
                         }
                         if !report.log.trim().is_empty() {
                             show_log(&label, report.log, window, cx);

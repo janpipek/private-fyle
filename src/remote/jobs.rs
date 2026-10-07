@@ -9,8 +9,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use super::{Capabilities, Control, Location, Provider, Removal, is_remote};
+use super::{Capabilities, Control, Location, Provider, Removal};
 use crate::jobs::{JobKind, Outcome, Progress};
+use crate::location::Location as PanelLocation;
 
 /// Where a panel's folder lives.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -21,14 +22,11 @@ pub enum Side {
 }
 
 impl Side {
-    /// The side a panel path is on; reads no disk.
-    pub fn of(path: &Path) -> Self {
-        if !is_remote(path) {
-            return Self::Local;
-        }
-        match Location::parse(path) {
-            Ok(Some(location)) => Self::Remote(location.remote().to_owned()),
-            _ => Self::Remote(String::new()),
+    /// The side of a typed panel location, without parsing a display path.
+    pub fn of(location: Option<&PanelLocation>) -> Self {
+        match location {
+            Some(PanelLocation::Remote(location)) => Self::Remote(location.remote().to_owned()),
+            _ => Self::Local,
         }
     }
 }
@@ -582,8 +580,10 @@ mod tests {
         assert_eq!(no_upload, Err("This remote does not support uploading"));
         let no_move = plan_transfer(false, &remote("a"), &remote("a"), info(true, false));
         assert!(no_move.is_err());
-        assert_eq!(Side::of(Path::new("/tmp/x")), Side::Local);
-        assert_eq!(Side::of(Path::new("gdrive:/x")), remote("gdrive"));
+        assert_eq!(Side::of(None), Side::Local);
+        let location =
+            PanelLocation::Remote(Location::parse(Path::new("gdrive:/x")).unwrap().unwrap());
+        assert_eq!(Side::of(Some(&location)), remote("gdrive"));
     }
 
     #[test]

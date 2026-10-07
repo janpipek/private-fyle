@@ -1,21 +1,29 @@
 //! Back and Forward history of visited directories.
 
+#[cfg(test)]
 use std::path::PathBuf;
 
-use super::{Folder, PanelContent};
+use super::Folder;
+#[cfg(test)]
+use super::PanelContent;
 use crate::location::Location;
 
 /// A directory in the Back/Forward history and its cursor entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Visit {
-    path: Location,
-    selected: Option<Location>,
+    /// Location visited by this history item.
+    pub path: Location,
+    /// Row identity that was selected when leaving it.
+    pub selected: Option<Location>,
+    /// Local destination used when returning Up from a remote root.
+    pub remote_origin: Option<Location>,
 }
 
 /// History entries kept per direction.
 const HISTORY_LEN: usize = 100;
 
-fn push_capped(list: &mut Vec<Visit>, visit: Visit) {
+/// Adds a visit unless it duplicates the latest entry, keeping bounded history.
+pub fn push_capped(list: &mut Vec<Visit>, visit: Visit) {
     if list.last() != Some(&visit) {
         list.push(visit);
     }
@@ -26,12 +34,14 @@ fn push_capped(list: &mut Vec<Visit>, visit: Visit) {
 
 impl Folder {
     /// Where Back (or Forward) would go.
+    #[cfg(test)]
     pub fn history_target(&self, back: bool) -> Option<Location> {
         let list = if back { &self.back } else { &self.forward };
         list.last().map(|v| v.path.clone())
     }
 
     /// Shows `path`, recording the directory left in the Back history.
+    #[cfg(test)]
     pub fn replace(&mut self, path: PathBuf, select: Option<PathBuf>) -> Result<(), String> {
         let location = Location::from_panel_path(&path, self.archive())
             .map_err(|e| format!("{}: {e}", crate::fs_ops::display_path(&path)))?;
@@ -45,6 +55,7 @@ impl Folder {
     }
 
     /// Shows a typed location, recording the directory left in Back history.
+    #[cfg(test)]
     pub fn replace_location(
         &mut self,
         location: Location,
@@ -60,6 +71,7 @@ impl Folder {
     }
 
     /// Shows the platform's places overview, preserving Back history.
+    #[cfg(test)]
     pub fn replace_places(&mut self) -> Result<(), String> {
         let left = self.visit();
         self.content = PanelContent::Places;
@@ -87,15 +99,18 @@ impl Folder {
             .map(|location| Visit {
                 path: location.clone(),
                 selected: self.current().map(|e| e.location.clone()),
+                remote_origin: self.remote_origin.clone(),
             })
     }
 
     /// Back: the previous directory, cursor where it was. Returns whether
     /// there was one.
+    #[cfg(test)]
     pub fn go_back(&mut self) -> Result<bool, String> {
         self.travel(true)
     }
 
+    #[cfg(test)]
     pub fn go_forward(&mut self) -> Result<bool, String> {
         self.travel(false)
     }
@@ -110,6 +125,7 @@ impl Folder {
 
     /// One step back (or forward): the current directory goes onto the
     /// other list. A directory that is gone is dropped from the history.
+    #[cfg(test)]
     pub fn travel(&mut self, back: bool) -> Result<bool, String> {
         let from = if back {
             &mut self.back

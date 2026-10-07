@@ -20,9 +20,11 @@ mod view;
 use archives::Mount;
 use history::Visit;
 
+#[cfg(test)]
 use crate::archive;
 use crate::dirsize::DirSize;
 use crate::fs_ops::{self, Entry, SortKey};
+use crate::listing::{ListingRequest, ListingSnapshot};
 use crate::location::{Location, PanelTarget};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,6 +44,7 @@ impl Default for Sort {
 
 /// Result of activating (Enter / double-click) the entry under the cursor.
 #[derive(Debug, PartialEq, Eq)]
+#[cfg(test)]
 pub enum Activation {
     Entered,
     OpenFile(Location),
@@ -84,6 +87,7 @@ pub struct Folder {
     content: PanelContent,
     /// Remote listings loaded in the background; remote rows are built from
     /// them, never from I/O.
+    #[cfg(test)]
     remote_listings: remote::ListingCache,
     /// Address the panel came from, where ".." at a remote root returns.
     remote_origin: Option<Location>,
@@ -116,6 +120,7 @@ pub struct Folder {
     forward: Vec<Visit>,
     /// Set while an archive is being read in the background: the folder
     /// as it was before, to return to when the read ends.
+    #[cfg(test)]
     loading: Option<Box<Folder>>,
 }
 
@@ -129,6 +134,7 @@ impl Folder {
         };
         Ok(Self {
             content,
+            #[cfg(test)]
             remote_listings: Default::default(),
             remote_origin: None,
             entries: Vec::new(),
@@ -146,6 +152,7 @@ impl Folder {
             generation: 0,
             back: Vec::new(),
             forward: Vec::new(),
+            #[cfg(test)]
             loading: None,
         })
     }
@@ -177,6 +184,19 @@ impl Folder {
         }
     }
 
+    /// Returns a native directory path only when this panel shows a local
+    /// filesystem directory or local search root.
+    pub fn local_directory(&self) -> Option<&Path> {
+        match &self.content {
+            PanelContent::Directory(Location::Local(local)) => Some(local.as_path()),
+            PanelContent::Search {
+                root: Location::Local(local),
+                ..
+            } => Some(local.as_path()),
+            _ => None,
+        }
+    }
+
     /// Returns the current panel content mode.
     pub fn content(&self) -> &PanelContent {
         &self.content
@@ -189,6 +209,218 @@ impl Folder {
                 PanelTarget::Location(location.clone())
             }
             PanelContent::Places => PanelTarget::Places,
+        }
+    }
+
+    /// Selects the row that should remain highlighted after navigating away.
+    pub fn selection_for_navigation(&self, target: &PanelTarget) -> Option<Location> {
+        if let PanelTarget::Location(Location::Archive { source, member }) = target
+            && member.as_str().is_empty()
+            && self
+                .current()
+                .is_some_and(|row| row.location.as_local_path() == source.as_local_path())
+        {
+            return self.current().map(|row| row.location.clone());
+        }
+        if let (Some(Location::Archive { source, member }), Some(Location::Local(destination))) =
+            (self.location(), target.location())
+            && member.as_str().is_empty()
+            && source
+                .as_local_path()
+                .and_then(fs_ops::parent_of)
+                .is_some_and(|parent| parent == destination.as_path())
+        {
+            return Some((**source).clone());
+        }
+        if matches!(target, PanelTarget::Location(Location::Remote(remote)) if remote.parent().is_none())
+        {
+            return self.location().cloned();
+        }
+        self.current().map(|row| row.location.clone())
+    }
+
+    /// The typed destination represented by the current parent row.
+    pub fn parent_target(&self) -> Option<PanelTarget> {
+        self.entries
+            .iter()
+            .find(|row| row.is_parent)
+            .map(|row| Self::parent_row_target(&row.path, &row.location))
+    }
+
+    /// Maps a parent row to a typed panel destination, including Windows'
+    /// drive overview, which has no native path.
+    pub fn parent_row_target(path: &Path, location: &Location) -> PanelTarget {
+        if path.as_os_str().is_empty() {
+            PanelTarget::Places
+        } else {
+            PanelTarget::Location(location.clone())
+        }
+    }
+
+    /// Captures the options needed to read a target away from the UI thread.
+    pub fn listing_request(
+        &self,
+        target: PanelTarget,
+        allow_ancestor_fallback: bool,
+        preserve_search: bool,
+    ) -> ListingRequest {
+        let remote_origin = if matches!(target.location(), Some(Location::Remote(_))) {
+            if self.is_remote() {
+                self.remote_origin.clone()
+            } else {
+                self.location().cloned()
+            }
+        } else {
+            self.remote_origin.clone()
+        };
+        let search_hits = (preserve_search
+            && target == self.target()
+            && matches!(self.content(), PanelContent::Search { .. }))
+        .then(|| {
+            self.all
+                .iter()
+                .map(|row| crate::listing::ListingRow {
+                    entry: row.entry.clone(),
+                    location: row.location.clone(),
+                    depth: row.depth,
+                    hit_line: row.hit_line.clone(),
+                })
+                .collect()
+        });
+        ListingRequest {
+            target,
+            tree: self.tree,
+            expanded: self.expanded.clone(),
+            sort: self.sort,
+            remote_origin,
+            allow_ancestor_fallback,
+            search_hits,
+            force_remote_refresh: false,
+        }
+    }
+
+    /// Applies a completed listing while preserving the current filter,
+    /// selection, marks, and size cache when the typed target is unchanged.
+    pub fn apply_listing(&mut self, snapshot: ListingSnapshot, selected: Option<Location>) {
+        let old_target = self.target();
+        let same_target = old_target == snapshot.target;
+        if !same_target {
+            self.marked.clear();
+            self.filter.clear();
+            self.clear_sizes();
+        }
+        if !snapshot.search_results {
+            self.content = match snapshot.target.clone() {
+                PanelTarget::Location(location) => PanelContent::Directory(location),
+                PanelTarget::Places => PanelContent::Places,
+            };
+        }
+        self.remote_origin = snapshot.remote_origin.clone();
+        self.mount = match self.location() {
+            Some(Location::Archive { source, .. }) => {
+                let file = source.as_local_path().expect("archive source is local");
+                Some(Mount::loaded(file.to_path_buf()))
+            }
+            _ => None,
+        };
+        self.all = snapshot
+            .rows
+            .into_iter()
+            .map(|row| Row {
+                entry: row.entry,
+                location: row.location,
+                depth: row.depth,
+                hit_line: row.hit_line,
+            })
+            .collect();
+        self.apply_sizes_to_rows();
+        sort_row_tree(&mut self.all, 0, self.sort);
+        self.generation = self.generation.wrapping_add(1);
+        self.marked
+            .retain(|location| self.all.iter().any(|row| &row.location == location));
+        self.apply_filter();
+        if !self.select_location(selected.as_ref()) {
+            self.set_cursor(self.cursor);
+        }
+    }
+
+    /// Commits a successful navigation and records the directory left behind.
+    pub fn commit_navigation_listing(
+        &mut self,
+        snapshot: ListingSnapshot,
+        selected: Option<Location>,
+    ) {
+        let left = self.visit();
+        self.apply_listing(snapshot, selected);
+        if let Some(visit) = left
+            .clone()
+            .filter(|visit| Some(&visit.path) != self.location())
+        {
+            history::push_capped(&mut self.back, visit);
+            self.forward.clear();
+        }
+    }
+
+    /// Returns the next typed history location and saved cursor identity.
+    pub fn history_visit(
+        &self,
+        back: bool,
+    ) -> Option<(Location, Option<Location>, Option<Location>)> {
+        let list = if back { &self.back } else { &self.forward };
+        list.last().map(|visit| {
+            (
+                visit.path.clone(),
+                visit.selected.clone(),
+                visit.remote_origin.clone(),
+            )
+        })
+    }
+
+    /// Applies a successful Back or Forward listing and updates both stacks.
+    pub fn commit_history_listing(
+        &mut self,
+        snapshot: ListingSnapshot,
+        back: bool,
+        selected: Option<Location>,
+    ) {
+        let here = self.visit();
+        let next_target = snapshot.target.clone();
+        let from = if back {
+            &mut self.back
+        } else {
+            &mut self.forward
+        };
+        if from
+            .last()
+            .is_some_and(|visit| Some(&visit.path) == next_target.location())
+        {
+            from.pop();
+        }
+        self.apply_listing(snapshot, selected);
+        if let Some(here) = here {
+            history::push_capped(
+                if back {
+                    &mut self.forward
+                } else {
+                    &mut self.back
+                },
+                here,
+            );
+        }
+    }
+
+    /// Re-sorts cached rows by sibling group without reading the filesystem.
+    pub fn sort_cached(&mut self) {
+        sort_row_tree(&mut self.all, 0, self.sort);
+        self.apply_filter();
+    }
+
+    /// Refreshes row directory-size values from the model's current cache.
+    fn apply_sizes_to_rows(&mut self) {
+        for row in &mut self.all {
+            if let Some(size) = self.sizes.get(&row.path) {
+                row.entry.size = size.bytes;
+            }
         }
     }
 
@@ -221,6 +453,11 @@ impl Folder {
         self.tree && self.mount.is_none() && self.expanded.contains(location)
     }
 
+    /// Returns the current typed expansion set for service listing requests.
+    pub fn expanded_locations(&self) -> HashSet<Location> {
+        self.expanded.clone()
+    }
+
     pub fn is_marked(&self, location: &Location) -> bool {
         self.marked.contains(location)
     }
@@ -251,6 +488,7 @@ impl Folder {
     /// Re-reads the current directory, keeping cursor entry and marks.
     /// Search results are not re-run; entries that disappeared are dropped.
     /// While an archive is being read it does nothing (the placeholder stays).
+    #[cfg(test)]
     pub fn load(&mut self) -> Result<(), String> {
         if self.is_loading() {
             return Ok(());
@@ -285,6 +523,7 @@ impl Folder {
 
     /// Like [`Folder::load`], but also forgets computed directory sizes,
     /// which may be stale.
+    #[cfg(test)]
     pub fn refresh(&mut self) -> Option<String> {
         self.clear_sizes();
         self.load_or_ancestor()
@@ -292,6 +531,7 @@ impl Folder {
 
     /// Loads the current directory, or else its nearest readable ancestor.
     /// Returns the first error, if any.
+    #[cfg(test)]
     pub fn load_or_ancestor(&mut self) -> Option<String> {
         let mut first_error = None;
         while let Err(e) = self.load() {
@@ -320,6 +560,7 @@ impl Folder {
     }
 
     /// Changes directory, putting the cursor on the directory we came from.
+    #[cfg(test)]
     pub fn navigate(&mut self, path: PathBuf) -> Result<(), String> {
         let location = Location::from_panel_path(&path, self.archive())
             .map_err(|e| format!("{}: {e}", fs_ops::display_path(&path)))?;
@@ -327,6 +568,7 @@ impl Folder {
     }
 
     /// Changes to a typed address, putting the cursor on the directory we came from.
+    #[cfg(test)]
     pub fn navigate_location(&mut self, location: Location) -> Result<(), String> {
         let selected = match (self.location(), &location) {
             (Some(Location::Archive { source, member }), Location::Local(destination))
@@ -344,6 +586,7 @@ impl Folder {
     }
 
     /// Changes to a typed panel destination, including the places overview.
+    #[cfg(test)]
     pub fn navigate_target(&mut self, target: PanelTarget) -> Result<(), String> {
         match target.clone().into_location() {
             Some(location) => self.navigate_location(location),
@@ -352,6 +595,7 @@ impl Folder {
     }
 
     /// While an archive is being read, going up cancels the read instead.
+    #[cfg(test)]
     pub fn go_up(&mut self) -> Result<(), String> {
         if self.is_loading() {
             self.end_archive_load(true);
@@ -366,6 +610,7 @@ impl Folder {
         }
     }
 
+    #[cfg(test)]
     pub fn activate(&mut self) -> Result<Activation, String> {
         let Some(entry) = self.current().cloned() else {
             return Ok(Activation::Nothing);
@@ -407,6 +652,7 @@ impl Folder {
     }
 
     /// Loads a typed address, preserving its kind during history travel.
+    #[cfg(test)]
     fn replace_untracked_location(
         &mut self,
         requested: Location,
@@ -464,8 +710,9 @@ impl Folder {
 
     /// Appends the sorted listing of `dir`, recursing into expanded
     /// directories in tree mode. Unreadable subdirectories list as empty.
+    #[cfg(test)]
     fn list(&self, dir: &Path, depth: usize, out: &mut Vec<Row>) -> io::Result<()> {
-        let mut entries = fs_ops::read_dir(dir, self.show_hidden)?;
+        let mut entries = fs_ops::read_dir(dir, true)?;
         if depth > 0 {
             entries.retain(|e| !e.is_parent);
         }
@@ -510,10 +757,79 @@ impl Folder {
     }
 }
 
+fn sort_row_tree(rows: &mut Vec<Row>, depth: usize, sort: Sort) {
+    let mut groups: Vec<Vec<Row>> = Vec::new();
+    for row in rows.drain(..) {
+        if row.depth == depth {
+            groups.push(vec![row]);
+        } else if let Some(group) = groups.last_mut() {
+            group.push(row);
+        }
+    }
+    groups.sort_by(|a, b| {
+        fs_ops::compare_entries(&a[0].entry, &b[0].entry, sort.key, sort.descending)
+    });
+    for mut group in groups {
+        if group.len() > 1 {
+            let mut children = group.split_off(1);
+            sort_row_tree(&mut children, depth + 1, sort);
+            group.extend(children);
+        }
+        rows.extend(group);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::listing::ListingService;
     use crate::model::test_support::{fixture, loaded, names};
+    use std::sync::atomic::AtomicBool;
+
+    #[test]
+    fn service_refresh_preserves_search_but_navigation_exits_it() {
+        let dir = fixture();
+        let mut folder = loaded(&dir);
+        folder.show_results(dir.path().to_path_buf(), "Search docs".into());
+        let vanished = dir.path().join("b.txt");
+        folder.add_results(vec![crate::search::Hit {
+            entry: Entry {
+                name: "b.txt".into(),
+                path: vanished.clone(),
+                is_dir: false,
+                is_parent: false,
+                size: 1,
+                modified: None,
+                attrs: Default::default(),
+                link: Default::default(),
+            },
+            line: None,
+        }]);
+        std::fs::remove_file(vanished).unwrap();
+        let refresh = folder.listing_request(folder.target(), false, true);
+        let snapshot = ListingService::default()
+            .list(&refresh, &AtomicBool::new(false))
+            .unwrap();
+        folder.apply_listing(snapshot, None);
+        assert_eq!(folder.results(), Some("Search docs"));
+        assert!(!folder.entries().iter().any(|row| row.name == "b.txt"));
+
+        let navigation = folder.listing_request(folder.target(), false, false);
+        let snapshot = ListingService::default()
+            .list(&navigation, &AtomicBool::new(false))
+            .unwrap();
+        folder.apply_listing(snapshot, None);
+        assert_eq!(folder.results(), None);
+        assert!(folder.entries().iter().any(|row| row.name == "a.txt"));
+    }
+
+    #[test]
+    fn typed_places_navigation_uses_the_panel_target_without_a_native_path() {
+        let dir = fixture();
+        let mut folder = loaded(&dir);
+        folder.navigate_target(PanelTarget::Places).unwrap();
+        assert_eq!(folder.content(), &PanelContent::Places);
+    }
 
     #[test]
     fn lists_sorted_without_hidden() {
@@ -561,6 +877,15 @@ mod tests {
         assert!(Folder::new("relative".into()).is_err());
         assert!(Folder::new("nas:relative".into()).is_err());
         assert!(Folder::new(PathBuf::new()).is_ok());
+    }
+
+    #[test]
+    fn empty_parent_row_targets_places_without_a_fake_local_path() {
+        let root = Location::local(PathBuf::from("/")).unwrap();
+        assert_eq!(
+            Folder::parent_row_target(Path::new(""), &root),
+            PanelTarget::Places
+        );
     }
 
     #[test]

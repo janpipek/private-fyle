@@ -1,22 +1,39 @@
 //! Browsing archives like directories, including the two-step load of an
 //! archive that is not cached yet.
 
-use std::io;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
 use std::sync::Arc;
 
-use super::{Entry, Folder, PanelContent, Row};
+use super::Folder;
+#[cfg(test)]
+use super::{Entry, PanelContent, Row};
 use crate::archive;
 use crate::fs_ops;
+#[cfg(test)]
 use crate::links::LinkState;
 use crate::location::Location;
+#[cfg(test)]
+use std::io;
 
 /// An archive shown as a directory tree.
 #[derive(Clone)]
 pub struct Mount {
     /// The local archive file whose index is mounted.
     pub file: PathBuf,
+    #[cfg(test)]
     index: Arc<archive::Index>,
+}
+
+impl Mount {
+    /// Holds an index already read by the listing service.
+    pub fn loaded(file: PathBuf) -> Self {
+        Self {
+            file,
+            #[cfg(test)]
+            index: Arc::default(),
+        }
+    }
 }
 
 impl Folder {
@@ -27,8 +44,10 @@ impl Folder {
 
     /// The location inside the archive being browsed (empty at its root).
     pub fn inner_path(&self) -> Option<String> {
-        let mount = self.mount.as_ref()?;
-        archive::inner_of(&mount.file, &self.path())
+        self.location().and_then(|location| match location {
+            Location::Archive { member, .. } => Some(member.as_str().to_owned()),
+            _ => None,
+        })
     }
 
     /// The archive and the inner paths of [`Folder::target_locations`], for
@@ -53,6 +72,7 @@ impl Folder {
     /// The archive file that must be read before `path` can be shown, if
     /// `path` is inside one that is not cached yet (see
     /// [`archive::Index::cached`]). Showing it would block on that read.
+    #[cfg(test)]
     pub fn archive_needed(&self, path: &Path) -> Option<PathBuf> {
         if crate::remote::is_remote(path) || path.as_os_str().is_empty() || path.is_dir() {
             return None;
@@ -63,8 +83,11 @@ impl Folder {
 
     /// Where [`Folder::activate`] would go: the cursor entry if it is a
     /// folder or an archive.
-    pub fn activation_target(&self) -> Option<Location> {
+    pub fn activation_target(&self) -> Option<crate::location::PanelTarget> {
         let entry = self.current()?;
+        if entry.is_parent {
+            return Some(Self::parent_row_target(&entry.path, &entry.location));
+        }
         (entry.is_dir
             || (self.mount.is_none()
                 && !self.is_remote()
@@ -72,12 +95,13 @@ impl Folder {
                     .location
                     .as_local_path()
                     .is_some_and(|path| archive::format_of(path).is_some())))
-        .then(|| entry.location.clone())
+        .then(|| crate::location::PanelTarget::Location(entry.location.clone()))
     }
 
     /// Shows an empty listing of the archive location `target` while its
     /// archive is read elsewhere (see [`Folder::archive_needed`]). The
     /// previous state comes back with [`Folder::end_archive_load`].
+    #[cfg(test)]
     pub fn begin_archive_load(&mut self, target: PathBuf) {
         self.end_archive_load(false);
         let Some(file) = self.archive_needed(&target) else {
@@ -114,12 +138,20 @@ impl Folder {
 
     /// Whether an archive is being read for this folder.
     pub fn is_loading(&self) -> bool {
-        self.loading.is_some()
+        #[cfg(test)]
+        {
+            self.loading.is_some()
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
     }
 
     /// Ends [`Folder::begin_archive_load`], restoring the previous state.
     /// With `leave`, the cursor goes to the archive in its containing
     /// directory (used when the read is cancelled).
+    #[cfg(test)]
     pub fn end_archive_load(&mut self, leave: bool) {
         let Some(saved) = self.loading.take() else {
             return;
@@ -149,6 +181,7 @@ impl Folder {
     /// The archive (and the inner path in it) that `path` is in, if it is
     /// not an ordinary directory. The archive is read again only when it
     /// changed on disk ([`archive::Index::cached`]).
+    #[cfg(test)]
     pub fn mount_for(&self, path: &Path) -> io::Result<Option<(Mount, String)>> {
         if crate::remote::is_remote(path) || path.as_os_str().is_empty() || path.is_dir() {
             return Ok(None);
@@ -163,6 +196,7 @@ impl Folder {
 
     /// Appends the sorted listing of the archive directory `inner`, with
     /// ".." leading to the parent (the containing directory at the root).
+    #[cfg(test)]
     pub fn list_archive(&self, mount: &Mount, inner: &str, out: &mut Vec<Row>) -> io::Result<()> {
         if !mount.index.is_dir(inner) {
             return Err(io::Error::new(
@@ -188,30 +222,24 @@ impl Folder {
                 link: Default::default(),
             })
             .collect();
-        entries.extend(
-            mount
-                .index
-                .list(inner)
-                .filter(|node| self.show_hidden || !node.name.starts_with('.'))
-                .map(|node| Entry {
-                    name: node.name.clone(),
-                    path: archive::virtual_path(&mount.file, &node.path),
-                    is_dir: node.is_dir(),
-                    is_parent: false,
-                    size: node.size,
-                    modified: node.modified,
-                    attrs: fs_ops::Attrs {
-                        mode: node.mode,
-                        ..Default::default()
-                    },
-                    link: match &node.kind {
-                        archive::Kind::Symlink(target) => LinkState::Link {
-                            target: target.into(),
-                        },
-                        _ => LinkState::NotLink,
-                    },
-                }),
-        );
+        entries.extend(mount.index.list(inner).map(|node| Entry {
+            name: node.name.clone(),
+            path: archive::virtual_path(&mount.file, &node.path),
+            is_dir: node.is_dir(),
+            is_parent: false,
+            size: node.size,
+            modified: node.modified,
+            attrs: fs_ops::Attrs {
+                mode: node.mode,
+                ..Default::default()
+            },
+            link: match &node.kind {
+                archive::Kind::Symlink(target) => LinkState::Link {
+                    target: target.into(),
+                },
+                _ => LinkState::NotLink,
+            },
+        }));
         fs_ops::sort_entries(&mut entries, self.sort.key, self.sort.descending);
         out.extend(entries.into_iter().map(|entry| {
             Row {
@@ -338,9 +366,11 @@ mod tests {
         assert_eq!(folder.archive(), None);
         assert_eq!(folder.current().unwrap().path, zip);
 
-        // Toggling hidden files drops the loading state too.
+        // The legacy test-only loading placeholder is independent of a pure
+        // hidden-file option change; cancel it explicitly as the view does.
         folder.begin_archive_load(zip.clone());
         assert_eq!(folder.set_show_hidden(true), None);
+        folder.end_archive_load(false);
         assert!(!folder.is_loading());
         assert_eq!(folder.archive(), None);
 

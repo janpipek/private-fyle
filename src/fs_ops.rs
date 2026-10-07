@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::time::SystemTime;
 
 use crate::links::LinkState;
@@ -140,25 +141,28 @@ pub enum SortKey {
 
 /// Sorts with ".." first and directories before files, regardless of order.
 pub fn sort_entries(entries: &mut [Entry], key: SortKey, descending: bool) {
-    entries.sort_by(|a, b| {
-        b.is_parent
-            .cmp(&a.is_parent)
-            .then_with(|| b.is_dir.cmp(&a.is_dir))
-            .then_with(|| {
-                let by_name = || natural_cmp(&a.name, &b.name);
-                let ord = match key {
-                    SortKey::Name => by_name(),
-                    SortKey::Ext => a
-                        .ext()
-                        .to_lowercase()
-                        .cmp(&b.ext().to_lowercase())
-                        .then_with(by_name),
-                    SortKey::Size => a.size.cmp(&b.size).then_with(by_name),
-                    SortKey::Modified => a.modified.cmp(&b.modified).then_with(by_name),
-                };
-                if descending { ord.reverse() } else { ord }
-            })
-    });
+    entries.sort_by(|a, b| compare_entries(a, b, key, descending));
+}
+
+/// Compares two rows using the same ordering as [`sort_entries`].
+pub fn compare_entries(a: &Entry, b: &Entry, key: SortKey, descending: bool) -> Ordering {
+    b.is_parent
+        .cmp(&a.is_parent)
+        .then_with(|| b.is_dir.cmp(&a.is_dir))
+        .then_with(|| {
+            let by_name = || natural_cmp(&a.name, &b.name);
+            let ord = match key {
+                SortKey::Name => by_name(),
+                SortKey::Ext => a
+                    .ext()
+                    .to_lowercase()
+                    .cmp(&b.ext().to_lowercase())
+                    .then_with(by_name),
+                SortKey::Size => a.size.cmp(&b.size).then_with(by_name),
+                SortKey::Modified => a.modified.cmp(&b.modified).then_with(by_name),
+            };
+            if descending { ord.reverse() } else { ord }
+        })
 }
 
 /// Case-insensitive "natural" order: runs of digits compare by numeric
@@ -218,7 +222,37 @@ pub fn display_path(dir: &Path) -> String {
 }
 
 /// Lists `dir` (unsorted), with a ".." entry when there is a parent.
+#[cfg(test)]
 pub fn read_dir(dir: &Path, show_hidden: bool) -> io::Result<Vec<Entry>> {
+    read_dir_cancellable(dir, show_hidden, None)
+}
+
+/// Lists a directory while checking cancellation between entries and before
+/// metadata probes. Returns `Interrupted` when the worker has been cancelled.
+pub fn read_dir_cancellable(
+    dir: &Path,
+    show_hidden: bool,
+    cancel: Option<&AtomicBool>,
+) -> io::Result<Vec<Entry>> {
+    let mut check_cancel = || {
+        if cancel.is_some_and(|flag| flag.load(AtomicOrdering::Relaxed)) {
+            Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "listing cancelled",
+            ))
+        } else {
+            Ok(())
+        }
+    };
+    read_dir_with_check(dir, show_hidden, &mut check_cancel)
+}
+
+fn read_dir_with_check(
+    dir: &Path,
+    show_hidden: bool,
+    check_cancel: &mut dyn FnMut() -> io::Result<()>,
+) -> io::Result<Vec<Entry>> {
+    check_cancel()?;
     if dir.as_os_str().is_empty() {
         return Ok(drives());
     }
@@ -236,9 +270,11 @@ pub fn read_dir(dir: &Path, show_hidden: bool) -> io::Result<Vec<Entry>> {
         });
     }
     for item in fs::read_dir(dir)? {
+        check_cancel()?;
         let Ok(item) = item else { continue };
         let name = item.file_name().to_string_lossy().into_owned();
         let path = item.path();
+        check_cancel()?;
         // Follow symlinks so linked directories can be entered.
         let followed = fs::metadata(&path);
         let meta = followed
@@ -423,6 +459,27 @@ pub fn format_time(time: SystemTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
+    use tempfile::TempDir;
+
+    #[test]
+    fn cancellation_is_checked_between_entries_and_metadata() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("entry"), "data").unwrap();
+        let checks = Cell::new(0);
+        let mut check = || {
+            let count = checks.get() + 1;
+            checks.set(count);
+            if count == 3 {
+                Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"))
+            } else {
+                Ok(())
+            }
+        };
+        let error = read_dir_with_check(dir.path(), false, &mut check).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+        assert_eq!(checks.get(), 3);
+    }
 
     #[test]
     fn splits_extension_off_the_last_component() {

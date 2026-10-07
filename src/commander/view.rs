@@ -16,6 +16,7 @@ use super::keys::{
     CalculateSizes, Collapse, Expand, Filter, InvertSelection, Refresh, SelectAll, SelectPattern,
     ToggleHidden, ToggleMark, TogglePreview, ToggleTree, Unmark,
 };
+use super::location::ListingCommit;
 use crate::dirsize::{self, DirSize};
 use crate::fs_ops;
 use crate::grid::ViewMode;
@@ -45,19 +46,23 @@ impl Commander {
             .preview_on
             .then(|| self.folders[self.active].read(cx).current())
             .flatten();
-        let mut target = row.map(|row| row.path.clone());
+        let mut target = row.and_then(|row| match &row.location {
+            crate::location::Location::Local(local) => Some(local.as_path().to_path_buf()),
+            crate::location::Location::Remote(_) => None,
+            crate::location::Location::Archive { .. } => Some(row.path.clone()),
+        });
         let line = row.and_then(|row| row.hit_line.as_ref()).map(|(n, _)| *n);
         let remote = row
-            .filter(|row| crate::remote::is_remote(&row.path))
-            .map(|row| (row.path.clone(), row.size, row.is_dir || row.is_parent));
-        if let Some((path, size, folder)) = remote {
+            .filter(|row| matches!(&row.location, crate::location::Location::Remote(_)))
+            .map(|row| (row.location.clone(), row.size, row.is_dir || row.is_parent));
+        if let Some((location, size, folder)) = remote {
             // Never read a remote path from the disk: show its downloaded
             // copy once there is one (small files only).
             target = if folder {
                 self.remote_preview = Default::default();
                 None
             } else {
-                self.remote_preview_target(path, size, window, cx)
+                self.remote_preview_target(location, size, window, cx)
             };
         }
         self.preview.update(cx, |preview, cx| {
@@ -65,12 +70,22 @@ impl Commander {
         });
     }
 
-    pub fn toggle_tree(&mut self, _: &ToggleTree, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn toggle_tree(&mut self, _: &ToggleTree, window: &mut Window, cx: &mut Context<Self>) {
         if self.tree_unavailable(cx) {
             return;
         }
-        let error = self.update_folder(cx, |f| f.set_tree(!f.is_tree()));
-        self.set_error(error.map_or(Ok(()), Err), cx);
+        let target = self.folders[self.active].read(cx).target();
+        self.update_folder(cx, |folder| {
+            folder.set_tree(!folder.is_tree());
+        });
+        self.load_panel_listing(
+            self.active,
+            target,
+            ListingCommit::Options,
+            false,
+            window,
+            cx,
+        );
     }
 
     /// Tree mode belongs to the list: in icon view, says so in the status.
@@ -91,20 +106,45 @@ impl Commander {
         true
     }
 
-    pub fn expand(&mut self, _: &Expand, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn expand(&mut self, _: &Expand, window: &mut Window, cx: &mut Context<Self>) {
         if self.tree_unavailable(cx) {
             return;
         }
+        let panel = self.active;
+        let (target, needs_load) = {
+            let folder = self.folders[panel].read(cx);
+            let target = folder.target();
+            let needs_load = folder
+                .current()
+                .filter(|row| row.is_dir && !row.is_parent)
+                .is_some_and(|row| !folder.is_expanded(&row.location));
+            (target, needs_load)
+        };
         let error = self.update_folder(cx, Folder::expand);
         self.set_error(error.map_or(Ok(()), Err), cx);
+        if needs_load {
+            self.load_panel_listing(panel, target, ListingCommit::Options, false, window, cx);
+        }
     }
 
-    pub fn collapse(&mut self, _: &Collapse, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn collapse(&mut self, _: &Collapse, window: &mut Window, cx: &mut Context<Self>) {
         if self.tree_unavailable(cx) {
             return;
         }
+        let panel = self.active;
+        let (target, needs_load) = {
+            let folder = self.folders[panel].read(cx);
+            let target = folder.target();
+            let needs_load = folder
+                .current()
+                .is_some_and(|row| folder.is_expanded(&row.location));
+            (target, needs_load)
+        };
         let error = self.update_folder(cx, Folder::collapse);
         self.set_error(error.map_or(Ok(()), Err), cx);
+        if needs_load {
+            self.load_panel_listing(panel, target, ListingCommit::Options, false, window, cx);
+        }
     }
 
     pub fn toggle_mark(&mut self, _: &ToggleMark, _: &mut Window, cx: &mut Context<Self>) {
@@ -219,31 +259,13 @@ impl Commander {
 
     /// Ctrl-R: reloads both panels and forgets computed folder sizes
     /// (stopping the scans that would recompute them).
-    pub fn refresh(&mut self, action: &Refresh, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn refresh(&mut self, _: &Refresh, window: &mut Window, cx: &mut Context<Self>) {
         for ix in 0..2 {
             self.stop_size_scan(ix);
         }
         for ix in 0..2 {
-            // A remote folder is listed again in the background.
-            if self.folders[ix].read(cx).is_remote() {
-                self.reload_remote(ix, cx);
-                continue;
-            }
-            // An archive changed on disk is read again in the background.
-            let target = Some(self.folders[ix].read(cx).path().to_path_buf());
-            let action = action.clone();
-            if self.defer_archive_read(ix, target, window, cx, move |this, window, cx| {
-                this.refresh(&action, window, cx)
-            }) {
-                continue;
-            }
-            let folder = self.folders[ix].clone();
-            if let Some(e) = folder.update(cx, |folder, cx| {
-                cx.notify();
-                folder.refresh()
-            }) {
-                self.status = e.into();
-            }
+            let target = self.folders[ix].read(cx).target();
+            self.load_panel_listing(ix, target, ListingCommit::Refresh, true, window, cx);
         }
         cx.notify();
     }
@@ -284,7 +306,10 @@ impl Commander {
         self.stop_size_scan(ix);
         let location = |folder: &Folder| {
             (
-                folder.path().to_path_buf(),
+                folder
+                    .local_directory()
+                    .map(PathBuf::from)
+                    .unwrap_or_default(),
                 folder.results().map(str::to_string),
             )
         };
@@ -389,14 +414,16 @@ impl Commander {
         });
     }
 
-    pub fn toggle_hidden(&mut self, _: &ToggleHidden, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn toggle_hidden(&mut self, _: &ToggleHidden, window: &mut Window, cx: &mut Context<Self>) {
         self.show_hidden = !self.show_hidden;
         let show_hidden = self.show_hidden;
-        for folder in &self.folders {
-            folder.update(cx, |folder, cx| {
+        for ix in 0..2 {
+            let target = self.folders[ix].read(cx).target();
+            self.folders[ix].update(cx, |folder, cx| {
                 folder.set_show_hidden(show_hidden);
                 cx.notify();
             });
+            self.load_panel_listing(ix, target, ListingCommit::Options, false, window, cx);
         }
         cx.notify();
     }

@@ -19,11 +19,19 @@ impl Commander {
             return;
         }
         let folder = self.folders[self.active].read(cx);
-        let path = match folder.current() {
-            Some(row) if !row.is_parent => row.path.clone(),
-            _ => folder.path().to_path_buf(),
+        let location = match folder.current() {
+            Some(row) if !row.is_parent => row.location.clone(),
+            _ => match folder.location() {
+                Some(location) => location.clone(),
+                None => {
+                    self.status = "Drives: not a remote folder".into();
+                    cx.notify();
+                    return;
+                }
+            },
         };
-        let (provider, location) = match self.resolve_remote(&path) {
+        let path = location.panel_path();
+        let (provider, location) = match self.resolve_remote(&location) {
             Ok(found) => found,
             Err(message) => {
                 self.status = message.into();

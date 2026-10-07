@@ -143,8 +143,20 @@ impl Commander {
         let id = self.next_job_id;
         self.next_job_id += 1;
         let worker = progress.clone();
+        let restore_paths = restore_yank.as_ref().map(|(_, yank)| yank.paths.clone());
         let task = cx.spawn_in(window, async move |this, cx| {
-            let outcome = cx.background_spawn(async move { work(&worker) }).await;
+            let (outcome, existing_yank_paths) = cx
+                .background_spawn(async move {
+                    let outcome = work(&worker);
+                    let existing = restore_paths.map(|paths| {
+                        paths
+                            .into_iter()
+                            .filter(|path| std::fs::symlink_metadata(path).is_ok())
+                            .collect::<Vec<_>>()
+                    });
+                    (outcome, existing)
+                })
+                .await;
             let _ = this.update_in(cx, |this, window, cx| {
                 this.jobs.retain(|job| job.id != id);
                 if this.active_conflict.is_some_and(|active| active.0 == id) {
@@ -152,13 +164,12 @@ impl Commander {
                     window.close_dialog(cx);
                 }
                 if let Some((generation, mut yank)) = restore_yank {
-                    yank.paths
-                        .retain(|path| std::fs::symlink_metadata(path).is_ok());
+                    yank.paths = existing_yank_paths.unwrap_or_default();
                     if this.yank_generation == generation && this.yank.is_none() {
                         this.yank = (!yank.paths.is_empty()).then_some(yank);
                     }
                 }
-                this.reload_all(cx);
+                this.reload_all(window, cx);
                 let mut status =
                     summarize(kind.verb().1, kind.unit(), outcome.done, &outcome.errors);
                 if outcome.skipped > 0 {

@@ -1,19 +1,29 @@
 //! Cached remote listings and navigation metadata; never starts remote I/O.
 
+#[cfg(test)]
 use std::collections::HashMap;
+#[cfg(test)]
 use std::io;
+#[cfg(test)]
 use std::path::{Path, PathBuf};
+#[cfg(test)]
 use std::sync::Arc;
 
-use super::{Entry, Folder, PanelContent, Row};
+use super::Folder;
+#[cfg(test)]
+use super::{Entry, PanelContent, Row};
+#[cfg(test)]
+use crate::fs_ops;
 use crate::location::Location;
-use crate::{fs_ops, remote};
+use crate::remote;
 
 /// Folders whose listings a panel keeps, so Back, Forward and Up are instant.
+#[cfg(test)]
 const LISTING_CAP: usize = 32;
 
 /// The most recently loaded remote listings of one panel, by panel path.
 /// Clones share the listings, because panels are cloned for background work.
+#[cfg(test)]
 #[derive(Clone, Default)]
 pub struct ListingCache {
     listings: HashMap<remote::Location, Arc<Vec<Entry>>>,
@@ -21,6 +31,7 @@ pub struct ListingCache {
     order: Vec<remote::Location>,
 }
 
+#[cfg(test)]
 impl ListingCache {
     /// Stores (or replaces) a listing; beyond the cap the oldest other than
     /// `keep` (the folder on show) is dropped.
@@ -58,6 +69,7 @@ impl Folder {
     }
 
     /// Installs a background result before navigation or history traversal.
+    #[cfg(test)]
     pub fn cache_remote(&mut self, path: PathBuf, entries: Vec<Entry>) {
         if !self.is_remote() {
             self.remote_origin = self.location().cloned();
@@ -74,6 +86,7 @@ impl Folder {
 
     /// Whether showing `path` needs a background listing first: it is
     /// remote and not cached.
+    #[cfg(test)]
     pub fn remote_needed(&self, path: &Path) -> bool {
         remote::Location::parse(path)
             .ok()
@@ -84,6 +97,7 @@ impl Folder {
     /// Shows an empty listing of the remote folder `target` while it is
     /// listed elsewhere (see [`Folder::remote_needed`]). The previous state
     /// comes back with [`Folder::end_archive_load`], which also cancels.
+    #[cfg(test)]
     pub fn begin_remote_load(&mut self, target: PathBuf) {
         self.end_archive_load(false);
         let saved = Box::new(self.clone());
@@ -101,6 +115,7 @@ impl Folder {
     }
 
     /// Parent of the current folder, including the return location at remote root.
+    #[cfg(test)]
     pub fn parent_location(&self) -> Option<PathBuf> {
         match self.location() {
             Some(Location::Remote(location)) => location
@@ -134,6 +149,7 @@ impl Folder {
 
     /// Lists the cached remote folder `location` with a ".." row; fails with
     /// `WouldBlock` when it was not loaded in the background first.
+    #[cfg(test)]
     pub fn list_remote(&self, location: &remote::Location, out: &mut Vec<Row>) -> io::Result<()> {
         let cached = self.remote_listings.get(location).ok_or_else(|| {
             io::Error::new(

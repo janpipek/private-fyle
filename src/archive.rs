@@ -8,8 +8,9 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, File};
-use std::io::{self, BufReader, Read, Write};
+use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -54,6 +55,7 @@ pub fn stem(file: &Path) -> String {
 }
 
 /// The path of `inner` inside `file`.
+#[cfg(test)]
 pub fn virtual_path(file: &Path, inner: &str) -> PathBuf {
     if inner.is_empty() {
         file.to_path_buf()
@@ -201,11 +203,18 @@ pub struct Index {
 
 impl Index {
     pub fn read(file: &Path) -> io::Result<Self> {
+        Self::read_inner(file, None)
+    }
+
+    fn read_inner(file: &Path, cancel: Option<&AtomicBool>) -> io::Result<Self> {
         let format = format_of(file).ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidInput, "not a supported archive")
         })?;
         let mut index = Self::default();
-        walk(file, format, &|_| false, &mut |raw, _| {
+        if cancel.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
+            return Err(cancelled());
+        }
+        walk(file, format, cancel, &|_| false, &mut |raw, _| {
             index.add(raw);
             Ok(true)
         })?;
@@ -218,6 +227,19 @@ impl Index {
     /// tar.gz means decompressing all of it, so listings, reloads and
     /// previews should go through here.
     pub fn cached(file: &Path) -> io::Result<Arc<Self>> {
+        Self::cached_inner(file, None)
+    }
+
+    /// Returns a cached archive index or reads one with cancellation checks.
+    /// A partial index is never inserted into the shared cache.
+    pub fn cached_cancellable(file: &Path, cancel: &AtomicBool) -> io::Result<Arc<Self>> {
+        Self::cached_inner(file, Some(cancel))
+    }
+
+    fn cached_inner(file: &Path, cancel: Option<&AtomicBool>) -> io::Result<Arc<Self>> {
+        if cancel.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
+            return Err(cancelled());
+        }
         let meta = fs::metadata(file)?;
         let (len, modified) = (meta.len(), meta.modified().ok());
         let mut cache = cache();
@@ -232,7 +254,10 @@ impl Index {
         }
         cache.retain(|(p, ..)| p != file);
         drop(cache);
-        let index = Arc::new(Self::read(file)?);
+        let index = Arc::new(match cancel {
+            Some(cancel) => Self::read_inner(file, Some(cancel))?,
+            None => Self::read(file)?,
+        });
         let mut cache = self::cache();
         cache.push((file.to_path_buf(), len, modified, index.clone()));
         if cache.len() > CACHE_KEPT {
@@ -242,6 +267,7 @@ impl Index {
     }
 
     /// Whether [`Index::cached`] would return `file` without reading it.
+    #[cfg(test)]
     pub fn is_cached(file: &Path) -> bool {
         let Ok(meta) = fs::metadata(file) else {
             return false;
@@ -397,10 +423,31 @@ fn zip_time(time: zip::DateTime) -> Option<SystemTime> {
 fn walk(
     file: &Path,
     format: Format,
+    cancel: Option<&AtomicBool>,
     wants: &dyn Fn(&str) -> bool,
     f: &mut dyn FnMut(Raw, &mut dyn Read) -> io::Result<bool>,
 ) -> io::Result<()> {
     let reader = BufReader::new(File::open(file)?);
+    match cancel {
+        Some(cancel) => walk_reader(
+            CancellableReader {
+                inner: reader,
+                cancel,
+            },
+            format,
+            wants,
+            f,
+        ),
+        None => walk_reader(reader, format, wants, f),
+    }
+}
+
+fn walk_reader<R: Read + Seek>(
+    reader: R,
+    format: Format,
+    wants: &dyn Fn(&str) -> bool,
+    f: &mut dyn FnMut(Raw, &mut dyn Read) -> io::Result<bool>,
+) -> io::Result<()> {
     match format {
         Format::Zip => walk_zip(reader, wants, f),
         Format::Tar => walk_tar(reader, f),
@@ -408,8 +455,8 @@ fn walk(
     }
 }
 
-fn walk_zip(
-    reader: BufReader<File>,
+fn walk_zip<R: Read + Seek>(
+    reader: R,
     wants: &dyn Fn(&str) -> bool,
     f: &mut dyn FnMut(Raw, &mut dyn Read) -> io::Result<bool>,
 ) -> io::Result<()> {
@@ -463,6 +510,33 @@ fn walk_zip(
     Ok(())
 }
 
+struct CancellableReader<'a> {
+    inner: BufReader<File>,
+    cancel: &'a AtomicBool,
+}
+
+impl Read for CancellableReader<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if self.cancel.load(Ordering::Relaxed) {
+            return Err(cancelled());
+        }
+        self.inner.read(buffer)
+    }
+}
+
+impl Seek for CancellableReader<'_> {
+    fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+        if self.cancel.load(Ordering::Relaxed) {
+            return Err(cancelled());
+        }
+        self.inner.seek(position)
+    }
+}
+
+fn cancelled() -> io::Error {
+    io::Error::new(io::ErrorKind::Interrupted, "archive listing cancelled")
+}
+
 fn walk_tar(
     reader: impl Read,
     f: &mut dyn FnMut(Raw, &mut dyn Read) -> io::Result<bool>,
@@ -506,7 +580,7 @@ pub fn read_file(file: &Path, inner: &str, limit: u64, out: &mut dyn Write) -> i
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "not a supported archive"))?;
     let mut found = false;
     let is_wanted = |name: &str| clean(name) == Cleaned::Path(inner.to_string());
-    walk(file, format, &is_wanted, &mut |raw, data| {
+    walk(file, format, None, &is_wanted, &mut |raw, data| {
         if !is_wanted(&raw.name) || raw.kind != Kind::File {
             return Ok(true);
         }
@@ -567,7 +641,7 @@ pub fn extract(
         _ => false,
     };
     let mut links = Vec::new();
-    walk(file, format, &is_wanted, &mut |raw, data| {
+    walk(file, format, None, &is_wanted, &mut |raw, data| {
         let path = match clean(&raw.name) {
             Cleaned::Root => return Ok(true),
             Cleaned::Unsafe => {
@@ -807,6 +881,30 @@ fn link_stays_inside(rel: &str, target: &str) -> bool {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn cancellable_archive_reader_stops_between_reads() {
+        use super::CancellableReader;
+        use std::fs::File;
+        use std::io::{BufReader, Read};
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("reader.bin");
+        fs::write(&file, b"archive data").unwrap();
+        let cancel = AtomicBool::new(false);
+        let mut reader = CancellableReader {
+            inner: BufReader::new(File::open(file).unwrap()),
+            cancel: &cancel,
+        };
+        let mut byte = [0; 1];
+        assert_eq!(reader.read(&mut byte).unwrap(), 1);
+        cancel.store(true, Ordering::Relaxed);
+        assert_eq!(
+            reader.read(&mut byte).unwrap_err().kind(),
+            io::ErrorKind::Interrupted
+        );
+    }
 
     /// An entry to put in a test archive.
     enum Item<'a> {

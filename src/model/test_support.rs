@@ -1,9 +1,13 @@
 //! Shared fixtures for the folder model tests.
 
 use std::fs;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tempfile::TempDir;
 
 use super::Folder;
+use crate::listing::ListingService;
+use crate::remote::Registry;
 
 /// A scratch folder with `sub/`, `a.txt`, `b.txt` and `.hidden`.
 pub fn fixture() -> TempDir {
@@ -23,4 +27,12 @@ pub fn loaded(dir: &TempDir) -> Folder {
     let mut folder = Folder::new(dir.path().to_path_buf()).unwrap();
     assert_eq!(folder.load_or_ancestor(), None);
     folder
+}
+
+pub fn reload(folder: &mut Folder) {
+    let service = ListingService::new(Arc::new(Registry::default()));
+    let request = folder.listing_request(folder.target(), false, false);
+    let snapshot = service.list(&request, &AtomicBool::new(false)).unwrap();
+    let selected = folder.current().map(|row| row.location.clone());
+    folder.apply_listing(snapshot, selected);
 }

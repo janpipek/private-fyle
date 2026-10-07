@@ -2,7 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{Entry, Folder, Row};
+#[cfg(test)]
+use super::Entry;
+use super::{Folder, Row};
 use crate::dirsize::DirSize;
 use crate::fs_ops::{self, SortKey};
 use crate::location::Location;
@@ -112,6 +114,7 @@ impl Folder {
 
     /// Replaces the size of listed directories by their computed size, so
     /// that sorting by size uses it.
+    #[cfg(test)]
     pub fn apply_sizes(&self, entries: &mut [Entry]) {
         if self.sizes.is_empty() {
             return;
@@ -161,7 +164,7 @@ mod tests {
     use super::*;
     use crate::fs_ops::SortKey;
     use crate::model::Sort;
-    use crate::model::test_support::{fixture, loaded, names};
+    use crate::model::test_support::{fixture, loaded, names, reload};
 
     use std::fs;
 
@@ -247,7 +250,9 @@ mod tests {
         fs::write(sub.join("inner.txt"), "12345").unwrap();
         let mut folder = loaded(&dir);
         folder.set_tree(true);
+        reload(&mut folder);
         folder.toggle_expanded(&Location::local(sub.clone()).unwrap());
+        reload(&mut folder);
         assert!(names(&folder).contains(&"inner.txt"));
         folder.mark_all();
         let total = folder.marked_total();

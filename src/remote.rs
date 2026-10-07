@@ -423,6 +423,7 @@ impl Registry {
     }
 
     /// The provider and location for a panel path; `Ok(None)` for local paths.
+    #[cfg(test)]
     pub fn resolve(&self, path: &Path) -> io::Result<Option<(Arc<dyn Provider>, Location)>> {
         let Some(location) = Location::parse(path)? else {
             return Ok(None);

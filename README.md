@@ -307,7 +307,12 @@ Model first: `src/model.rs` holds each panel's state (`Folder`: typed
 no UI code and its own unit tests. Navigation destinations use `PanelTarget`,
 which keeps the places overview separate from file addresses.
 `src/panel.rs` is a `DataTable` view on top of a `Folder`; it only renders the
-model and forwards cursor moves, sorting and double-clicks to it.
+model and forwards cursor moves, sorting and double-clicks to it. The
+UI-independent `src/listing.rs` service owns local, archive and remote listing
+I/O. Commander runs requests in cancellable background tasks and applies only
+the current result; `Folder` sorts and filters the cached rows without I/O.
+Each panel keeps a bounded cache of its last 32 remote listings, while explicit
+refreshes bypass that cache.
 `src/commander.rs` owns the two models and their views and implements the
 commands. `src/fs_ops.rs` contains the file system operations.
 `src/location.rs` identifies local paths, configured remote paths and archive
@@ -341,14 +346,12 @@ Linux mounts, bookmarks and frequent paths; `src/location_view.rs` renders
 them as the locations menu and the searchable picker. Path loading and place discovery run in the background.
 
 `src/archive.rs` reads zip, tar and tar.gz archives into an `Index` (a tree of
-nodes) and extracts entries. Inside an archive a panel's path is the archive
-file joined with the inner path (shown as `file.zip › inner/dir`); `Folder`
-mounts the index for such paths, so navigation, marks and sorting work as
-for directories, and preview loads an entry by extracting it to the preview
-cache. The first read of an archive runs in the background
-(`commander/archives.rs`; the panel shows the location with "Reading archive…",
-Esc cancels, navigating elsewhere drops the result); once cached (by path, size
-and modification time) navigation inside it is instant. Archives are
+nodes) and extracts entries. Inside an archive a panel has a typed archive
+location with its inner member (shown as `file.zip › inner/dir`); the listing
+service reads the index in the background, supports cancellation, and returns
+typed rows for navigation and sorting. Preview loads an entry by extracting it
+to the preview cache. The shared index cache is keyed by path, size and
+modification time. Archives are
 read-only. Extraction (`jobs::run_extract`) writes to a
 staging folder in the destination, then moves the result with the usual
 conflict resolution (the dialog names the archive entry, `file.zip › inner/name`,
@@ -362,13 +365,14 @@ Where things live (`src/`):
 | `main.rs` | Startup, settings, start directories, window |
 | `commander.rs`, `commander/` | Main window: the two panels, actions, dialogs, jobs bar, tools orchestration. Split by area into `commander/` (keys, navigation, search, files, jobs, view, archives, remotes, tools, menus, appearance); new logic goes into its own module, only wiring here. |
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
-| `model.rs`, `location.rs` | `Folder`: typed location, entries, cursor, marks, filter, sort, tree, search results, archive mount, directory size cache; `Location` native, remote and archive addresses |
+| `model.rs`, `location.rs` | `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results and directory size cache; `Location` native, remote and archive addresses |
+| `listing.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; typed snapshots and bounded per-panel remote listing cache |
 | `panel.rs` | `FolderView` (DataTable delegate `FileTable`), header with breadcrumbs, filter bar; shows the list or the icon grid |
 | `thumbnails.rs`, `thumb_queue.rs` | Icon view thumbnails: the freedesktop cache (URI and MD5 names, validity by `Thumb::MTime`, atomic writes, failure records) and the load scheduler with its LRU, both UI-independent and tested |
 | `grid.rs`, `icon_view.rs`, `glyphs.rs`, `context_menu.rs` | Icon view: `ViewMode`, icon sizes, `Layout` (columns for a width) and cursor moves (UI-independent, tested); the lazy `IconGrid` view; the `FileIcon` → glyph table and the right-click menu shared with the list |
 | `columns.rs` | `ColumnKind` catalog, grouped, ids like `exif.iso`. A new column is a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |
 | `fs_ops.rs`, `transfer.rs`, `jobs.rs` | `Entry` and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
-| `remote.rs`, `remote/` | Remote providers: `Provider` trait, `Location` paths, Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `model/remote.rs` holds the cached remote listings |
+| `remote.rs`, `remote/` | Remote providers: `Provider` trait, `Location` paths, Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache |
 | `archive.rs`, `dirsize.rs`, `links.rs` | Archive index and safe extraction; recursive sizes; symlink state |
 | `preview/`, `preview_view.rs` | `Previewer`s and their `Registry` (order: directory, image, pdf, media, archive, markdown, table, text, binary); one render arm per `Content` |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and the editor pane |
