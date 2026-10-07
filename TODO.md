@@ -11,8 +11,10 @@
       there (a pool would fix it); copy between two remotes; move between local
       and remote (copy then remove); bulk rename and per-byte progress; uploading
       edited cache copies back; search, tools, thumbnails and folder sizes on
-      remotes; remote bookmarks and frequent paths; opening a remote path given
-      on the command line; automatic refresh when a remote changes.
+      remotes; remote bookmarks; automatic refresh when a remote changes;
+      sizes of native Google Docs show as 0 (the size column cannot say
+      "unknown"); a web view for WebDAV and a check of the Proton share-ID
+      address; per-remote "Shared with me" is read-only on purpose.
 - [ ] Embedded terminal (idea, undecided): alacritty_terminal + PTY rendered
       in gpui as Zed does, vs. libghostty. Recommendation so far: none for
       now (F9 opens an external terminal); if wanted later,
@@ -35,6 +37,9 @@
 
 ## Done
 
+- [x] Remote start paths on the command line, remote folders in Frequent,
+      SFTP host aliases from `~/.ssh/config`, Open in Browser, Google Drive
+      duplicates and Shared with me (see README, Remote locations).
 - [x] Remote locations in the UI: Remotes group in Locations, `remote:/path` in
       the address bar and breadcrumbs, cancellable background listing with a
       32-folder cache per panel, transfers, remove, new folder, rename and open

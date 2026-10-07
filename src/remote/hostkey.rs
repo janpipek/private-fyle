@@ -11,6 +11,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use russh::client::Handler;
 use russh::keys::{PublicKey, PublicKeyOrCertificate, check_known_hosts_path};
+use ssh2_config::{ParseRule, SshConfig};
 
 /// The server a connect is in progress for, and why its key was rejected.
 #[derive(Default)]
@@ -96,6 +97,34 @@ pub fn rejection(host: &str, verdict: &Verdict) -> Option<String> {
     }
 }
 
+/// The server `host` really is when `~/.ssh/config` (the file at `config`)
+/// maps it to another `HostName` and `Port`, as ssh does; `port` from
+/// `remotes.toml` wins, like in the SFTP client. Unreadable or missing
+/// configuration changes nothing. `remotefs-ssh` resolves the same way when
+/// it connects, so known_hosts must be checked for the resolved server.
+pub fn resolve(host: &str, port: Option<u16>, config: &Path) -> (String, u16) {
+    let params = std::fs::File::open(config)
+        .ok()
+        .and_then(|file| {
+            let rules = ParseRule::ALLOW_UNKNOWN_FIELDS | ParseRule::ALLOW_UNSUPPORTED_FIELDS;
+            SshConfig::default()
+                .parse(&mut std::io::BufReader::new(file), rules)
+                .ok()
+        })
+        .map(|config| config.query(host));
+    let resolved = params
+        .as_ref()
+        .and_then(|p| p.host_name.clone())
+        .unwrap_or_else(|| host.to_owned());
+    let port = port.or_else(|| params.and_then(|p| p.port)).unwrap_or(22);
+    (resolved, port)
+}
+
+/// `~/.ssh/config`.
+pub fn ssh_config_file() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join(".ssh").join("config"))
+}
+
 fn known_hosts_file() -> Option<PathBuf> {
     dirs::home_dir().map(|home| home.join(".ssh").join("known_hosts"))
 }
@@ -148,7 +177,7 @@ impl Handler for KnownHostsCheck {
 
 #[cfg(test)]
 mod tests {
-    use super::{Verdict, rejection, verdict};
+    use super::{Verdict, rejection, resolve, verdict};
     use russh::keys::PublicKey;
 
     const KEY_A: &str = "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
@@ -193,6 +222,25 @@ mod tests {
             verdict("example.org", 22, &key(KEY_A), &path),
             Verdict::Unknown
         );
+    }
+
+    #[test]
+    fn ssh_config_aliases_resolve_to_the_real_host_and_port() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let config = dir.path().join("config");
+        std::fs::write(
+            &config,
+            "Host nas\n  HostName nas.example.org\n  Port 2222\n  Unknown yes\nHost *\n  User jan\n",
+        )
+        .expect("write config");
+        let nas = ("nas.example.org".to_owned(), 2222);
+        assert_eq!(resolve("nas", None, &config), nas);
+        // The port in remotes.toml wins over the config's.
+        assert_eq!(resolve("nas", Some(22), &config).1, 22);
+        // Other hosts and a missing file stay as configured.
+        assert_eq!(resolve("other", None, &config), ("other".to_owned(), 22));
+        let none = dir.path().join("none");
+        assert_eq!(resolve("nas", Some(2200), &none), ("nas".to_owned(), 2200));
     }
 
     #[test]

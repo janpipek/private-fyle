@@ -109,7 +109,7 @@ impl Commander {
             .collect::<Vec<_>>();
         let remotes = self.remote_places();
         // Show what is known now; a newer discovery serves the next opening.
-        self.discover_remotes(cx);
+        self.discover_remotes(window, cx);
         self.status = "Discovering locations…".into();
         self.locations_generation = self.locations_generation.wrapping_add(1);
         let request = self.locations_generation;

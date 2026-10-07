@@ -95,10 +95,18 @@ impl RemoteFsProvider {
         let mut client = build_client(&self.config, password)?;
         // The SFTP host key check reports why it refused through the guard.
         let guard = (self.config.protocol == Protocol::Sftp).then(|| {
-            hostkey::connecting(
-                self.config.host.as_deref().unwrap_or_default(),
-                self.config.port.unwrap_or(22),
-            )
+            let (host, port) = match hostkey::ssh_config_file() {
+                Some(file) => hostkey::resolve(
+                    self.config.host.as_deref().unwrap_or_default(),
+                    self.config.port,
+                    &file,
+                ),
+                None => (
+                    self.config.host.clone().unwrap_or_default(),
+                    self.config.port.unwrap_or(22),
+                ),
+            };
+            hostkey::connecting(&host, port)
         });
         if let Err(error) = client.connect() {
             if let Some(reason) = guard.as_ref().and_then(hostkey::Connecting::rejection) {

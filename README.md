@@ -184,7 +184,10 @@ Using them:
   opens (Ctrl-G or the map button); each shows in the "Remotes" group, labelled
   with its service ("Proton Drive", ...). Problems (e.g. a bad `remotes.toml`
   entry) appear once on the status line.
-- Type `gdrive:/Docs` in the address bar (Ctrl-L) to go there. Breadcrumbs start
+- Type `gdrive:/Docs` in the address bar (Ctrl-L) to go there, or pass it on
+  the command line (`fyle proton:/ /tmp`); the panel shows your home folder
+  until the remotes are found, or stays there with an error if the remote is
+  unknown. Visited remote folders also appear under Frequent in Locations. Breadcrumbs start
   at the remote's root, named after the service. `..` at a remote root returns
   to the local folder you came from.
 - Folders are listed in the background (Esc cancels; the panel shows "Loading…"
@@ -261,7 +264,8 @@ the `IdentityFile` entries of `~/.ssh/config`. Passwords are never stored:
 or expansion), run when connecting, and its output is the password. Bad
 entries are reported without hiding the good ones. SFTP verifies host keys against
 `~/.ssh/known_hosts` and refuses unknown or changed ones; connect once with `ssh`
-to accept a new host.
+to accept a new host. If `~/.ssh/config` maps the configured `host` to another
+`HostName` or `Port`, the key is checked for that server.
 
 Building needs the OpenSSL development files (WebDAV); see Build
 dependencies (`openssl-devel` on Fedora).

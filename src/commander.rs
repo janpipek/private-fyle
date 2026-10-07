@@ -84,6 +84,9 @@ pub struct Commander {
     /// The discovery problems last shown, so each is reported once.
     remote_errors: String,
     _remotes_task: Task<()>,
+    /// Remote paths given at startup, opened once the remotes are known;
+    /// the panel shows a local folder meanwhile.
+    start_remote: [Option<PathBuf>; 2],
     /// Per panel: set to stop its remote listing.
     remote_cancel: [Option<Arc<AtomicBool>>; 2],
     /// Per panel: refreshing a remote listing in place.
@@ -148,7 +151,16 @@ impl Commander {
         set_font_size(cx, |_| zoom::clamp(settings.font_size));
         let panels = &settings.panels;
         let mut ix = 0;
+        let mut start_remote: [Option<PathBuf>; 2] = [None, None];
+        let fallback = std::env::home_dir().unwrap_or_else(|| PathBuf::from("/"));
         let folders = [left, right].map(|path| {
+            // Remote folders are listed in the background; see `init`.
+            let path = if crate::remote::is_remote(&path) {
+                start_remote[ix] = Some(path);
+                fallback.clone()
+            } else {
+                path
+            };
             // Tree mode does not apply to the icon grid: load once, without it.
             let tree = panels.tree && panels.view(ix) == ViewMode::List;
             ix += 1;
@@ -253,6 +265,7 @@ impl Commander {
             remotes_pending: false,
             remote_errors: String::new(),
             _remotes_task: Task::ready(()),
+            start_remote,
             remote_cancel: [None, None],
             reload_generation: [0, 0],
             reload_tasks: [Task::ready(()), Task::ready(())],
@@ -318,7 +331,7 @@ impl Commander {
             });
         }
         self.update_preview(window, cx);
-        self.discover_remotes(cx);
+        self.discover_remotes(window, cx);
     }
 
     fn set_active(&mut self, ix: usize, cx: &mut Context<Self>) {

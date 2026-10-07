@@ -114,7 +114,12 @@ pub fn grouped_locations(
         let mut seen = std::collections::HashSet::new();
         let places = places
             .into_iter()
-            .filter(|place| place.path.is_dir() && seen.insert(place.path.clone()))
+            // Remote paths are never checked on the disk; one that is gone
+            // fails when opened.
+            .filter(|place| {
+                (crate::remote::is_remote(&place.path) || place.path.is_dir())
+                    && seen.insert(place.path.clone())
+            })
             .collect();
         Group {
             kind,
@@ -137,7 +142,14 @@ pub fn grouped_locations(
         "Frequent",
         frequent
             .iter()
-            .map(|path| Place::new(crate::tools::file_name(path), path.clone()))
+            .map(|path| {
+                let label = if crate::remote::is_remote(path) {
+                    path.display().to_string()
+                } else {
+                    crate::tools::file_name(path)
+                };
+                Place::new(label, path.clone())
+            })
             .collect(),
     );
     let remotes = Group {
@@ -439,6 +451,24 @@ pub fn now() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frequent_keeps_remote_folders_without_disk_checks() {
+        let mut history = History::default();
+        history.visit(Path::new("gdrive:/Docs/2026"), 100);
+        history.visit(Path::new("gdrive:/Docs/2026"), 200);
+        let frequent = history.ranked(300);
+        let groups = grouped_locations(&[], &frequent, Vec::new());
+        let group = groups
+            .iter()
+            .find(|g| g.kind == GroupKind::Frequent)
+            .expect("frequent group");
+        assert_eq!(group.places.len(), 1);
+        assert_eq!(group.places[0].path, Path::new("gdrive:/Docs/2026"));
+        assert_eq!(group.places[0].label, "gdrive:/Docs/2026");
+        let text = history.serialize();
+        assert_eq!(History::parse(&text), history);
+    }
 
     #[test]
     fn remotes_group_lists_remotes_without_disk_checks() {

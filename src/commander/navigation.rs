@@ -227,7 +227,7 @@ impl Commander {
         let folder = folder.read(cx);
         if folder.results().is_some()
             || folder.archive().is_some()
-            || folder.is_remote()
+            || folder.is_loading()
             || folder.path().as_os_str().is_empty()
         {
             return;

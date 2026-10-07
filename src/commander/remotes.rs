@@ -51,21 +51,35 @@ type Resolved = (Arc<dyn Provider>, Location);
 impl Commander {
     /// Looks for configured remotes in the background; the Locations list
     /// shows what was known meanwhile. Problems go to the status line once.
-    pub fn discover_remotes(&mut self, cx: &mut Context<Self>) {
+    pub fn discover_remotes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.remotes_generation = self.remotes_generation.wrapping_add(1);
         let generation = self.remotes_generation;
         self.remotes_pending = true;
-        self._remotes_task = cx.spawn(async move |this, cx| {
+        self._remotes_task = cx.spawn_in(window, async move |this, cx| {
             let (registry, errors) = cx
                 .background_spawn(async { Registry::discover(&AtomicBool::new(false)) })
                 .await;
-            let _ = this.update(cx, |this, cx| {
+            let _ = this.update_in(cx, |this, window, cx| {
                 if this.remotes_generation == generation {
                     this.remotes_pending = false;
                     this.set_remotes(registry, errors, cx);
+                    this.open_start_remotes(window, cx);
                 }
             });
         });
+    }
+
+    /// Opens the remote folders given as start paths (command line or
+    /// settings) now that the remotes are known. An unknown remote leaves
+    /// the panel on its fallback folder and says why on the status line.
+    fn open_start_remotes(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let active = self.active;
+        for panel in 0..2 {
+            if let Some(path) = self.start_remote[panel].take() {
+                self.navigate_panel(panel, path, window, cx);
+            }
+        }
+        self.set_active(active, cx);
     }
 
     fn set_remotes(&mut self, registry: Registry, errors: Vec<io::Error>, cx: &mut Context<Self>) {

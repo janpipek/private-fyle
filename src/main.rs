@@ -71,6 +71,9 @@ fn main() {
         .unwrap_or(cwd);
     // Breadcrumbs, history and Go to need absolute paths ("fyle src" → /…/src).
     let [left, right] = [left, right].map(|path| {
+        if remote::is_remote(&path) {
+            return path;
+        }
         path.canonicalize()
             .or_else(|_| std::path::absolute(&path))
             .unwrap_or(path)
