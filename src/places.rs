@@ -3,8 +3,13 @@
 //! ranked zoxide-style ("frecency").
 
 use std::collections::HashMap;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::location::Location;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {
@@ -105,19 +110,37 @@ pub fn system_places() -> Vec<Place> {
 /// Discovery reads desktop configuration and mount tables, so callers run it
 /// off the UI thread. `remotes` come from [`Place::remote`] and are listed
 /// as given, without touching the disk.
+#[allow(dead_code)] // Kept as the panel-path adapter for older callers.
 pub fn grouped_locations(
     bookmarks: &[PathBuf],
     frequent: &[PathBuf],
     remotes: Vec<Place>,
 ) -> Vec<Group> {
-    let group = |kind: GroupKind, label: &str, places: Vec<Place>| {
+    let frequent: Vec<_> = frequent
+        .iter()
+        .filter_map(|path| Location::from_panel_path(path, None).ok())
+        .collect();
+    grouped_locations_typed(bookmarks, &frequent, remotes)
+}
+
+/// Groups places using typed frequent locations so virtual addresses keep
+/// their identity through history and the locations picker.
+pub fn grouped_locations_typed(
+    bookmarks: &[PathBuf],
+    frequent: &[Location],
+    remotes: Vec<Place>,
+) -> Vec<Group> {
+    let group = |kind: GroupKind,
+                 label: &str,
+                 places: Vec<Place>,
+                 virtual_paths: &std::collections::HashSet<PathBuf>| {
         let mut seen = std::collections::HashSet::new();
         let places = places
             .into_iter()
             // Remote paths are never checked on the disk; one that is gone
             // fails when opened.
             .filter(|place| {
-                (crate::remote::is_remote(&place.path) || place.path.is_dir())
+                (virtual_paths.contains(&place.path) || place.path.is_dir())
                     && seen.insert(place.path.clone())
             })
             .collect();
@@ -127,8 +150,19 @@ pub fn grouped_locations(
             places,
         }
     };
-    let drives = group(GroupKind::Volumes, "Drives & Volumes", mounted_volumes());
-    let places = group(GroupKind::Places, "Places", system_places());
+    let no_virtual_paths = std::collections::HashSet::new();
+    let drives = group(
+        GroupKind::Volumes,
+        "Drives & Volumes",
+        mounted_volumes(),
+        &no_virtual_paths,
+    );
+    let places = group(
+        GroupKind::Places,
+        "Places",
+        system_places(),
+        &no_virtual_paths,
+    );
     let bookmarks = group(
         GroupKind::Bookmarks,
         "Bookmarks",
@@ -136,21 +170,29 @@ pub fn grouped_locations(
             .iter()
             .map(|path| Place::new(crate::tools::file_name(path), path.clone()))
             .collect(),
+        &no_virtual_paths,
     );
+    let virtual_paths: std::collections::HashSet<_> = frequent
+        .iter()
+        .filter(|location| matches!(location, Location::Remote(_)))
+        .map(Location::panel_path)
+        .collect();
     let frequent = group(
         GroupKind::Frequent,
         "Frequent",
         frequent
             .iter()
-            .map(|path| {
-                let label = if crate::remote::is_remote(path) {
+            .map(|location| {
+                let path = location.panel_path();
+                let label = if matches!(location, Location::Remote(_)) {
                     path.display().to_string()
                 } else {
-                    crate::tools::file_name(path)
+                    crate::tools::file_name(&path)
                 };
-                Place::new(label, path.clone())
+                Place::new(label, path)
             })
             .collect(),
+        &virtual_paths,
     );
     let remotes = Group {
         kind: GroupKind::Remotes,
@@ -349,7 +391,7 @@ pub fn file_url_to_path(url: &str) -> Option<PathBuf> {
 /// Visit counts and times per directory.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct History {
-    entries: HashMap<PathBuf, (u32, u64)>,
+    entries: HashMap<Location, (u32, u64)>,
 }
 
 /// Directories kept in the history.
@@ -366,7 +408,8 @@ impl History {
         Self::parse(&text)
     }
 
-    /// Lines of `count<TAB>unix-seconds<TAB>path`.
+    /// Parses typed entries and the legacy `count<TAB>unix-seconds<TAB>path`
+    /// format. Invalid entries are ignored so one bad line cannot lose history.
     pub fn parse(text: &str) -> Self {
         let entries = text
             .lines()
@@ -374,44 +417,104 @@ impl History {
                 let mut parts = line.splitn(3, '\t');
                 let count = parts.next()?.parse().ok()?;
                 let time = parts.next()?.parse().ok()?;
-                Some((PathBuf::from(parts.next()?), (count, time)))
+                let value = parts.next()?;
+                let location = if value.starts_with(crate::location_codec::PREFIX) {
+                    crate::location_codec::decode(value).ok()?
+                } else {
+                    Location::from_panel_path(Path::new(value), None).ok()?
+                };
+                Some((location, (count, time)))
             })
             .collect();
         Self { entries }
     }
 
+    /// Serializes each location as one versioned TSV field.
     pub fn serialize(&self) -> String {
         let mut lines: Vec<_> = self
             .entries
             .iter()
-            .map(|(path, (count, time))| format!("{count}\t{time}\t{}\n", path.display()))
+            .filter_map(|(location, (count, time))| {
+                crate::location_codec::encode(location)
+                    .ok()
+                    .map(|encoded| format!("{count}\t{time}\t{encoded}\n"))
+            })
             .collect();
         lines.sort();
         lines.concat()
     }
 
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        if let Some(dir) = path.parent() {
+        if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
             std::fs::create_dir_all(dir)?;
         }
-        std::fs::write(path, self.serialize())
+        let contents = self.serialize();
+        static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+        let parent = path
+            .parent()
+            .filter(|dir| !dir.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let name = path
+            .file_name()
+            .unwrap_or_else(|| std::ffi::OsStr::new("history"));
+        let mut last_collision = None;
+        for _ in 0..128 {
+            let sequence = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+            let mut temp_name = std::ffi::OsString::from(".");
+            temp_name.push(name);
+            temp_name.push(format!(".{}.{}.tmp", std::process::id(), sequence));
+            let temp = parent.join(temp_name);
+            let file = match OpenOptions::new().write(true).create_new(true).open(&temp) {
+                Ok(file) => file,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    last_collision = Some(error);
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            let result = (|| {
+                let mut file = file;
+                file.write_all(contents.as_bytes())?;
+                file.sync_all()?;
+                drop(file);
+                std::fs::rename(&temp, path)
+            })();
+            if result.is_err() {
+                let _ = std::fs::remove_file(&temp);
+            }
+            return result;
+        }
+        Err(last_collision.unwrap_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "could not reserve history temp file",
+            )
+        }))
     }
 
-    pub fn visit(&mut self, dir: &Path, now: u64) {
-        let entry = self.entries.entry(dir.to_path_buf()).or_insert((0, now));
+    /// Adds a visit for a typed address.
+    pub fn visit_location(&mut self, location: Location, now: u64) {
+        let entry = self.entries.entry(location).or_insert((0, now));
         entry.0 = entry.0.saturating_add(1);
         entry.1 = now;
         if self.entries.len() > MAX_HISTORY {
-            // Forget the lowest-ranked directories.
             let mut ranked = self.ranked(now);
             ranked.truncate(MAX_HISTORY * 9 / 10);
-            self.entries.retain(|path, _| ranked.contains(path));
+            self.entries.retain(|location, _| ranked.contains(location));
+        }
+    }
+
+    /// Compatibility adapter for callers that still have a panel path.
+    #[allow(dead_code)] // Keeps callers outside this migration able to record legacy paths.
+    pub fn visit(&mut self, dir: &Path, now: u64) {
+        if let Ok(location) = Location::from_panel_path(dir, None) {
+            self.visit_location(location, now);
         }
     }
 
     /// Paths by frecency: visit count weighted by recency, as zoxide does
     /// (×4 within an hour, ×2 within a day, ×½ within a week, else ×¼).
-    pub fn ranked(&self, now: u64) -> Vec<PathBuf> {
+    pub fn ranked(&self, now: u64) -> Vec<Location> {
         let score = |(count, time): (u32, u64)| {
             let age = now.saturating_sub(time);
             let weight = match age {
@@ -426,7 +529,7 @@ impl History {
         paths.sort_by(|a, b| {
             score(*b.1)
                 .total_cmp(&score(*a.1))
-                .then_with(|| a.0.cmp(b.0))
+                .then_with(|| a.0.panel_path().cmp(&b.0.panel_path()))
         });
         paths.into_iter().map(|(p, _)| p.clone()).collect()
     }
@@ -458,7 +561,7 @@ mod tests {
         history.visit(Path::new("gdrive:/Docs/2026"), 100);
         history.visit(Path::new("gdrive:/Docs/2026"), 200);
         let frequent = history.ranked(300);
-        let groups = grouped_locations(&[], &frequent, Vec::new());
+        let groups = grouped_locations_typed(&[], &frequent, Vec::new());
         let group = groups
             .iter()
             .find(|g| g.kind == GroupKind::Frequent)
@@ -604,12 +707,48 @@ mod tests {
         history.visit(Path::new("/today"), now - 7200); // 2 × 2
         let ranked = history.ranked(now);
         assert_eq!(
-            ranked,
+            ranked.iter().map(Location::panel_path).collect::<Vec<_>>(),
             [PathBuf::from("/recent"), "/today".into(), "/old".into()]
         );
 
         let restored = History::parse(&history.serialize());
         assert_eq!(restored, history);
         assert_eq!(History::parse("garbage\n1\tx\t/p\n"), History::default());
+    }
+
+    #[test]
+    fn history_migrates_legacy_paths_and_keeps_literal_local_colons_distinct() {
+        let legacy = History::parse("2\t100\t/mnt/nas:/x\n3\t200\tgdrive:/Docs\n");
+        assert_eq!(
+            legacy.ranked(300)[0].panel_path(),
+            PathBuf::from("gdrive:/Docs")
+        );
+        assert!(matches!(&legacy.ranked(300)[1], Location::Local(_)));
+
+        let literal = Location::local("/mnt/nas:/x".into()).unwrap();
+        let mut history = History::default();
+        history.visit_location(literal.clone(), 10);
+        let saved = history.serialize();
+        assert!(saved.contains(crate::location_codec::PREFIX));
+        assert_eq!(History::parse(&saved).ranked(10), [literal]);
+    }
+
+    #[test]
+    fn history_save_replaces_existing_file_and_roundtrips_control_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.tsv");
+        std::fs::write(&path, "old data").unwrap();
+        let mut history = History::default();
+        #[cfg(unix)]
+        {
+            use std::ffi::OsString;
+            use std::os::unix::ffi::OsStringExt;
+            let native =
+                PathBuf::from("/tmp").join(OsString::from_vec(vec![b'a', 0xff, b'\t', b'\n']));
+            history.visit_location(Location::local(native).unwrap(), 42);
+        }
+        history.save(&path).unwrap();
+        assert_eq!(History::load(&path), history);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 }

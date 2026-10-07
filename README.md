@@ -144,6 +144,12 @@ All keys are optional; see [`config.example.toml`](config.example.toml) for
 every key with its default. Errors (including unknown keys) are shown in the
 status line and the defaults are used. Settings are read at startup.
 
+Bookmarks still accept ordinary path strings in `config.toml`; newly saved
+bookmarks use a versioned location value so native path bytes and control
+characters round-trip. Bookmarks remain local paths. Frequent-directory
+history reads the existing `count<TAB>time<TAB>path` format and writes typed,
+versioned locations, keeping local, remote and archive addresses distinct.
+
 ### Keys
 
 `[[keymap]]` entries add or override bindings (`keys`, `action` such as
@@ -365,7 +371,7 @@ Where things live (`src/`):
 | `main.rs` | Startup, settings, start directories, window |
 | `commander.rs`, `commander/` | Main window: the two panels, actions, dialogs, jobs bar, tools orchestration. Split by area into `commander/` (keys, navigation, search, files, jobs, view, archives, remotes, tools, menus, appearance); new logic goes into its own module, only wiring here. |
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
-| `model.rs`, `location.rs` | `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results and directory size cache; `Location` native, remote and archive addresses |
+| `model.rs`, `location.rs`, `location_codec.rs` | `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; `Location` native, remote and archive addresses; versioned lossless location persistence |
 | `listing.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; typed snapshots and bounded per-panel remote listing cache |
 | `panel.rs` | `FolderView` (DataTable delegate `FileTable`), header with breadcrumbs, filter bar; shows the list or the icon grid |
 | `thumbnails.rs`, `thumb_queue.rs` | Icon view thumbnails: the freedesktop cache (URI and MD5 names, validity by `Thumb::MTime`, atomic writes, failure records) and the load scheduler with its LRU, both UI-independent and tested |

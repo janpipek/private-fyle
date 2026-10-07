@@ -98,6 +98,9 @@
 
 ## Done
 
+- [x] Persist typed locations losslessly in frequent-directory history and
+      local bookmarks; keep legacy history rows and path-string bookmarks
+      readable, and write history through a unique synced temporary file.
 - [x] Introduce typed local, remote and archive addresses for panel folders,
       rows, marks, history, activation and remote transfer selections; model
       Directory, Search and Places panel content explicitly; key remote listing

@@ -21,6 +21,7 @@ mod link_badge;
 mod links;
 mod listing;
 mod location;
+mod location_codec;
 mod location_view;
 mod menu_bar;
 mod menus;

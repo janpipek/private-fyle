@@ -192,7 +192,7 @@ impl Commander {
         self._locations_task = cx.spawn_in(window, async move |this, cx| {
             let groups = cx
                 .background_spawn(async move {
-                    places::grouped_locations(&bookmarks, &frequent, remotes)
+                    places::grouped_locations_typed(&bookmarks, &frequent, remotes)
                 })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {

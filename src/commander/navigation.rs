@@ -204,17 +204,22 @@ impl Commander {
     /// Remembers directories the active panel shows, for frecency.
     pub fn record_visit(&mut self, folder: &Entity<Folder>, cx: &mut Context<Self>) {
         let folder = folder.read(cx);
-        if folder.results().is_some() || folder.archive().is_some() || folder.is_loading() {
+        if folder.results().is_some()
+            || folder.archive().is_some()
+            || folder.is_loading()
+            || folder.location().is_none()
+        {
             return;
         }
-        let Some(dir) = folder.local_directory() else {
-            return;
-        };
-        if self.last_visited.as_deref() == Some(dir) {
+        let location = folder
+            .location()
+            .expect("checked that the folder has a location")
+            .clone();
+        if self.last_visited.as_ref() == Some(&location) {
             return;
         }
-        self.last_visited = Some(dir.to_path_buf());
-        self.history.visit(dir, places::now());
+        self.last_visited = Some(location.clone());
+        self.history.visit_location(location, places::now());
         if let Some(path) = History::path() {
             let _ = self.history.save(&path);
         }

@@ -104,7 +104,7 @@ pub struct Commander {
     bookmarks: Vec<PathBuf>,
     history: History,
     /// Last directory recorded in the history.
-    last_visited: Option<PathBuf>,
+    last_visited: Option<crate::location::Location>,
     jobs: Vec<RunningJob>,
     next_job_id: usize,
     jobs_ticking: bool,
