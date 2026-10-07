@@ -431,8 +431,9 @@ Parquet and CSV tables, text, binary fallback) turns a path into
 plain `Content` data; the first previewer whose `matches` accepts the file's
 `Probe` (name, extension, size, first 8 KiB) wins. PDF pages render on demand
 in the background and can be browsed with Previous/Next controls; PDF metadata
-stays in the model for future file properties. `src/preview_view.rs` loads in
-the background and has one render arm per `Content` variant. A new file
+stays in the model for future file properties. Overflowing binary, Markdown,
+archive, notebook, table and detail previews show scrollbars. `src/preview_view.rs`
+loads in the background and has one render arm per `Content` variant. A new file
 type is a new `Previewer` registered before the fallbacks; only a new kind of
 display needs a new `Content` variant and render arm.
 

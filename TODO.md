@@ -231,6 +231,7 @@
 - [x] Themes: 17 bundled (GPUI Kit), user theme folder, `theme` setting.
 - [x] F3 quick preview: text with syntax highlighting, images, directories, hex dump.
 - [x] Previews: rendered Markdown, CSV/TSV as a table, zip/tar/tar.gz listings.
+- [x] Previews: visible scrollbars for overflowing text, archive, notebook, table and detail content.
 - [x] Tree mode (toggleable per panel, Ctrl-T).
 
 ## Later

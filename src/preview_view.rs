@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Editor, EditorState, Position};
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::text::TextView;
 use gpui_kit::component::{ActiveTheme as _, Disableable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -49,6 +50,8 @@ pub struct PreviewPane {
     notebook_list: ListState,
     /// Raster images prepared off the UI thread for notebook outputs.
     notebook_images: Arc<HashMap<(usize, usize), Arc<RenderImage>>>,
+    /// Scroll position for both axes of a table preview.
+    table_scroll: ScrollHandle,
     pdf_page: usize,
     pdf_generation: u64,
     pdf_image: Option<PathBuf>,
@@ -74,6 +77,7 @@ impl PreviewPane {
             editor,
             notebook_list: ListState::new(0, ListAlignment::Top, px(160.)),
             notebook_images: Arc::new(HashMap::new()),
+            table_scroll: ScrollHandle::new(),
             pdf_page: 1,
             pdf_generation: 0,
             pdf_image: None,
@@ -104,6 +108,7 @@ impl PreviewPane {
         }
         self.line = line;
         self.target = target.clone();
+        self.table_scroll.set_offset(point(px(0.), px(0.)));
         self.release_notebook_images(window, cx);
         self.pdf_page = 1;
         self.pdf_generation = self.pdf_generation.wrapping_add(1);
@@ -378,7 +383,12 @@ impl PreviewPane {
                     )
                     .into_any_element()
             }
-            Content::Info { info } => v_flex().p_4().child(details(info, cx)).into_any_element(),
+            Content::Info { info } => div()
+                .size_full()
+                .overflow_y_scrollbar()
+                .p_4()
+                .child(details(info, cx))
+                .into_any_element(),
             Content::Directory {
                 dirs,
                 files,
@@ -400,7 +410,7 @@ impl PreviewPane {
                         .id("hex")
                         .flex_1()
                         .min_h_0()
-                        .overflow_y_scroll()
+                        .overflow_y_scrollbar()
                         .p_2()
                         .font_family(theme.mono_font_family.clone())
                         .text_xs()
@@ -414,7 +424,7 @@ impl PreviewPane {
             Content::Markdown { text } => div()
                 .id("markdown")
                 .size_full()
-                .overflow_y_scroll()
+                .overflow_y_scrollbar()
                 .p_3()
                 .child(TextView::markdown("markdown-view", text.clone()))
                 .into_any_element(),
@@ -429,6 +439,14 @@ impl PreviewPane {
                 rows,
                 truncated,
             } => {
+                let columns = rows
+                    .iter()
+                    .map(Vec::len)
+                    .max()
+                    .unwrap_or(0)
+                    .max(header.len());
+                let table_width = px(140. * columns as f32);
+                let scroll = self.table_scroll.clone();
                 let cell = |text: &String| {
                     div()
                         .w(px(140.))
@@ -442,22 +460,41 @@ impl PreviewPane {
                     .size_full()
                     .child(
                         div()
-                            .id("table")
+                            .relative()
                             .flex_1()
                             .min_h_0()
-                            .overflow_scroll()
-                            .text_xs()
                             .child(
-                                h_flex()
-                                    .bg(theme.muted)
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .children(header.iter().map(cell)),
+                                div()
+                                    .id("table-scroll-area")
+                                    .size_full()
+                                    .overflow_scroll()
+                                    .track_scroll(&scroll)
+                                    .text_xs()
+                                    .child(
+                                        v_flex()
+                                            .w(table_width)
+                                            .flex_none()
+                                            .child(
+                                                h_flex()
+                                                    .w(table_width)
+                                                    .flex_none()
+                                                    .bg(theme.muted)
+                                                    .font_weight(FontWeight::SEMIBOLD)
+                                                    .children(header.iter().map(cell)),
+                                            )
+                                            .children(rows.iter().enumerate().map(|(i, row)| {
+                                                h_flex()
+                                                    .w(table_width)
+                                                    .flex_none()
+                                                    .when(i % 2 == 1, |r| {
+                                                        r.bg(theme.muted.opacity(0.4))
+                                                    })
+                                                    .children(row.iter().map(cell))
+                                            })),
+                                    ),
                             )
-                            .children(rows.iter().enumerate().map(|(i, row)| {
-                                h_flex()
-                                    .when(i % 2 == 1, |r| r.bg(theme.muted.opacity(0.4)))
-                                    .children(row.iter().map(cell))
-                            })),
+                            .vertical_scrollbar(&scroll)
+                            .horizontal_scrollbar(&scroll),
                     )
                     .child(note(format!(
                         "{} rows{}",
@@ -485,7 +522,7 @@ impl PreviewPane {
                         .id("archive")
                         .flex_1()
                         .min_h_0()
-                        .overflow_y_scroll()
+                        .overflow_y_scrollbar()
                         .p_2()
                         .text_xs()
                         .children(items.iter().map(|item| {

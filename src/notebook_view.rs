@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::text::TextView;
 use gpui_kit::component::{ActiveTheme as _, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -50,7 +51,7 @@ pub fn render(
     let truncated = notebook.truncated;
     let cells = notebook.clone();
     let images_for_rows = images.clone();
-    let list = list(list_state, move |index, _window, cx| {
+    let list = list(list_state.clone(), move |index, _window, cx| {
         render_cell(
             index,
             &cells.cells[index],
@@ -63,6 +64,11 @@ pub fn render(
     .flex_1()
     .min_h_0()
     .size_full();
+    let list = div()
+        .relative()
+        .size_full()
+        .child(list)
+        .vertical_scrollbar(&list_state);
     let theme = cx.theme();
     v_flex()
         .size_full()
