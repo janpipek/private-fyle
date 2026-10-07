@@ -285,7 +285,15 @@ impl PreviewPane {
                     .child(note(format!(
                         "{} rows{}",
                         rows.len(),
-                        if *truncated { " (more not shown)" } else { "" }
+                        if *truncated {
+                            if preview.kind == "Parquet" {
+                                " (sample truncated)"
+                            } else {
+                                " (more not shown)"
+                            }
+                        } else {
+                            ""
+                        }
                     )))
                     .into_any_element()
             }

@@ -19,6 +19,7 @@ kamadak-exif = "0.6.1"
 md-5 = "0.10"
 mlua = { version = "0.12.2", features = ["lua54", "vendored", "send"] }
 open = "5"
+parquet = { version = "59", default-features = false, features = ["snap", "flate2-zlib-rs", "lz4", "zstd", "brotli"] }
 png = "0.18"
 remotefs = "1"
 remotefs-aws-s3 = { version = "1", features = ["tokio"] }

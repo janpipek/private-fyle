@@ -18,6 +18,7 @@ mod directory;
 mod image;
 mod markdown;
 mod media;
+mod parquet;
 mod pdf;
 mod table;
 pub mod text;
@@ -33,6 +34,7 @@ pub use directory::DirectoryPreviewer;
 pub use image::{ImagePreviewer, exif_fields};
 pub use markdown::MarkdownPreviewer;
 pub use media::MediaPreviewer;
+pub use parquet::ParquetPreviewer;
 pub use pdf::PdfPreviewer;
 pub use table::TablePreviewer;
 pub use text::TextPreviewer;
@@ -130,7 +132,7 @@ pub enum Content {
     Binary { dump: String, truncated: bool },
     /// Markdown source, shown rendered.
     Markdown { text: String },
-    /// Tabular data (CSV): a header row and records.
+    /// Tabular data (CSV, TSV or Parquet): a header row and records.
     Table {
         header: Vec<String>,
         rows: Vec<Vec<String>>,
@@ -190,6 +192,7 @@ impl Registry {
         registry.register(MediaPreviewer);
         registry.register(ArchivePreviewer);
         registry.register(MarkdownPreviewer);
+        registry.register(ParquetPreviewer);
         registry.register(TablePreviewer);
         registry.register(TextPreviewer);
         registry.register(BinaryPreviewer);

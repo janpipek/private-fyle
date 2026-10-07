@@ -72,8 +72,8 @@
       archive extraction and permissions. Decide default drop actions and
       modifiers before implementing; test source/destination identity through
       focus changes, cancelled drags and pending loads.
-- [ ] More F3 file types, priorities: Parquet (bounded table samples), camera
-      RAW images (image or embedded preview), spreadsheets (XLS/XLSX), Word
+- [ ] More F3 file types, priorities: camera RAW images (image or embedded
+      preview), spreadsheets (XLS/XLSX), Word
       documents (DOC/DOCX), and OpenDocument text (ODT). Keep schema, EXIF and
       other format metadata in the Properties perspective above. Decoding
       libraries versus optional external converters, document fidelity, and
@@ -127,6 +127,10 @@
 
 ## Done
 
+- [x] F3 preview for Parquet files: native table samples (500 rows, 40 columns,
+      1,024 characters per cell; 8 MiB metadata and a 64 MiB selected column
+      chunk decoding budget), with common codecs; repeated/list/map columns report an
+      unsupported-format message.
 - [x] Make Ctrl-wheel zoom consistently over table rows, headers, blank
       space and the icon grid; keep ordinary wheel input scrolling.
 - [x] Split safe archive extraction helpers and their tests into

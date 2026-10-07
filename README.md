@@ -76,6 +76,13 @@ the badge too (zip does not store the target when only listing).
 A link to a folder is entered like a folder: the panel path, breadcrumbs and
 history keep the link's path, not the resolved one.
 
+F3 previews Parquet files as a table using the native reader. The sample is
+limited to 500 rows and 40 columns, with cells capped at 1,024 characters,
+footer metadata at 8 MiB, and selected column chunks have a 64 MiB decoding
+budget. Uncompressed, Snappy, gzip, Brotli, LZ4 and Zstandard chunks are
+supported. Files with
+repeated, list or map columns show an unsupported-format message.
+
 In tree mode, clicking a folder's chevron also expands/collapses it; Enter
 still makes the folder the panel's root.
 
@@ -392,7 +399,7 @@ Where things live (`src/`):
 | `fs_ops.rs`, `transfer.rs`, `jobs.rs` | `Entry` and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
 | `remote.rs`, `remote/` | Remote providers: `Provider` trait, `Location` paths, Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `LocalCopy` keeps a typed source address separate from the cache path used at native I/O boundaries; `model/remote.rs` holds cached listings |
 | `archive.rs`, `archive/extraction.rs`, `dirsize.rs`, `links.rs` | Archive index; safe extraction; recursive sizes; symlink state |
-| `preview/`, `preview_view.rs` | `Previewer`s and their `Registry` (order: directory, image, pdf, media, archive, markdown, table, text, binary); one render arm per `Content`; preview identity stays separate from materialized local bytes |
+| `preview/`, `preview_view.rs` | `Previewer`s and their `Registry` (order: directory, image, pdf, media, archive, markdown, Parquet, table, text, binary); one render arm per `Content`; preview identity stays separate from materialized local bytes |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and the editor pane |
 | `tools/`, `tools_view.rs` | Tool, Action and Registry model; `defaults.toml`; built-ins; Lua plugins; `exec.rs` runs them |
 | `search.rs`, `places.rs`, `breadcrumbs.rs`, `remote_labels.rs`, `rename.rs`, `openers.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs`, `zoom.rs` | Further UI-independent models, each with tests |
@@ -400,7 +407,7 @@ Where things live (`src/`):
 
 Previews follow the same split. `src/preview/` is the model: a `Registry`
 of `Previewer`s (directory, image with EXIF, PDF via poppler, audio/video via ffmpeg, archive, Markdown,
-CSV table, text, binary fallback) turns a path into
+Parquet and CSV tables, text, binary fallback) turns a path into
 plain `Content` data; the first previewer whose `matches` accepts the file's
 `Probe` (name, extension, size, first 8 KiB) wins. `src/preview_view.rs` loads
 in the background and has one render arm per `Content` variant. A new file
