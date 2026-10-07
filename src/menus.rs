@@ -13,6 +13,7 @@ use crate::remote::{Capabilities, Removal};
 pub enum Cmd {
     Open,
     OpenWith,
+    OpenInBrowser,
     EditFile,
     NewFile,
     MakeDir,
@@ -112,9 +113,10 @@ pub struct State {
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 60] = [
+    pub const ALL: [Cmd; 61] = [
         Cmd::Open,
         Cmd::OpenWith,
+        Cmd::OpenInBrowser,
         Cmd::GoBack,
         Cmd::GoForward,
         Cmd::GoUp,
@@ -180,6 +182,7 @@ impl Cmd {
         match self {
             Cmd::Open => "Open",
             Cmd::OpenWith => "Open With…",
+            Cmd::OpenInBrowser => "Open in Browser",
             Cmd::EditFile => "Edit",
             Cmd::NewFile => "New File…",
             Cmd::MakeDir => "New Folder…",
@@ -246,6 +249,7 @@ impl Cmd {
     pub fn palette_label(self) -> &'static str {
         match self {
             Cmd::Open => "Open / enter directory",
+            Cmd::OpenInBrowser => "Open the remote item (or folder) in the browser",
             Cmd::EditFile => "Edit file",
             Cmd::YankFiles => "Copy (yank) entries for pasting",
             Cmd::CutFiles => "Cut entries for pasting",
@@ -326,6 +330,7 @@ impl Cmd {
             | Cmd::ToggleTree
             | Cmd::Expand
             | Cmd::Collapse => Some("Not available on remote folders"),
+            Cmd::OpenInBrowser if !caps.web => Some("This remote has no web view"),
             Cmd::Rename if !caps.rename => Some("This remote does not support renaming"),
             Cmd::MakeDir if !caps.create_folder => {
                 Some("This remote does not support creating folders")
@@ -347,6 +352,9 @@ impl Cmd {
             && let Some(reason) = self.remote_unavailable(caps)
         {
             return Some(reason);
+        }
+        if self == Cmd::OpenInBrowser && state.remote.is_none() {
+            return Some("Not a remote folder");
         }
         match self {
             Cmd::Copy if state.copy_blocked.is_some() => return state.copy_blocked,
@@ -474,7 +482,7 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
         (
             "File",
             items(&[
-                &[Open, OpenWith, EditFile],
+                &[Open, OpenWith, OpenInBrowser, EditFile],
                 &[NewFile, MakeDir, Rename],
                 &[Copy, Move, ExtractArchive],
                 &[Delete, DeletePermanently],
@@ -613,6 +621,27 @@ mod tests {
     }
 
     #[test]
+    fn open_in_browser_needs_a_remote_with_a_web_view() {
+        let local = State::default();
+        assert_eq!(
+            Cmd::OpenInBrowser.unavailable(&local),
+            Some("Not a remote folder")
+        );
+        let remote = |web| State {
+            remote: Some(Capabilities {
+                web,
+                ..Default::default()
+            }),
+            ..State::default()
+        };
+        assert_eq!(
+            Cmd::OpenInBrowser.unavailable(&remote(false)),
+            Some("This remote has no web view")
+        );
+        assert_eq!(Cmd::OpenInBrowser.unavailable(&remote(true)), None);
+    }
+
+    #[test]
     fn availability_and_toggles_follow_state() {
         let idle = State {
             in_directory: true,
@@ -714,6 +743,7 @@ mod tests {
             create_folder: true,
             rename: true,
             move_within: true,
+            web: false,
         });
         for cmd in [
             Cmd::OpenWith,

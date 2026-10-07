@@ -201,6 +201,14 @@ Using them:
 - Enter on a remote file downloads it to `$XDG_CACHE_HOME/fyle/remote/<remote>/<path>`
   and opens that copy; edits are not uploaded back. The quick view (F3) shows
   such a copy for files up to 8 MiB.
+- File > Open in Browser (also in the command palette) opens the item under the
+  cursor, or the current folder on `..`, in the service's web view, which needs
+  your own login; fyle never creates public or share links. Supported for
+  Proton Drive (Docs and Sheets open in their own apps) and for rclone remotes
+  of type `drive`; the address is looked up in the background. For Proton
+  files and folders the address uses a share ID taken from the CLI; if it
+  cannot be learnt, the Drive start page opens and the status line says so.
+  SFTP, FTP, S3 and WebDAV servers have no web view.
 - Everything else is unavailable on remote folders and says so: search, tools,
   archives, folder sizes, thumbnails, terminal, editing, bookmarks, tree mode,
   cut/copy/paste. Remote paths are never read from the local disk.

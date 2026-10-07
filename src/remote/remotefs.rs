@@ -425,7 +425,10 @@ impl Provider for RemoteFsProvider {
             removal: Some(Removal::Permanent),
             create_folder: true,
             rename: true,
+            // WebDAV endpoints are not web views (browsers show raw XML or a
+            // login prompt) and the other protocols have none.
             move_within: true,
+            web: false,
         }
     }
 

@@ -14,6 +14,7 @@ mod remotes;
 mod search;
 mod tools;
 mod view;
+mod web;
 
 pub use self::keys::{
     CopyLocation, EditLocation, GoTo, Open, Quit, SortByExt, SortByModified, SortByName,
@@ -424,6 +425,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::cancel_jobs))
             .on_action(cx.listener(Self::rename))
             .on_action(cx.listener(Self::open_with))
+            .on_action(cx.listener(Self::open_in_browser))
             .on_action(cx.listener(Self::yank_files))
             .on_action(cx.listener(Self::cut_files))
             .on_action(cx.listener(Self::paste_files))

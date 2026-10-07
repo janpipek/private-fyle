@@ -39,6 +39,8 @@ pub struct Capabilities {
     pub rename: bool,
     /// Moving to another folder on the same remote.
     pub move_within: bool,
+    /// [`Provider::web_url`] works, so items can open in the browser.
+    pub web: bool,
 }
 
 /// Cancellation and progress for one provider call. Providers report what
@@ -122,6 +124,16 @@ pub trait Provider: Send + Sync {
         _control: &Control,
     ) -> io::Result<()> {
         Err(unsupported(self.label(), "moving"))
+    }
+    /// The address of `target` in the service's private web view, which
+    /// needs the user's own login. Never a public or shared link. May run a
+    /// provider call, so call it in the background; announced by
+    /// [`Capabilities::web`].
+    fn web_url(&self, _target: &Location, _control: &Control) -> io::Result<String> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            format!("{} has no web view", self.label()),
+        ))
     }
 }
 
@@ -287,6 +299,27 @@ pub fn entries(dir: &Location, label: &str, items: Vec<Item>) -> io::Result<Vec<
             })
         })
         .collect()
+}
+
+/// Percent-encodes `text` for a URL path segment or query value: only
+/// ASCII letters, digits and `-_.~` stay as they are.
+pub fn percent_encode(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            out.push(char::from(byte));
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+/// Whether `url` is only a service's start page (no path), which a provider
+/// returns when it cannot address the exact item.
+pub fn is_start_page(url: &str) -> bool {
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    !rest.trim_end_matches('/').contains(['/', '?'])
 }
 
 /// Parses an RFC 3339 timestamp as services report them.
@@ -455,6 +488,32 @@ mod tests {
         assert_eq!(listed[1].path, Path::new("gdrive:/b"));
         assert!(entries(&root, "Fake", vec![item("a"), item("a")]).is_err());
         assert!(entries(&root, "Fake", vec![item("../x")]).is_err());
+    }
+
+    #[test]
+    fn percent_encoding_keeps_only_unreserved_characters() {
+        assert_eq!(super::percent_encode("aZ09-_.~"), "aZ09-_.~");
+        assert_eq!(super::percent_encode("a=b+c/d é"), "a%3Db%2Bc%2Fd%20%C3%A9");
+    }
+
+    #[test]
+    fn start_pages_have_no_path() {
+        assert!(super::is_start_page("https://drive.proton.me/"));
+        assert!(super::is_start_page("https://drive.proton.me"));
+        assert!(!super::is_start_page("https://drive.proton.me/s/folder/x"));
+        assert!(!super::is_start_page(
+            "https://docs.proton.me/doc?mode=open"
+        ));
+    }
+
+    #[test]
+    fn providers_have_no_web_view_by_default() {
+        let cancel = AtomicBool::new(false);
+        let root = Location::root("gdrive").unwrap();
+        let error = Fake("gdrive").web_url(&root, &Control::new(&cancel));
+        let error = error.unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+        assert_eq!(error.to_string(), "Fake has no web view");
     }
 
     #[test]

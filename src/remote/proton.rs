@@ -11,12 +11,16 @@ use std::ffi::OsStr;
 use std::io;
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Deserialize;
 
 use super::process::Program;
-use super::{Capabilities, Control, Entry, Item, Location, Provider, Removal, entries, timestamp};
+use super::{
+    Capabilities, Control, Entry, Item, Location, Provider, Removal, entries, percent_encode,
+    timestamp,
+};
 
 const LIST_TIMEOUT: Duration = Duration::from_secs(120);
 const QUICK_TIMEOUT: Duration = Duration::from_secs(120);
@@ -27,6 +31,9 @@ const SIGNED_OUT: &str = "You need to login first";
 #[derive(Clone, Debug)]
 pub struct Proton {
     program: Program,
+    /// The `deprecatedShareId` of `/my-files`, learnt by the first web
+    /// address that needed it; clones share it.
+    root_share: Arc<Mutex<Option<String>>>,
 }
 
 impl Default for Proton {
@@ -38,6 +45,7 @@ impl Default for Proton {
                 install_hint: "install the official Proton Drive CLI (proton-drive), then run proton-drive auth login",
                 failure_hint: "",
             },
+            root_share: Arc::default(),
         }
     }
 }
@@ -64,6 +72,35 @@ impl Proton {
         self.program
             .run(&args, cancel, timeout)
             .map_err(signed_out_hint)
+    }
+}
+
+impl Proton {
+    /// `filesystem info <cliPath>`: one node.
+    fn node_info(&self, cli: &str, control: &Control) -> io::Result<Info> {
+        let bytes = self.run(
+            "info",
+            &[],
+            &[OsStr::new(cli)],
+            control.cancel,
+            Some(QUICK_TIMEOUT),
+        )?;
+        serde_json::from_slice(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    }
+
+    /// The share ID of `/my-files`, cached after the first success; `None`
+    /// when it cannot be learnt (the caller then falls back).
+    fn root_share(&self, control: &Control) -> Option<String> {
+        let cached = self.root_share.lock().expect("share cache lock").clone();
+        if cached.is_some() {
+            return cached;
+        }
+        let share = self
+            .node_info("/my-files", control)
+            .ok()?
+            .deprecated_share_id?;
+        *self.root_share.lock().expect("share cache lock") = Some(share.clone());
+        Some(share)
     }
 }
 
@@ -123,6 +160,7 @@ impl Provider for Proton {
             create_folder: true,
             rename: true,
             move_within: true,
+            web: true,
         }
     }
 
@@ -235,6 +273,18 @@ impl Provider for Proton {
         )?;
         item_results(&bytes, "move")
     }
+
+    fn web_url(&self, target: &Location, control: &Control) -> io::Result<String> {
+        if target.name().is_none() {
+            return Ok(WEB_DRIVE.into());
+        }
+        let info = self.node_info(&cli_path(target), control)?;
+        let mut share = info.deprecated_share_id.clone();
+        if share.is_none() && needs_share(&info) {
+            share = self.root_share(control);
+        }
+        web_url_for(&info, share.as_deref())
+    }
 }
 
 fn non_root(location: &Location) -> io::Result<()> {
@@ -279,6 +329,72 @@ struct Revision {
 #[serde(rename_all = "camelCase")]
 struct FolderInfo {
     claimed_modification_time: Option<String>,
+}
+
+const WEB_DRIVE: &str = "https://drive.proton.me/";
+const WEB_DOCS: &str = "https://docs.proton.me";
+const DOC_TYPE: &str = "application/vnd.proton.doc";
+const SHEET_TYPE: &str = "application/vnd.proton.sheet";
+
+/// A node as `filesystem info` prints it (one SDK `NodeEntity`); only the
+/// fields needed for a web address.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Info {
+    /// `<volumeId>~<linkId>`.
+    uid: String,
+    #[serde(rename = "type")]
+    kind: String,
+    media_type: Option<String>,
+    deprecated_share_id: Option<String>,
+}
+
+/// Docs and Sheets open in their own app and need no share ID.
+fn is_proton_document(info: &Info) -> bool {
+    matches!(info.media_type.as_deref(), Some(DOC_TYPE | SHEET_TYPE))
+}
+
+fn needs_share(info: &Info) -> bool {
+    !is_proton_document(info)
+}
+
+/// The private web address of a node, which needs the user's own login.
+///
+/// Docs and Sheets use `docs.proton.me/{doc,sheet}?mode=open&volumeId=..&linkId=..`,
+/// verified in Proton's web client source. Other items use
+/// `drive.proton.me/<shareId>/{file,folder}/<linkId>`: the URL shape was
+/// verified there too, but that the CLI's `deprecatedShareId` (the node's
+/// own, else the one of `/my-files`) opens exactly this item is UNVERIFIED.
+/// Without any share ID it falls back to the Drive start page.
+fn web_url_for(info: &Info, share: Option<&str>) -> io::Result<String> {
+    let (volume, link) = info
+        .uid
+        .split_once('~')
+        .filter(|(volume, link)| !volume.is_empty() && !link.is_empty())
+        .ok_or_else(|| io::Error::other("Proton Drive returned an unexpected item ID"))?;
+    let (volume, link) = (percent_encode(volume), percent_encode(link));
+    let app = match info.media_type.as_deref() {
+        Some(DOC_TYPE) => Some("doc"),
+        Some(SHEET_TYPE) => Some("sheet"),
+        _ => None,
+    };
+    if let Some(app) = app {
+        return Ok(format!(
+            "{WEB_DOCS}/{app}?mode=open&volumeId={volume}&linkId={link}"
+        ));
+    }
+    let Some(share) = share else {
+        return Ok(WEB_DRIVE.into());
+    };
+    let kind = if info.kind == "folder" {
+        "folder"
+    } else {
+        "file"
+    };
+    Ok(format!(
+        "{WEB_DRIVE}{}/{kind}/{link}",
+        percent_encode(share)
+    ))
 }
 
 /// Decodes the CLI's JSON array of nodes; rejects undecryptable, unsafe and
@@ -441,6 +557,53 @@ mod tests {
         ] {
             assert!(parse_listing(&root(), input.as_bytes()).is_err(), "{input}");
         }
+    }
+
+    fn info(json: &str) -> super::Info {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn builds_web_urls_for_docs_sheets_files_and_folders() {
+        use super::web_url_for;
+        let doc =
+            info(r#"{"uid":"vol=~li+k/1","type":"file","mediaType":"application/vnd.proton.doc"}"#);
+        assert_eq!(
+            web_url_for(&doc, None).unwrap(),
+            "https://docs.proton.me/doc?mode=open&volumeId=vol%3D&linkId=li%2Bk%2F1"
+        );
+        let sheet =
+            info(r#"{"uid":"v~l","type":"file","mediaType":"application/vnd.proton.sheet"}"#);
+        assert_eq!(
+            web_url_for(&sheet, Some("S")).unwrap(),
+            "https://docs.proton.me/sheet?mode=open&volumeId=v&linkId=l"
+        );
+        let file = info(r#"{"uid":"v~l1","type":"file","mediaType":"text/plain"}"#);
+        assert_eq!(
+            web_url_for(&file, Some("sh=")).unwrap(),
+            "https://drive.proton.me/sh%3D/file/l1"
+        );
+        let folder = info(r#"{"uid":"v~l2","type":"folder","deprecatedShareId":"own"}"#);
+        assert_eq!(folder.deprecated_share_id.as_deref(), Some("own"));
+        assert_eq!(
+            web_url_for(&folder, Some("own")).unwrap(),
+            "https://drive.proton.me/own/folder/l2"
+        );
+        // No share ID known: the start page.
+        assert_eq!(
+            web_url_for(&folder, None).unwrap(),
+            "https://drive.proton.me/"
+        );
+        assert!(web_url_for(&info(r#"{"uid":"nolink","type":"file"}"#), None).is_err());
+        assert!(!super::needs_share(&doc) && super::needs_share(&folder));
+    }
+
+    #[test]
+    fn the_root_has_a_web_address_without_running_the_cli() {
+        let cancel = AtomicBool::new(false);
+        let url = Proton::default().web_url(&root(), &Control::new(&cancel));
+        assert_eq!(url.unwrap(), "https://drive.proton.me/");
+        assert!(Proton::default().capabilities().web);
     }
 
     #[test]

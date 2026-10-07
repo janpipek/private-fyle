@@ -145,6 +145,58 @@ fn transfer_args(source: OsString, destination: OsString, is_dir: bool) -> Vec<O
     ]
 }
 
+/// What `rclone lsjson --stat` prints for one path (a single object).
+#[derive(Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct Stat {
+    #[serde(default, rename = "ID")]
+    id: String,
+    #[serde(default)]
+    mime_type: String,
+    #[serde(default)]
+    is_dir: bool,
+    #[serde(default)]
+    size: i64,
+}
+
+const DRIVE_MY_DRIVE: &str = "https://drive.google.com/drive/my-drive";
+
+/// The private Google Drive web address of a stat result. Drive IDs are
+/// restricted to letters, digits, `-` and `_`, so nothing needs escaping.
+///
+/// rclone reports a native Google Doc listed with an export extension
+/// (`Report.docx`) with the export format's MIME type and size -1 (see
+/// `newDocumentObject` in rclone's drive.go), so those are recognised by
+/// the unknown size and the export MIME type.
+fn drive_url(bytes: &[u8]) -> io::Result<String> {
+    let stat: Stat =
+        serde_json::from_slice(bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    if stat.id.is_empty()
+        || !stat
+            .id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+    {
+        return Err(io::Error::other("Google Drive returned no usable item ID"));
+    }
+    let id = &stat.id;
+    if stat.is_dir {
+        return Ok(format!("https://drive.google.com/drive/folders/{id}"));
+    }
+    let mime = stat.mime_type.as_str();
+    let native = stat.size < 0;
+    let docs = |kind: &str| format!("https://docs.google.com/{kind}/d/{id}/edit");
+    Ok(match mime {
+        "application/vnd.google-apps.document" => docs("document"),
+        "application/vnd.google-apps.spreadsheet" => docs("spreadsheets"),
+        "application/vnd.google-apps.presentation" => docs("presentation"),
+        _ if native && mime.contains("wordprocessingml") => docs("document"),
+        _ if native && mime.contains("spreadsheetml") => docs("spreadsheets"),
+        _ if native && mime.contains("presentationml") => docs("presentation"),
+        _ => format!("https://drive.google.com/file/d/{id}/view"),
+    })
+}
+
 fn remove_args(path: String, is_dir: bool) -> Vec<OsString> {
     vec![
         if is_dir { "purge" } else { "deletefile" }.into(),
@@ -200,6 +252,7 @@ impl Provider for Rclone {
             create_folder: true,
             rename: true,
             move_within: true,
+            web: self.backend == "drive",
         }
     }
 
@@ -270,12 +323,28 @@ impl Provider for Rclone {
         let name = target.name().ok_or_else(root_error)?;
         self.move_to_path(target, &destination.child(name)?, control)
     }
+
+    fn web_url(&self, target: &Location, control: &Control) -> io::Result<String> {
+        if self.backend != "drive" {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!("{} has no web view", self.label),
+            ));
+        }
+        if target.name().is_none() {
+            return Ok(DRIVE_MY_DRIVE.into());
+        }
+        let args = vec!["lsjson".into(), "--stat".into(), self.path(target).into()];
+        let bytes = self.run(&args, control.cancel, Some(LIST_TIMEOUT))?;
+        drive_url(&bytes)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        Rclone, backend_label, parse_listing, parse_remotes, program, remove_args, transfer_args,
+        Rclone, backend_label, drive_url, parse_listing, parse_remotes, program, remove_args,
+        transfer_args,
     };
     use crate::remote::{Control, Location, Provider, Removal};
     use std::ffi::OsString;
@@ -363,6 +432,86 @@ mod tests {
         );
         assert_eq!(remove_args("g:a".into(), false), s(&["deletefile", "g:a"]));
         assert_eq!(remove_args("g:a".into(), true), s(&["purge", "g:a"]));
+    }
+
+    #[test]
+    fn builds_drive_web_urls_from_stat_json() {
+        let url = |json: &str| drive_url(json.as_bytes());
+        let stat = |id: &str, mime: &str, dir: bool, size: i64| {
+            format!(r#"{{"ID":"{id}","MimeType":"{mime}","IsDir":{dir},"Size":{size}}}"#)
+        };
+        let ok = |text: String| url(&text).unwrap();
+        assert_eq!(
+            ok(stat("1aB-_", "inode/directory", true, -1)),
+            "https://drive.google.com/drive/folders/1aB-_"
+        );
+        assert_eq!(
+            ok(stat(
+                "d1",
+                "application/vnd.google-apps.document",
+                false,
+                -1
+            )),
+            "https://docs.google.com/document/d/d1/edit"
+        );
+        assert_eq!(
+            ok(stat(
+                "s1",
+                "application/vnd.google-apps.spreadsheet",
+                false,
+                -1
+            )),
+            "https://docs.google.com/spreadsheets/d/s1/edit"
+        );
+        assert_eq!(
+            ok(stat(
+                "p1",
+                "application/vnd.google-apps.presentation",
+                false,
+                -1
+            )),
+            "https://docs.google.com/presentation/d/p1/edit"
+        );
+        assert_eq!(
+            ok(stat("f1", "text/plain", false, 5)),
+            "https://drive.google.com/file/d/f1/view"
+        );
+        // A native Doc stat'ed as Report.docx: export MIME type, unknown size.
+        let docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        assert_eq!(
+            ok(stat("d2", docx, false, -1)),
+            "https://docs.google.com/document/d/d2/edit"
+        );
+        // An uploaded .docx has a known size and stays a plain file.
+        assert_eq!(
+            ok(stat("d3", docx, false, 900)),
+            "https://drive.google.com/file/d/d3/view"
+        );
+        for bad in [
+            stat("a/b", "text/plain", false, 1),
+            stat("", "text/plain", false, 1),
+            stat("a b?x=1", "text/plain", false, 1),
+            "[]".into(),
+        ] {
+            assert!(url(&bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn only_the_drive_backend_has_a_web_view() {
+        let cancel = AtomicBool::new(false);
+        let control = Control::new(&cancel);
+        let root = Location::root("gdrive").unwrap();
+        let drive = remote("gdrive", "drive");
+        assert!(drive.capabilities().web);
+        assert_eq!(
+            drive.web_url(&root, &control).unwrap(),
+            "https://drive.google.com/drive/my-drive"
+        );
+        let nas = remote("nas", "sftp");
+        assert!(!nas.capabilities().web);
+        let error = nas.web_url(&root, &control).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::Unsupported);
     }
 
     #[test]
