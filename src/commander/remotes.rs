@@ -41,9 +41,8 @@ pub struct RemoteCheck {
 /// The remote file the quick view shows from its downloaded copy.
 #[derive(Default)]
 pub struct RemotePreview {
-    /// The remote path being fetched or shown, and the local copy once
-    /// it arrived.
-    shown: Option<(TargetLocation, Option<PathBuf>)>,
+    /// The typed remote item and its local copy once it arrived.
+    shown: Option<(TargetLocation, Option<rjobs::LocalCopy>)>,
     cancel: Option<Arc<AtomicBool>>,
     task: Option<Task<()>>,
 }
@@ -719,7 +718,7 @@ impl Commander {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let path = address.panel_path();
+        let source_path = address.panel_path();
         let (provider, location) = match self.resolve_remote(&address) {
             Ok(found) => found,
             Err(message) => {
@@ -729,15 +728,26 @@ impl Commander {
             }
         };
         let Some(root) = rjobs::cache_root() else {
-            self.status = format!("{}: no cache folder", path.display()).into();
+            self.status = format!("{}: no cache folder", source_path.display()).into();
             cx.notify();
             return;
         };
-        let local = rjobs::cached_file(&root, &location);
+        let name = location.name().unwrap_or("remote file").to_owned();
         let items = [location];
-        let name = crate::tools::file_name(&local);
+        let fetched = Arc::new(std::sync::Mutex::new(None::<rjobs::LocalCopy>));
+        let worker_copy = fetched.clone();
+        let after_copy = fetched.clone();
         let after: super::jobs::AfterJob = Box::new(move |this, outcome, _, cx| {
-            if outcome.done == 1 && this.open_local_file(&local) {
+            if outcome.done != 1 {
+                return;
+            }
+            let copy = after_copy
+                .lock()
+                .expect("remote open copy lock is never poisoned")
+                .take();
+            let Some(copy) = copy else { return };
+            if this.open_local_file(&copy.path) {
+                this.remote_open_copy = Some(copy);
                 this.status =
                     format!("Opened {name}: a downloaded copy, edits are not uploaded back").into();
                 cx.notify();
@@ -754,7 +764,11 @@ impl Commander {
                     |location| location.panel_path().display().to_string(),
                     progress,
                     |location, control| {
-                        rjobs::fetch(provider.as_ref(), location, &root, control).map(drop)
+                        let copy = rjobs::fetch(provider.as_ref(), location, &root, control)?;
+                        *worker_copy
+                            .lock()
+                            .expect("remote open copy lock is never poisoned") = Some(copy);
+                        Ok(())
                     },
                 )
             },
@@ -771,11 +785,10 @@ impl Commander {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<PathBuf> {
-        let path = address.panel_path();
         if let Some((shown, local)) = &self.remote_preview.shown
             && *shown == address
         {
-            return local.clone();
+            return local.as_ref().map(|copy| copy.path.clone());
         }
         if let Some(cancel) = self.remote_preview.cancel.take() {
             cancel.store(true, Ordering::Relaxed);
@@ -794,7 +807,6 @@ impl Commander {
             cx.background_executor()
                 .timer(Duration::from_millis(300))
                 .await;
-            let fetch_path = path.clone();
             let fetch_address = address.clone();
             let result = cx
                 .background_spawn(async move {
@@ -807,11 +819,17 @@ impl Commander {
                     return;
                 }
                 match result {
-                    Ok(local) => {
-                        this.remote_preview.shown = Some((fetch_address, Some(local)));
+                    Ok(copy) if copy.source == fetch_address => {
+                        this.remote_preview.shown = Some((fetch_address, Some(copy)));
                         this.update_preview(window, cx);
                     }
-                    Err(e) => this.status = format!("{}: {e}", fetch_path.display()).into(),
+                    Ok(_) => {
+                        this.status = "Remote preview returned a different source".into();
+                    }
+                    Err(e) => {
+                        this.status =
+                            format!("{}: {e}", fetch_address.panel_path().display()).into()
+                    }
                 }
                 cx.notify();
             });

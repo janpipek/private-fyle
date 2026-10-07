@@ -99,6 +99,8 @@ pub struct Commander {
     /// A quick change on a remote (new folder, rename).
     _remote_op: Task<()>,
     remote_preview: remotes::RemotePreview,
+    /// Last remote copy opened by a native opener; its source stays typed.
+    remote_open_copy: Option<crate::remote::jobs::LocalCopy>,
     locations_generation: u64,
     locations_pending: bool,
     bookmarks: Vec<PathBuf>,
@@ -295,6 +297,7 @@ impl Commander {
             remote_check: None,
             _remote_op: Task::ready(()),
             remote_preview: Default::default(),
+            remote_open_copy: None,
             locations_generation: 0,
             locations_pending: false,
             openers: settings.openers.clone(),

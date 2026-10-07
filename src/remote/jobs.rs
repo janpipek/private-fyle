@@ -409,14 +409,23 @@ pub fn cached_file(root: &Path, location: &Location) -> PathBuf {
     path
 }
 
+/// A materialized local copy while retaining the remote address it represents.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LocalCopy {
+    /// The typed item from which this local copy was materialized.
+    pub source: crate::location::Location,
+    /// The local cache path consumed by native readers and openers.
+    pub path: PathBuf,
+}
+
 /// Downloads the file `location` into the cache below `root`, replacing an
-/// older copy, and returns the local path. Blocking.
+/// older copy, and returns its typed source together with the local path. Blocking.
 pub fn fetch(
     provider: &dyn Provider,
     location: &Location,
     root: &Path,
     control: &Control,
-) -> io::Result<PathBuf> {
+) -> io::Result<LocalCopy> {
     let file = cached_file(root, location);
     let error = |e: io::Error| io::Error::new(e.kind(), format!("{}: {e}", file.display()));
     let dir = file
@@ -435,7 +444,10 @@ pub fn fetch(
             "the download did not produce the file",
         ));
     }
-    Ok(file)
+    Ok(LocalCopy {
+        source: crate::location::Location::Remote(location.clone()),
+        path: file,
+    })
 }
 
 #[cfg(test)]
@@ -716,17 +728,22 @@ mod tests {
         );
         let cancel = AtomicBool::new(false);
         let control = Control::new(&cancel);
-        let path = fetch(&fake, &location, dir.path(), &control).unwrap();
-        assert_eq!(std::fs::read(&path).unwrap(), b"data");
+        let copy = fetch(&fake, &location, dir.path(), &control).unwrap();
+        assert_eq!(
+            copy.source,
+            crate::location::Location::Remote(location.clone())
+        );
+        assert_eq!(std::fs::read(&copy.path).unwrap(), b"data");
         // A second fetch replaces the old copy instead of skipping.
-        std::fs::write(&path, "stale").unwrap();
-        fetch(&fake, &location, dir.path(), &control).unwrap();
-        assert_eq!(std::fs::read(&path).unwrap(), b"data");
+        std::fs::write(&copy.path, "stale").unwrap();
+        let refreshed = fetch(&fake, &location, dir.path(), &control).unwrap();
+        assert_eq!(refreshed.source, copy.source);
+        assert_eq!(std::fs::read(&refreshed.path).unwrap(), b"data");
         let failing = Fake {
             fail: Some("a b.txt"),
             ..Default::default()
         };
         assert!(fetch(&failing, &location, dir.path(), &control).is_err());
-        assert!(!path.exists());
+        assert!(!copy.path.exists());
     }
 }

@@ -103,6 +103,8 @@
 - [x] Preserve unknown file sizes from providers; show unknown values distinctly,
       keep size sorting deterministic, count marked totals as lower bounds, and
       refuse remote quick-view downloads when the size is unknown.
+- [x] Keep a typed source location with materialized remote copies, separate
+      from the cache path passed to native readers and openers.
 - [x] Introduce typed local, remote and archive addresses for panel folders,
       rows, marks, history, activation and remote transfer selections; model
       Directory, Search and Places panel content explicitly; key remote listing

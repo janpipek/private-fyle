@@ -52,6 +52,7 @@ impl Commander {
             crate::location::Location::Archive { .. } => Some(row.path.clone()),
         });
         let line = row.and_then(|row| row.hit_line.as_ref()).map(|(n, _)| *n);
+        let mut identity = row.map(|row| row.location.clone());
         let remote = row
             .filter(|row| matches!(&row.location, crate::location::Location::Remote(_)))
             .map(|row| (row.location.clone(), row.size, row.is_dir || row.is_parent));
@@ -60,13 +61,14 @@ impl Commander {
             // copy once there is one (small files only).
             target = if folder {
                 self.remote_preview = Default::default();
+                identity = None;
                 None
             } else {
                 self.remote_preview_target(location, size, window, cx)
             };
         }
         self.preview.update(cx, |preview, cx| {
-            preview.set_target(target, line, window, cx)
+            preview.set_location_target(target, identity, line, window, cx)
         });
     }
 
