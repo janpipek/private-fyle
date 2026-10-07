@@ -84,6 +84,9 @@ pub struct Commander {
     /// The discovery problems last shown, so each is reported once.
     remote_errors: String,
     _remotes_task: Task<()>,
+    /// Warnings of the remote listing just shown, kept for the status line
+    /// over the "Opened" message that follows it.
+    listing_warning: Option<String>,
     /// Remote paths given at startup, opened once the remotes are known;
     /// the panel shows a local folder meanwhile.
     start_remote: [Option<PathBuf>; 2],
@@ -265,6 +268,7 @@ impl Commander {
             remotes_pending: false,
             remote_errors: String::new(),
             _remotes_task: Task::ready(()),
+            listing_warning: None,
             start_remote,
             remote_cancel: [None, None],
             reload_generation: [0, 0],

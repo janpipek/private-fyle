@@ -32,6 +32,9 @@ impl Commander {
                 return;
             }
         };
+        if !remote::is_remote(&path) {
+            self.listing_warning = None;
+        }
         if remote::is_remote(&path) {
             // A remote folder is listed in the background first, then shown.
             let again = path.clone();
@@ -79,7 +82,11 @@ impl Commander {
                         });
                         this.views[panel]
                             .update(cx, |view, cx| view.finish_location_navigation(window, cx));
-                        this.status = format!("Opened {shown}").into();
+                        this.status = match this.listing_warning.take() {
+                            Some(warning) => warning,
+                            None => format!("Opened {shown}"),
+                        }
+                        .into();
                         this.update_preview(window, cx);
                     }
                     Err(error) => this.status = error.into(),

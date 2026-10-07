@@ -210,6 +210,8 @@ impl Commander {
                         this.folders[panel]
                             .update(cx, |folder, _| folder.cache_remote(target, listing.entries));
                         this.status = listing.warnings.join("; ").into();
+                        this.listing_warning =
+                            (!listing.warnings.is_empty()).then(|| listing.warnings.join("; "));
                         then(this, window, cx);
                     }
                     Err(e) => this.status = format!("{}: {e}", target.display()).into(),
