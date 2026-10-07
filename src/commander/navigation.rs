@@ -9,18 +9,30 @@ use gpui_kit::*;
 
 use super::Commander;
 use super::keys::{
-    AddBookmark, CopyLocation, EditLocation, GoBack, GoFirst, GoForward, GoLast, GoTo, GoUp, Open,
-    OpenTerminal, OpenWith, SwitchPanel,
+    CopyLocation, EditLocation, GoBack, GoFirst, GoForward, GoLast, GoTo, GoUp, Open, OpenTerminal,
+    OpenWith, SwitchPanel, ToggleBookmark,
 };
 use super::location::ListingCommit;
+use crate::bookmarks;
 use crate::editor::Document;
 use crate::model::Folder;
 use crate::places::{self, History};
-use crate::settings::{self};
 use crate::tools::{self};
 use crate::tools_view::PickDelegate;
 
 impl Commander {
+    /// Tells each panel whether its folder is bookmarked, for the star in
+    /// its location bar (hidden where bookmarking is not supported).
+    pub fn sync_bookmark_stars(&self, cx: &mut Context<Self>) {
+        for (folder, view) in self.folders.iter().zip(&self.views) {
+            let state = folder
+                .read(cx)
+                .bookmark_target()
+                .map(|dir| bookmarks::contains(&self.bookmarks, dir));
+            view.update(cx, |view, cx| view.set_bookmark(state, cx));
+        }
+    }
+
     pub fn open(&mut self, _: &Open, window: &mut Window, cx: &mut Context<Self>) {
         let target = self.folders[self.active].read(cx).activation_target();
         if let Some(target) = target {
@@ -278,27 +290,44 @@ impl Commander {
         cx.notify();
     }
 
-    /// Ctrl-D: adds the active directory to the bookmarks.
-    pub fn add_bookmark(&mut self, _: &AddBookmark, _: &mut Window, cx: &mut Context<Self>) {
+    /// Ctrl-D: adds the active directory to the bookmarks, or removes it.
+    pub fn toggle_bookmark(&mut self, _: &ToggleBookmark, _: &mut Window, cx: &mut Context<Self>) {
         if self.refuse_in_archive(cx) || self.refuse_on_remote(cx) {
             return;
         }
         let Some(dir) = self.folders[self.active]
             .read(cx)
-            .local_directory()
-            .map(std::path::Path::to_path_buf)
+            .bookmark_target()
+            .map(Path::to_path_buf)
         else {
+            self.status = "Only local folders can be bookmarked".into();
+            cx.notify();
             return;
         };
-        self.status = match settings::add_bookmark(&dir) {
-            Ok(_) => {
-                if !self.bookmarks.contains(&dir) {
-                    self.bookmarks.push(dir.clone());
-                }
-                format!("Bookmarked {}", dir.display()).into()
+        let bookmarked = bookmarks::toggle(&mut self.bookmarks, &dir);
+        self.status = if bookmarked {
+            format!("Bookmarked {}", dir.display())
+        } else {
+            format!("Removed bookmark {}", dir.display())
+        }
+        .into();
+        // The settings file is written in the background; undo on failure.
+        let saved = dir.clone();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { bookmarks::set_bookmark(&saved, bookmarked) })
+                .await;
+            if let Err(error) = result {
+                let _ = this.update(cx, |this, cx| {
+                    if bookmarks::contains(&this.bookmarks, &dir) == bookmarked {
+                        bookmarks::toggle(&mut this.bookmarks, &dir);
+                    }
+                    this.status = error.into();
+                    cx.notify();
+                });
             }
-            Err(e) => e.into(),
-        };
+        })
+        .detach();
         cx.notify();
     }
 

@@ -1,11 +1,5 @@
 # TODO
 
-- [ ] Next up — Toggle bookmark: make Ctrl-D add or remove the current folder's
-      bookmark. Add a small star in the location bar that reflects the
-      bookmark state and toggles it on click. Use the same `Cmd` for the
-      shortcut, star, menus, palette and F1 help, with model tests for adding
-      and removing bookmarks. Keep availability consistent with supported
-      bookmark locations.
 - [ ] Menus and selection, remaining parts: output/history in Tools; a
       "Clear selection" command (Esc already clears marks). Implement
       missing actions as separate features.
@@ -116,6 +110,12 @@
 
 ## Done
 
+- [x] Toggle bookmark: Ctrl-D adds or removes the active local folder's
+      bookmark (`ToggleBookmark`, one `Cmd` shared by the shortcut, menus,
+      palette and F1 help, checked when bookmarked). A star in each panel's
+      location bar shows the state and toggles it on click; it is hidden for
+      archives, search results, remotes and the drive list. The model lives
+      in `bookmarks.rs`; the settings file is edited in the background.
 - [x] Read-only Jupyter/IPython notebook view (IPYNB): parse bounded nbformat 4
       JSON in Rust and lazily render Markdown, highlighted code, saved text,
       errors and bounded PNG/JPEG outputs in F3. Raster MIME data is preferred

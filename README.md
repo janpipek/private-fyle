@@ -52,7 +52,7 @@ palette. The bottom area shows status messages and running jobs.
 | Alt-F7 / Ctrl-Shift-F | Find files by name (glob or substring) and/or containing text (literal or regex; hits show the matching line, and F3 preview scrolls to it), below the panel directory; results fill the panel (Enter shows a hit in its folder, Backspace returns, Esc stops) |
 | Ctrl-G / Alt-F1     | Locations: drives/mounted volumes, desktop places (home, user folders, GTK/KDE bookmarks), fyle bookmarks and frequent directories |
 | Ctrl-L              | Edit or paste the active panel's full path |
-| Ctrl-D              | Bookmark the current directory (saved in `config.toml`) |
+| Ctrl-D              | Add or remove the current directory's bookmark (saved in `config.toml`); the star in the location bar shows and toggles it |
 | F9                  | Open a terminal in the panel directory (`[terminal]` in `config.toml`) |
 | F3                  | Toggle quick preview (replaces the other panel, follows the cursor) |
 | F4                  | Edit the cursor file (UTF-8 text, up to 8 MiB) in place of the other panel; Ctrl-S saves, Esc/Ctrl-W closes (with unsaved changes it asks: Save, Discard or Cancel); saving asks before overwriting a file changed on disk. `[editor] command` in `config.toml` uses an external editor instead |
@@ -407,6 +407,7 @@ Where things live (`src/`):
 
 | Module | Role |
 |---|---|
+| `bookmarks.rs` | Bookmark toggling in memory and in `config.toml` |
 | `main.rs` | Startup, settings, start directories, window |
 | `commander.rs`, `commander/` | Main window: the two panels, actions, dialogs, jobs bar, tools orchestration. Split by area into `commander/` (keys, navigation, search, files, jobs, view, archives, remotes, tools, menus, appearance); new logic goes into its own module, only wiring here. |
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |

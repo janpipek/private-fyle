@@ -51,6 +51,8 @@ pub enum HeaderEvent {
     SearchLocations,
     Edit,
     CopyPath(String),
+    /// The bookmark star was clicked.
+    ToggleBookmark,
     /// Request a global font zoom step from the Commander.
     Zoom(i32),
     Error(String),
@@ -77,6 +79,8 @@ pub struct FolderView {
     grid: Entity<IconGrid>,
     mode: ViewMode,
     active: bool,
+    /// Whether this panel's folder is bookmarked; `None` when it cannot be.
+    bookmark: Option<bool>,
     /// Filter-as-you-type input, while open.
     filter_input: Option<Entity<InputState>>,
     _filter_subscription: Option<Subscription>,
@@ -163,6 +167,7 @@ impl FolderView {
             grid,
             mode,
             active: false,
+            bookmark: None,
             filter_input: None,
             _filter_subscription: None,
             location_input: None,
@@ -304,6 +309,14 @@ impl FolderView {
     pub fn set_icon_size(&mut self, size: u32, cx: &mut Context<Self>) {
         self.grid
             .update(cx, |grid, cx| grid.set_icon_size(size, cx));
+    }
+
+    /// Sets the bookmark star: `None` hides it, `Some(on)` shows its state.
+    pub fn set_bookmark(&mut self, bookmark: Option<bool>, cx: &mut Context<Self>) {
+        if self.bookmark != bookmark {
+            self.bookmark = bookmark;
+            cx.notify();
+        }
     }
 
     pub fn set_active(&mut self, active: bool, cx: &mut Context<Self>) {
@@ -473,6 +486,7 @@ impl Render for FolderView {
             None => text,
         };
         let theme = cx.theme();
+        let star_color = theme.warning;
         let header_foreground = if self.active {
             theme.primary_foreground
         } else {
@@ -560,6 +574,7 @@ impl Render for FolderView {
             }
         }
         let locations_view = view.clone();
+        let bookmark_view = view.clone();
         let edit_view = view.clone();
         let copy_view = view;
         self.breadcrumb_scroll
@@ -633,6 +648,33 @@ impl Render for FolderView {
                                     .children(breadcrumb_items)
                             }),
                     )
+                    .when_some(self.bookmark, |d, on| {
+                        d.child(
+                            Button::new("panel-bookmark")
+                                .icon(Lucide::Star)
+                                .ghost()
+                                .compact()
+                                .small()
+                                .flex_none()
+                                .text_color(if on { star_color } else { header_foreground })
+                                .tooltip(header_tooltip(
+                                    if on {
+                                        "Remove this folder's bookmark".into()
+                                    } else {
+                                        "Bookmark this folder".into()
+                                    },
+                                    &crate::commander::ToggleBookmark,
+                                ))
+                                .accessibility_label("Toggle bookmark")
+                                .on_click(move |_, _, cx| {
+                                    if let Some(view) = bookmark_view.upgrade() {
+                                        view.update(cx, |_, cx| {
+                                            cx.emit(HeaderEvent::ToggleBookmark)
+                                        });
+                                    }
+                                }),
+                        )
+                    })
                     .child(
                         Button::new("panel-edit-location")
                             .icon(Lucide::SquareTerminal)

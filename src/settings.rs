@@ -380,50 +380,6 @@ fn save_panel_value_to(path: &Path, key: &str, value: toml_edit::Value) -> Resul
     std::fs::write(path, doc.to_string()).map_err(|e| error(&e))
 }
 
-/// Appends `dir` to `bookmarks` in the settings file (unless present),
-/// keeping the rest of the file intact.
-pub fn add_bookmark(dir: &Path) -> Result<PathBuf, String> {
-    let path = Settings::path().ok_or("No config directory on this platform")?;
-    add_bookmark_to(&path, dir)?;
-    Ok(path)
-}
-
-pub fn add_bookmark_to(path: &Path, dir: &Path) -> Result<(), String> {
-    let error = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => return Err(error(&e)),
-    };
-    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| error(&e))?;
-    let location = crate::location::Location::local(dir.to_path_buf())
-        .map_err(|error| format!("{}: {error}", dir.display()))?;
-    let value = crate::location_codec::encode(&location)
-        .map_err(|error| format!("{}: {error}", dir.display()))?;
-    let list = doc
-        .entry("bookmarks")
-        .or_insert_with(|| toml_edit::value(toml_edit::Array::new()))
-        .as_array_mut()
-        .ok_or_else(|| error(&"`bookmarks` is not a list"))?;
-    let already_present = list.iter().any(|item| {
-        let Some(stored) = item.as_str() else {
-            return false;
-        };
-        if stored.starts_with(crate::location_codec::PREFIX) {
-            crate::location_codec::decode(stored).is_ok_and(|stored| stored == location)
-        } else {
-            Path::new(stored) == dir
-        }
-    });
-    if !already_present {
-        list.push(value);
-    }
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| error(&e))?;
-    }
-    std::fs::write(path, doc.to_string()).map_err(|e| error(&e))
-}
-
 /// Expands a leading `~` to the home directory.
 fn expand_home(path: PathBuf) -> PathBuf {
     let Ok(rest) = path.strip_prefix("~") else {
@@ -627,9 +583,9 @@ mod tests {
         let path = dir.join("config.toml");
         std::fs::create_dir_all(dir).unwrap();
         std::fs::write(&path, "# mine\ntheme = \"dark\"\n").unwrap();
-        add_bookmark_to(&path, Path::new("/srv/a")).unwrap();
-        add_bookmark_to(&path, Path::new("/srv/b")).unwrap();
-        add_bookmark_to(&path, Path::new("/srv/a")).unwrap();
+        crate::bookmarks::add_bookmark_to(&path, Path::new("/srv/a")).unwrap();
+        crate::bookmarks::add_bookmark_to(&path, Path::new("/srv/b")).unwrap();
+        crate::bookmarks::add_bookmark_to(&path, Path::new("/srv/a")).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("# mine"));
         let settings = Settings::parse(&text).unwrap();
@@ -654,8 +610,8 @@ mod tests {
         #[cfg(windows)]
         let unusual = PathBuf::from("C:\\tmp\\a\tb\nc");
 
-        add_bookmark_to(&path, &unusual).unwrap();
-        add_bookmark_to(&path, &unusual).unwrap();
+        crate::bookmarks::add_bookmark_to(&path, &unusual).unwrap();
+        crate::bookmarks::add_bookmark_to(&path, &unusual).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("# keep this comment"));
         assert!(text.contains(crate::location_codec::PREFIX));

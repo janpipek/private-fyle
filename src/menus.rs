@@ -60,7 +60,7 @@ pub enum Cmd {
     EditLocation,
     CopyLocation,
     GoTo,
-    AddBookmark,
+    ToggleBookmark,
     OpenTerminal,
     ToolsMenu,
     FindFiles,
@@ -85,6 +85,8 @@ pub struct State {
     pub can_paste: bool,
     /// The panel lists a directory (not search results or the drive list).
     pub in_directory: bool,
+    /// The active panel's folder is in the bookmarks.
+    pub bookmarked: bool,
     /// The panel browses inside an archive, which is read-only.
     pub in_archive: bool,
     /// There are folders to measure: marked ones, the cursor's, or listed.
@@ -168,7 +170,7 @@ impl Cmd {
         Cmd::CutFiles,
         Cmd::PasteFiles,
         Cmd::GoTo,
-        Cmd::AddBookmark,
+        Cmd::ToggleBookmark,
         Cmd::OpenTerminal,
         Cmd::CommandPalette,
         Cmd::Help,
@@ -229,7 +231,7 @@ impl Cmd {
             Cmd::EditLocation => "Edit Location…",
             Cmd::CopyLocation => "Copy Full Path",
             Cmd::GoTo => "Go To… (Bookmarks, Places, Frequent)",
-            Cmd::AddBookmark => "Bookmark This Folder",
+            Cmd::ToggleBookmark => "Bookmark This Folder",
             Cmd::OpenTerminal => "Terminal Here",
             Cmd::ToolsMenu => "Tools for Selection…",
             Cmd::FindFiles => "Find Files…",
@@ -277,6 +279,7 @@ impl Cmd {
             Cmd::GoFirst => "Go to first entry",
             Cmd::GoLast => "Go to last entry",
             Cmd::SwitchPanel => "Switch panel",
+            Cmd::ToggleBookmark => "Add or remove the bookmark for this folder",
             Cmd::EditLocation => "Edit or paste the active panel location",
             Cmd::CopyLocation => "Copy the active panel's full path",
             Cmd::Help => "Help: commands and keys",
@@ -296,6 +299,7 @@ impl Cmd {
             Cmd::ListView => Some(state.view == ViewMode::List),
             Cmd::IconView => Some(state.view == ViewMode::Icons),
             Cmd::ToggleHidden => Some(state.hidden),
+            Cmd::ToggleBookmark => Some(state.bookmarked),
             Cmd::SortDescending => Some(state.sort.descending),
             cmd => cmd.sort_key().map(|key| state.sort.key == key),
         }
@@ -318,7 +322,7 @@ impl Cmd {
             Cmd::OpenWith
             | Cmd::EditFile
             | Cmd::NewFile
-            | Cmd::AddBookmark
+            | Cmd::ToggleBookmark
             | Cmd::OpenTerminal
             | Cmd::ToolsMenu
             | Cmd::FindFiles
@@ -378,7 +382,7 @@ impl Cmd {
                 Some(READ_ONLY)
             }
             Cmd::OpenWith
-            | Cmd::AddBookmark
+            | Cmd::ToggleBookmark
             | Cmd::OpenTerminal
             | Cmd::ToolsMenu
             | Cmd::FindFiles
@@ -402,7 +406,7 @@ impl Cmd {
                 Some("Select or mark entries")
             }
             Cmd::PasteFiles if !state.can_paste => Some("Copy or cut entries first"),
-            Cmd::PasteFiles | Cmd::NewFile | Cmd::MakeDir | Cmd::AddBookmark
+            Cmd::PasteFiles | Cmd::NewFile | Cmd::MakeDir | Cmd::ToggleBookmark
                 if !state.in_directory =>
             {
                 Some("Not in a folder")
@@ -527,7 +531,7 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
             items(&[
                 &[GoBack, GoForward, GoUp],
                 &[GoFirst, GoLast, SwitchPanel],
-                &[EditLocation, CopyLocation, GoTo, AddBookmark],
+                &[EditLocation, CopyLocation, GoTo, ToggleBookmark],
                 &[OpenTerminal],
             ]),
         ),
@@ -639,6 +643,31 @@ mod tests {
             Some("This remote has no web view")
         );
         assert_eq!(Cmd::OpenInBrowser.unavailable(&remote(true)), None);
+    }
+
+    #[test]
+    fn bookmark_toggle_follows_location_and_state() {
+        let folder = State {
+            in_directory: true,
+            ..State::default()
+        };
+        assert_eq!(Cmd::ToggleBookmark.unavailable(&folder), None);
+        assert_eq!(Cmd::ToggleBookmark.checked(&folder), Some(false));
+        let marked = State {
+            bookmarked: true,
+            ..folder.clone()
+        };
+        assert_eq!(Cmd::ToggleBookmark.checked(&marked), Some(true));
+        let results = State::default();
+        assert_eq!(
+            Cmd::ToggleBookmark.unavailable(&results),
+            Some("Not in a folder")
+        );
+        let archive = State {
+            in_archive: true,
+            ..folder
+        };
+        assert!(Cmd::ToggleBookmark.unavailable(&archive).is_some());
     }
 
     #[test]
@@ -755,7 +784,7 @@ mod tests {
             Cmd::ToolsMenu,
             Cmd::YankFiles,
             Cmd::PasteFiles,
-            Cmd::AddBookmark,
+            Cmd::ToggleBookmark,
         ] {
             assert_eq!(
                 cmd.unavailable(&full),

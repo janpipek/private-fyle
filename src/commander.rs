@@ -17,7 +17,7 @@ mod web;
 
 pub use self::keys::{
     CopyLocation, EditLocation, GoTo, Open, Quit, SortByExt, SortByModified, SortByName,
-    SortBySize, SortDescending, bind_keys, bind_user_keys,
+    SortBySize, SortDescending, ToggleBookmark, bind_keys, bind_user_keys,
 };
 
 use std::cell::Cell;
@@ -248,6 +248,10 @@ impl Commander {
                             this.set_active(ix, cx);
                             this.views[ix].update(cx, |view, cx| view.open_location(window, cx));
                         }
+                        HeaderEvent::ToggleBookmark => {
+                            this.set_active(ix, cx);
+                            this.toggle_bookmark(&ToggleBookmark, window, cx);
+                        }
                         HeaderEvent::CopyPath(path) => {
                             this.set_active(ix, cx);
                             cx.write_to_clipboard(ClipboardItem::new_string(path.clone()));
@@ -445,6 +449,7 @@ impl Commander {
 impl Render for Commander {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.update_menu_bar(cx);
+        self.sync_bookmark_stars(cx);
         let theme = cx.theme();
         let (bg, fg, muted) = (theme.background, theme.foreground, theme.muted_foreground);
         v_flex()
@@ -489,7 +494,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::go_to))
             .on_action(cx.listener(Self::edit_location))
             .on_action(cx.listener(Self::copy_location))
-            .on_action(cx.listener(Self::add_bookmark))
+            .on_action(cx.listener(Self::toggle_bookmark))
             .on_action(cx.listener(Self::open_terminal))
             .on_action(cx.listener(Self::select_columns))
             .on_action(cx.listener(Self::select_all))

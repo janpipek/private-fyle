@@ -12,6 +12,7 @@ use super::keys::action_for;
 use super::keys::{CommandPalette, Help};
 use super::tools::tool_menu_footer;
 use crate::archive;
+use crate::bookmarks;
 use crate::menu_bar::MenuBuilder;
 use crate::menus::{self, Cmd};
 use crate::palette::{Command, Palette};
@@ -71,6 +72,9 @@ impl Commander {
             cursor_on_file: current.is_some_and(|e| !e.is_dir),
             can_paste: self.yank.is_some(),
             in_directory: folder.results().is_none() && !folder.path().as_os_str().is_empty(),
+            bookmarked: folder
+                .bookmark_target()
+                .is_some_and(|dir| bookmarks::contains(&self.bookmarks, dir)),
             in_archive: folder.archive().is_some(),
             has_folders: !folder.size_targets().is_empty(),
             cursor_on_archive: folder.archive().is_none()

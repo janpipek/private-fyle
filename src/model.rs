@@ -197,6 +197,19 @@ impl Folder {
         }
     }
 
+    /// The local folder this panel shows if it can be bookmarked: not search
+    /// results, an archive, a remote or the drive list.
+    pub fn bookmark_target(&self) -> Option<&Path> {
+        match &self.content {
+            PanelContent::Directory(Location::Local(local))
+                if self.archive().is_none() && self.results().is_none() =>
+            {
+                Some(local.as_path()).filter(|path| !path.as_os_str().is_empty())
+            }
+            _ => None,
+        }
+    }
+
     /// Returns the current panel content mode.
     pub fn content(&self) -> &PanelContent {
         &self.content
