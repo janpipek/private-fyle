@@ -36,10 +36,28 @@ pub fn command_menu(
     state: &menus::State,
     window: &mut Window,
     cx: &mut Context<PopupMenu>,
+    open_with: Option<(
+        Vec<crate::apps::Choice>,
+        std::path::PathBuf,
+        WeakEntity<Commander>,
+    )>,
 ) -> PopupMenu {
     for item in items {
         menu = match item {
             menus::Item::Cmd(cmd) => menu.item(command_item(*cmd, state)),
+            menus::Item::OpenWith => match &open_with {
+                Some((choices, path, commander)) => {
+                    crate::commander::open_with::add_choice_submenu(
+                        menu,
+                        choices.clone(),
+                        path.clone(),
+                        commander.clone(),
+                        window,
+                        cx,
+                    )
+                }
+                None => menu.item(command_item(Cmd::OpenWith, state)),
+            },
             menus::Item::Separator => menu.separator(),
             menus::Item::Submenu(label, commands) => {
                 let commands = commands.to_vec();
@@ -73,6 +91,12 @@ impl Commander {
             has_marks: folder.marked_count() > 0,
             has_targets: folder.marked_count() > 0 || current.is_some_and(|e| !e.is_parent),
             cursor_on_file: current.is_some_and(|e| !e.is_dir),
+            open_with_path: current.filter(|entry| !entry.is_dir).and_then(|entry| {
+                entry
+                    .location
+                    .as_local_path()
+                    .map(std::path::Path::to_path_buf)
+            }),
             can_paste: self.yank.is_some(),
             in_directory: folder.results().is_none() && !folder.path().as_os_str().is_empty(),
             bookmarked: folder
@@ -112,10 +136,14 @@ impl Commander {
             return;
         }
         let commander = cx.weak_entity();
+        let open_with = self
+            .open_with_menu_data(cx)
+            .map(|(path, choices)| (choices, path, commander.clone()));
         let menus = menus::menu_bar()
             .into_iter()
             .map(|(name, items)| {
                 let state = state.clone();
+                let open_with = open_with.clone();
                 let builder: MenuBuilder = if name == "Tools" {
                     let commander = commander.clone();
                     Rc::new(move |menu, window, cx| {
@@ -126,7 +154,9 @@ impl Commander {
                         tool_menu_footer(menu.label("Loading tools…"), &state)
                     })
                 } else {
-                    Rc::new(move |menu, window, cx| command_menu(menu, &items, &state, window, cx))
+                    Rc::new(move |menu, window, cx| {
+                        command_menu(menu, &items, &state, window, cx, open_with.clone())
+                    })
                 };
                 (SharedString::from(name), builder)
             })
@@ -135,8 +165,14 @@ impl Commander {
         self.menu_bar.update(cx, |bar, cx| bar.reload(menus, cx));
     }
 
-    pub fn file_context_menu(&self, mut menu: PopupMenu, cx: &App) -> PopupMenu {
-        let state = self.menu_state(cx);
+    pub fn file_context_menu(
+        mut menu: PopupMenu,
+        window: &mut Window,
+        cx: &mut App,
+        state: menus::State,
+        open_with: Option<(std::path::PathBuf, Vec<crate::apps::Choice>)>,
+        commander: WeakEntity<Self>,
+    ) -> PopupMenu {
         for item in menus::context_menu() {
             menu = match item {
                 menus::Item::Cmd(cmd) => menu.menu_with_disabled(
@@ -144,6 +180,17 @@ impl Commander {
                     action_for(cmd),
                     cmd.unavailable(&state).is_some(),
                 ),
+                menus::Item::OpenWith => match &open_with {
+                    Some((path, choices)) => crate::commander::open_with::add_choice_submenu(
+                        menu,
+                        choices.clone(),
+                        path.clone(),
+                        commander.clone(),
+                        window,
+                        cx,
+                    ),
+                    None => menu.menu_with_disabled("Open With…", action_for(Cmd::OpenWith), true),
+                },
                 menus::Item::Separator => menu.separator(),
                 menus::Item::Submenu(..) => unreachable!("file context menu has no submenus"),
             };

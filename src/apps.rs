@@ -95,6 +95,18 @@ impl Catalog {
         catalog
     }
 
+    /// Program names used by loaded desktop entries' `Exec` and `TryExec` fields.
+    pub fn program_names(&self) -> HashSet<String> {
+        self.entries
+            .values()
+            .flat_map(|entry| {
+                desktop::exec_program(&entry.exec)
+                    .into_iter()
+                    .chain(entry.try_exec.as_deref().and_then(desktop::exec_program))
+            })
+            .collect()
+    }
+
     fn insert(&mut self, entry: DesktopEntry) {
         for mime in &entry.mime_types {
             let mime = self.mime.canonical(mime).to_string();
@@ -193,7 +205,8 @@ fn desktop_visible(text: &str, desktops: &[String]) -> bool {
 
 fn application(entry: &DesktopEntry, exists: &dyn Fn(&str) -> bool) -> Application {
     let program = desktop::exec_program(&entry.exec);
-    let missing = match (&entry.try_exec, &program) {
+    let try_exec = entry.try_exec.as_deref().and_then(desktop::exec_program);
+    let missing = match (&try_exec, &program) {
         (Some(try_exec), _) if !exists(try_exec) => Some(try_exec.clone()),
         (_, Some(program)) if !exists(program) => Some(program.clone()),
         (_, None) => Some("a valid Exec".to_string()),
@@ -455,6 +468,24 @@ mod tests {
                 .applications_for("a.zzz", false, &all_exist)
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn program_names_include_exec_and_try_exec() {
+        let fx = fixture(&[], |_, _, sys| {
+            write(
+                sys,
+                "applications/editor.desktop",
+                &desktop(
+                    "Editor",
+                    "editor-bin %f",
+                    "TryExec=editor-check\nMimeType=text/plain;",
+                ),
+            );
+        });
+        let names = Catalog::load(&fx.env).program_names();
+        assert!(names.contains("editor-bin"));
+        assert!(names.contains("editor-check"));
     }
 
     #[test]

@@ -1,20 +1,20 @@
 //! Shift-Enter "Open with…": configured openers, the desktop's default and
 //! associated applications, the system opener and the built-in editor.
 
+use std::collections::HashMap;
 use std::path::Path;
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use gpui_kit::component::list::{List, ListState};
-use gpui_kit::component::{IndexPath, WindowExt as _};
+use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::*;
 
 use super::Commander;
 use super::keys::OpenWith;
 use crate::apps::{self, Application, Catalog, Choice};
 use crate::editor::Document;
-use crate::open_with_view::OpenWithDelegate;
 use crate::tools::{self, Programs};
 use crate::xdg::Env;
 
@@ -25,7 +25,85 @@ const CATALOG_MAX_AGE: Duration = Duration::from_secs(60);
 /// The application database and when it was read.
 pub struct CatalogCache {
     catalog: Arc<Catalog>,
+    availability: HashMap<String, bool>,
     loaded: Instant,
+}
+
+impl CatalogCache {
+    fn load() -> Self {
+        let catalog = Arc::new(Catalog::load(&Env::from_env()));
+        let programs = Programs::from_env();
+        let availability = catalog
+            .program_names()
+            .into_iter()
+            .map(|name| {
+                let exists = programs.find(&name).is_some();
+                (name, exists)
+            })
+            .collect();
+        Self {
+            catalog,
+            availability,
+            loaded: Instant::now(),
+        }
+    }
+
+    fn application_list(&self, file_name: &str) -> Vec<Application> {
+        self.catalog.applications_for(file_name, false, &|program| {
+            self.availability.get(program).copied().unwrap_or(false)
+        })
+    }
+}
+
+/// Adds available applications under group labels in a popup menu.
+pub fn choice_menu(
+    mut menu: PopupMenu,
+    choices: Vec<Choice>,
+    path: PathBuf,
+    commander: WeakEntity<Commander>,
+) -> PopupMenu {
+    for group in [
+        crate::apps::Group::Configured,
+        crate::apps::Group::System,
+        crate::apps::Group::Other,
+    ] {
+        let group_choices = choices.iter().filter(|choice| choice.group() == group);
+        let mut added = false;
+        for choice in group_choices {
+            if !added {
+                menu = menu.label(group.title());
+                added = true;
+            }
+            let selected = choice.clone();
+            let path = path.clone();
+            let commander = commander.clone();
+            menu = menu.item(
+                PopupMenuItem::new(choice.label())
+                    .disabled(choice.unavailable().is_some())
+                    .on_click(move |_, window, cx| {
+                        let _ = commander.update(cx, |this, cx| {
+                            this.run_open_with_choice(selected.clone(), &path, window, cx)
+                        });
+                    }),
+            );
+        }
+    }
+    menu
+}
+
+/// Adds an Open With submenu to a parent file menu.
+pub fn add_choice_submenu(
+    menu: PopupMenu,
+    choices: Vec<Choice>,
+    path: PathBuf,
+    commander: WeakEntity<Commander>,
+    window: &mut Window,
+    cx: &mut App,
+) -> PopupMenu {
+    let submenu = PopupMenu::build(window, cx, move |submenu, _, _| {
+        choice_menu(submenu, choices, path, commander)
+    });
+    menu.item(PopupMenuItem::submenu("Open With", submenu))
 }
 
 impl CatalogCache {
@@ -38,6 +116,74 @@ impl CatalogCache {
 }
 
 impl Commander {
+    /// Current local file and the Open With choices available in cached catalog data.
+    pub fn open_with_menu_data(&self, cx: &App) -> Option<(std::path::PathBuf, Vec<Choice>)> {
+        let folder = self.folders[self.active].read(cx);
+        if folder.archive().is_some() || folder.is_remote() {
+            return None;
+        }
+        let entry = folder.current()?.clone();
+        if entry.is_dir {
+            return None;
+        }
+        let path = entry.location.as_local_path()?.to_path_buf();
+        let openers = crate::openers::matching(&self.openers, &path)
+            .into_iter()
+            .cloned()
+            .collect();
+        let apps = self
+            .catalog_cache
+            .as_ref()
+            .map_or_else(Vec::new, |cache| cache.application_list(&entry.name));
+        Some((path, apps::merge(openers, apps)))
+    }
+
+    /// Loads the desktop application catalog before menus need its choices.
+    pub fn warm_open_with_catalog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.open_with_catalog_loading || CatalogCache::fresh(&self.catalog_cache).is_some() {
+            return;
+        }
+        self.open_with_catalog_loading = true;
+        self._open_with_task = cx.spawn_in(window, async move |this, cx| {
+            let cache = cx
+                .background_spawn(async move { CatalogCache::load() })
+                .await;
+            let _ = this.update_in(cx, |this, _, cx| {
+                this.catalog_cache = Some(cache);
+                this.open_with_catalog_loading = false;
+                this.menu_state = None;
+                cx.notify();
+            });
+        });
+    }
+
+    /// Runs one selected Open With choice for a file.
+    pub fn run_open_with_choice(
+        &mut self,
+        choice: Choice,
+        path: &Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match choice {
+            Choice::Opener { opener, .. } => {
+                self.run_opener(&opener, path);
+            }
+            Choice::App(app) => {
+                self.run_application(&app, path);
+            }
+            Choice::SystemDefault => {
+                if let Err(e) = open::that_detached(path) {
+                    self.status = format!("Cannot open {}: {e}", path.display()).into();
+                }
+            }
+            Choice::BuiltInEditor => {
+                self.open_in_editor(path.to_path_buf(), Document::open(path), window, cx)
+            }
+        }
+        cx.notify();
+    }
+
     /// Starts `app` on `path`; returns whether it started (else the status
     /// says why not). Terminal applications run in the configured terminal.
     pub fn run_application(&mut self, app: &Application, path: &Path) -> bool {
@@ -109,30 +255,42 @@ impl Commander {
             .into_iter()
             .cloned()
             .collect();
-        let cached = CatalogCache::fresh(&self.catalog_cache);
+        let cached = self
+            .catalog_cache
+            .as_ref()
+            .filter(|cache| cache.loaded.elapsed() < CATALOG_MAX_AGE)
+            .map(|cache| {
+                (
+                    cache.catalog.clone(),
+                    cache.availability.clone(),
+                    cache.loaded,
+                )
+            });
         let name = entry.name.clone();
         let file_name = name.clone();
         self.status = "Looking up applications…".into();
         cx.notify();
         self._open_with_task = cx.spawn_in(window, async move |this, cx| {
-            let (catalog, apps) = cx
+            let (cache, apps) = cx
                 .background_spawn(async move {
                     let reloaded = cached.is_none();
-                    let catalog =
-                        cached.unwrap_or_else(|| Arc::new(Catalog::load(&Env::from_env())));
-                    // A new lookup per call, so installing a program shows up.
-                    let programs = Programs::from_env();
-                    let apps =
-                        catalog.applications_for(&name, false, &|p| programs.find(p).is_some());
-                    (reloaded.then_some(catalog), apps)
+                    let cache = cached.map_or_else(
+                        CatalogCache::load,
+                        |(catalog, availability, loaded)| CatalogCache {
+                            catalog,
+                            availability,
+                            loaded,
+                        },
+                    );
+                    let apps = cache.application_list(&name);
+                    (reloaded.then_some(cache), apps)
                 })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
-                if let Some(catalog) = catalog {
-                    this.catalog_cache = Some(CatalogCache {
-                        catalog,
-                        loaded: Instant::now(),
-                    });
+                if let Some(cache) = cache {
+                    this.catalog_cache = Some(cache);
+                    this.open_with_catalog_loading = false;
+                    this.menu_state = None;
                 }
                 this.status = "".into();
                 this.show_open_with(path, file_name, apps::merge(openers, apps), window, cx);
@@ -149,44 +307,20 @@ impl Commander {
         cx: &mut Context<Self>,
     ) {
         let this = cx.entity().downgrade();
-        let run = choices.clone();
-        let delegate = OpenWithDelegate::new(choices, move |index, window, cx| {
-            window.close_dialog(cx);
-            let path = path.clone();
-            let choice = run[index].clone();
-            let _ = this.update(cx, |this, cx| {
-                match choice {
-                    Choice::Opener { opener, .. } => {
-                        this.run_opener(&opener, &path);
-                    }
-                    Choice::App(app) => {
-                        this.run_application(&app, &path);
-                    }
-                    Choice::SystemDefault => {
-                        if let Err(e) = open::that_detached(&path) {
-                            this.status = format!("Cannot open {}: {e}", path.display()).into();
-                        }
-                    }
-                    Choice::BuiltInEditor => {
-                        this.open_in_editor(path.clone(), Document::open(&path), window, cx)
-                    }
-                }
-                cx.notify();
-            });
+        let file_name = format!("Open {file_name} with");
+        let menu = PopupMenu::build(window, cx, move |menu, _, _| {
+            choice_menu(menu.label(file_name), choices, path, this)
         });
-        let list = cx.new(|cx| ListState::new(delegate, window, cx).searchable(true));
-        list.update(cx, |list, cx| {
-            list.set_selected_index(Some(IndexPath::new(0)), window, cx)
-        });
-        let dialog_list = list.clone();
-        let title = format!("Open {file_name} with");
-        window.open_dialog(cx, move |dialog, _, _| {
-            dialog
-                .title(title.clone())
-                .w(px(460.))
-                .child(div().h(px(320.)).child(List::new(&dialog_list)))
-        });
-        list.update(cx, |list, cx| list.focus(window, cx));
+        self._open_with_dismiss =
+            Some(
+                cx.subscribe_in(&menu, window, |this, _, _: &DismissEvent, _, cx| {
+                    this.open_with_menu = None;
+                    this._open_with_dismiss = None;
+                    cx.notify();
+                }),
+            );
+        menu.focus_handle(cx).focus(window, cx);
+        self.open_with_menu = Some(menu);
         cx.notify();
     }
 }

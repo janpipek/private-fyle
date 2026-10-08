@@ -90,6 +90,8 @@ pub struct State {
     pub swap_blocked: Option<&'static str>,
     /// The cursor is on a regular file (not a directory).
     pub cursor_on_file: bool,
+    /// Local file that the Open With submenu will act on.
+    pub open_with_path: Option<std::path::PathBuf>,
     /// Entries were yanked or cut and can be pasted.
     pub can_paste: bool,
     /// The panel lists a directory (not search results or the drive list).
@@ -456,6 +458,7 @@ impl Cmd {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Item {
     Cmd(Cmd),
+    OpenWith,
     Separator,
     Submenu(&'static str, &'static [Cmd]),
 }
@@ -463,10 +466,10 @@ pub enum Item {
 /// File actions shared with the menu bar and palette, grouped for right-click.
 pub fn context_menu() -> Vec<Item> {
     use Cmd::*;
-    use Item::{Cmd as Command, Separator};
+    use Item::{Cmd as Command, OpenWith, Separator};
     vec![
         Command(Open),
-        Command(OpenWith),
+        OpenWith,
         Command(EditFile),
         Separator,
         Command(CutFiles),
@@ -502,17 +505,17 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
         }
         items
     };
+    let mut file = items(&[&[Open]]);
+    file.push(Item::OpenWith);
+    file.extend(items(&[
+        &[OpenInBrowser, EditFile],
+        &[NewFile, MakeDir, Rename],
+        &[Copy, Move, ExtractArchive],
+        &[Delete, DeletePermanently],
+        &[Quit],
+    ]));
     vec![
-        (
-            "File",
-            items(&[
-                &[Open, OpenWith, OpenInBrowser, EditFile],
-                &[NewFile, MakeDir, Rename],
-                &[Copy, Move, ExtractArchive],
-                &[Delete, DeletePermanently],
-                &[Quit],
-            ]),
-        ),
+        ("File", file),
         (
             "Edit",
             items(&[
@@ -586,6 +589,7 @@ mod tests {
             for item in items {
                 let cmds: &[Cmd] = match &item {
                     Item::Cmd(cmd) => std::slice::from_ref(cmd),
+                    Item::OpenWith => &[Cmd::OpenWith],
                     Item::Submenu(_, cmds) => cmds,
                     Item::Separator => &[],
                 };
@@ -618,6 +622,7 @@ mod tests {
             .into_iter()
             .filter_map(|item| match item {
                 Item::Cmd(cmd) => Some(cmd),
+                Item::OpenWith => Some(Cmd::OpenWith),
                 _ => None,
             })
             .collect();
@@ -729,12 +734,12 @@ mod tests {
         );
         let archive = State {
             in_archive: true,
-            ..folder
+            ..folder.clone()
         };
         assert!(Cmd::ToggleBookmark.unavailable(&archive).is_some());
         let remote = State {
             remote: Some(Capabilities::default()),
-            ..folder
+            ..folder.clone()
         };
         assert_eq!(Cmd::ToggleBookmark.unavailable(&remote), None);
         let remote_archive = State {

@@ -198,14 +198,15 @@ bar.
 
 ## Open with
 
-Shift-Enter lists, in this order: matching `[[opener]]` rules; the desktop's
-default application for the file's type, marked "(default)"; other
-applications registered for it; the built-in editor. A system entry that
-runs the same command as a configured opener is dropped, and the opener
-takes the "(default)" mark. Entries whose program is missing are greyed out
-with the reason. On Linux, desktop entries obey `OnlyShowIn` and `NotShowIn`
-for the current desktop. Enter itself is unchanged: first matching opener, else
-`xdg-open` (through the `open` crate).
+The File and right-click menus offer Open With as a submenu; Shift-Enter opens
+the same choices in a popup. They list, in this order: matching `[[opener]]`
+rules; the desktop's default application for the file's type, marked
+"(default)"; other applications registered for it; the built-in editor.
+A system entry that runs the same command as a configured opener is dropped,
+and the opener takes the "(default)" mark. Entries whose program is missing
+are greyed out with the reason. On Linux, desktop entries obey `OnlyShowIn`
+and `NotShowIn` for the current desktop. Enter is unchanged: it runs the first
+matching opener, or `xdg-open` (through the `open` crate).
 
 On Linux the types and applications come from the desktop's files, read
 directly (no `xdg-mime` or `gio`): the type from shared-mime-info's

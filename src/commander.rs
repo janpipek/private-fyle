@@ -28,6 +28,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -70,7 +71,10 @@ pub struct Commander {
     openers: Vec<crate::openers::Opener>,
     /// Applications the desktop associates with file types, read lazily.
     catalog_cache: Option<open_with::CatalogCache>,
+    open_with_catalog_loading: bool,
     _open_with_task: Task<()>,
+    open_with_menu: Option<Entity<PopupMenu>>,
+    _open_with_dismiss: Option<Subscription>,
     /// Entries waiting to be pasted.
     yank: Option<Yank>,
     yank_generation: u64,
@@ -297,7 +301,10 @@ impl Commander {
             tools: Arc::new(tools_registry),
             programs: Arc::new(Programs::from_env()),
             catalog_cache: None,
+            open_with_catalog_loading: false,
             _open_with_task: Task::ready(()),
+            open_with_menu: None,
+            _open_with_dismiss: None,
             _tool_task: Task::ready(()),
             _zoom_save: Task::ready(()),
             history_saves: Default::default(),
@@ -368,19 +375,32 @@ impl Commander {
 
     /// Called once the entity exists (the preview needs `self`'s context).
     pub fn init(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.warm_open_with_catalog(window, cx);
         for (ix, view) in self.views.iter().enumerate() {
             let commander = cx.weak_entity();
             let focus = view.read(cx).focus_handle(cx);
             view.update(cx, |view, cx| {
                 view.set_context_menu(
-                    move |menu, _, cx| {
-                        let Some(commander) = commander.upgrade() else {
+                    move |menu, window, popup_cx| {
+                        let Some(commander_entity) = commander.upgrade() else {
                             return menu;
                         };
-                        commander.update(cx, |this, cx| {
-                            this.set_active(ix, cx);
-                            this.file_context_menu(menu.action_context(focus.clone()), cx)
-                        })
+                        commander_entity.update(popup_cx, |this, cx| this.set_active(ix, cx));
+                        let (state, open_with) = {
+                            let this = commander_entity.read(popup_cx);
+                            (
+                                this.menu_state(popup_cx),
+                                this.open_with_menu_data(popup_cx),
+                            )
+                        };
+                        Commander::file_context_menu(
+                            menu.action_context(focus.clone()),
+                            window,
+                            popup_cx,
+                            state,
+                            open_with,
+                            commander.clone(),
+                        )
                     },
                     cx,
                 );
@@ -465,7 +485,8 @@ impl Commander {
 }
 
 impl Render for Commander {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.warm_open_with_catalog(window, cx);
         self.update_menu_bar(cx);
         self.sync_bookmark_stars(cx);
         let theme = cx.theme();
@@ -596,6 +617,14 @@ impl Render for Commander {
                     .flex_none()
                     .child(self.menu_bar.clone()),
             )
+            .when_some(self.open_with_menu.clone(), |root, menu| {
+                root.child(deferred(
+                    anchored()
+                        .anchor(Anchor::TopLeft)
+                        .snap_to_window_with_margin(px(8.))
+                        .child(div().occlude().top_1().child(menu)),
+                ))
+            })
             .child({
                 let left_w = DefiniteLength::Fraction(self.panel_split);
                 let right_w = DefiniteLength::Fraction(1.0 - self.panel_split);

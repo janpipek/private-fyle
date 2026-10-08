@@ -33,7 +33,6 @@ mod mime;
 mod mimeapps;
 mod model;
 mod notebook_view;
-mod open_with_view;
 mod openers;
 mod palette;
 mod palette_view;

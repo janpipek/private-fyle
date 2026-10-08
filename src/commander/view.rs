@@ -269,6 +269,10 @@ impl Commander {
     /// (stopping the scans that would recompute them).
     pub fn refresh(&mut self, _: &Refresh, window: &mut Window, cx: &mut Context<Self>) {
         self.catalog_cache = None;
+        self.open_with_catalog_loading = false;
+        self.menu_state = None;
+        self._open_with_task = Task::ready(());
+        self.warm_open_with_catalog(window, cx);
         for ix in 0..2 {
             self.stop_size_scan(ix);
         }
