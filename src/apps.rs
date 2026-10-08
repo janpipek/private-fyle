@@ -1,4 +1,4 @@
-//! Applications that can open a file: the desktop's file-type associations
+//! Applications that can open a file or directory: desktop associations
 //! (Linux: shared-mime-info, desktop entries, `mimeapps.list`) merged with
 //! fyle's configured openers; UI-independent. Windows and macOS discovery
 //! will come with those platforms: [`Catalog`] is the seam.
@@ -318,11 +318,11 @@ fn base_name(program: &str) -> &str {
 }
 
 /// Orders the choices: matching configured openers, then the system's
-/// default and other applications, then the built-in editor. A system
+/// default and other applications, then the built-in editor for files. A system
 /// application running the same command as a configured opener is dropped,
 /// and the opener takes its "(default)" mark. `SystemDefault` is added only
 /// when no default application is known.
-pub fn merge(openers: Vec<Opener>, apps: Vec<Application>) -> Vec<Choice> {
+pub fn merge(openers: Vec<Opener>, apps: Vec<Application>, is_dir: bool) -> Vec<Choice> {
     let mut apps = apps;
     let mut choices = Vec::new();
     let mut default_known = false;
@@ -351,7 +351,9 @@ pub fn merge(openers: Vec<Opener>, apps: Vec<Application>) -> Vec<Choice> {
     if !default_known {
         choices.push(Choice::SystemDefault);
     }
-    choices.push(Choice::BuiltInEditor);
+    if !is_dir {
+        choices.push(Choice::BuiltInEditor);
+    }
     choices
 }
 
@@ -486,6 +488,36 @@ mod tests {
         let names = Catalog::load(&fx.env).program_names();
         assert!(names.contains("editor-bin"));
         assert!(names.contains("editor-check"));
+    }
+
+    #[test]
+    fn directories_use_directory_associations_even_with_file_like_names() {
+        let fx = fixture(&[], |config, _, sys| {
+            write(
+                sys,
+                "applications/files.desktop",
+                &desktop("Files", "files %f", "MimeType=inode/directory;"),
+            );
+            write(
+                sys,
+                "applications/editor.desktop",
+                &desktop("Editor", "editor %f", "MimeType=text/plain;"),
+            );
+            write(
+                config,
+                "mimeapps.list",
+                "[Default Applications]\ninode/directory=files.desktop\n",
+            );
+        });
+        let catalog = Catalog::load(&fx.env);
+        assert_eq!(
+            names(&catalog.applications_for("notes.txt", true, &all_exist)),
+            ["files.desktop*"]
+        );
+        assert_eq!(
+            names(&catalog.applications_for("notes.txt", false, &all_exist)),
+            ["editor.desktop*"]
+        );
     }
 
     #[test]
@@ -706,6 +738,7 @@ mod tests {
                 app("vim", "vim %f", false),
                 app("code", "code --new-window %F", false),
             ],
+            false,
         );
         assert_eq!(
             labels(&choices),
@@ -726,15 +759,22 @@ mod tests {
 
     #[test]
     fn merge_marks_the_app_default_and_offers_system_default_only_without_one() {
-        let with = merge(vec![], vec![app("kate", "kate %f", true)]);
+        let with = merge(vec![], vec![app("kate", "kate %f", true)], false);
         assert_eq!(labels(&with), ["kate (default)", "Built-in editor (F4)"]);
         let without = merge(
             vec![opener("Mine", "x")],
             vec![app("kate", "kate %f", false)],
+            false,
         );
         assert_eq!(
             labels(&without),
             ["Mine", "kate", "System default", "Built-in editor (F4)"]
         );
+    }
+
+    #[test]
+    fn directory_choices_have_no_editor() {
+        let choices = merge(vec![], vec![app("Files", "files %f", true)], true);
+        assert_eq!(labels(&choices), ["Files (default)"]);
     }
 }

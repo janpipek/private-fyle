@@ -90,7 +90,7 @@ pub struct State {
     pub swap_blocked: Option<&'static str>,
     /// The cursor is on a regular file (not a directory).
     pub cursor_on_file: bool,
-    /// Local file that the Open With submenu will act on.
+    /// Local file or directory that the Open With submenu will act on.
     pub open_with_path: Option<std::path::PathBuf>,
     /// Entries were yanked or cut and can be pasted.
     pub can_paste: bool,
@@ -410,7 +410,8 @@ impl Cmd {
             }
             Cmd::CalculateSizes if !state.has_folders => Some("No folders to measure"),
             Cmd::ExtractArchive if !state.cursor_on_archive => Some("Select an archive file"),
-            Cmd::OpenWith | Cmd::EditFile if !state.cursor_on_file => Some("Select a file"),
+            Cmd::OpenWith if state.open_with_path.is_none() => Some("Select a file or directory"),
+            Cmd::EditFile if !state.cursor_on_file => Some("Select a file"),
             Cmd::Rename
             | Cmd::Copy
             | Cmd::Move
@@ -654,6 +655,20 @@ mod tests {
             assert!(commands.contains(&cmd));
             assert!(cmd.unavailable(&parent).is_none());
         }
+    }
+
+    #[test]
+    fn open_with_accepts_local_directories_but_not_parent_entries() {
+        let directory = State {
+            open_with_path: Some("/tmp/example".into()),
+            ..State::default()
+        };
+        assert_eq!(Cmd::OpenWith.unavailable(&directory), None);
+        assert_eq!(Cmd::EditFile.unavailable(&directory), Some("Select a file"));
+        assert_eq!(
+            Cmd::OpenWith.unavailable(&State::default()),
+            Some("Select a file or directory")
+        );
     }
 
     #[test]

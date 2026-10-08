@@ -97,6 +97,9 @@
 
 ## Done
 
+- [x] Open With accepts local directories through Shift-Enter, the File menu
+      and right-click menu; use `inode/directory` associations and matching
+      configured openers, with the built-in editor offered only for files.
 - [x] Linux Open With honors desktop-entry `OnlyShowIn` and `NotShowIn`
       against the ordered, case-sensitive `XDG_CURRENT_DESKTOP` names.
 - [x] Pointer selection and drag-and-drop for list and icon panels: Ctrl-click

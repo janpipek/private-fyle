@@ -48,10 +48,11 @@ impl CatalogCache {
         }
     }
 
-    fn application_list(&self, file_name: &str) -> Vec<Application> {
-        self.catalog.applications_for(file_name, false, &|program| {
-            self.availability.get(program).copied().unwrap_or(false)
-        })
+    fn application_list(&self, file_name: &str, is_dir: bool) -> Vec<Application> {
+        self.catalog
+            .applications_for(file_name, is_dir, &|program| {
+                self.availability.get(program).copied().unwrap_or(false)
+            })
     }
 }
 
@@ -91,7 +92,7 @@ pub fn choice_menu(
     menu
 }
 
-/// Adds an Open With submenu to a parent file menu.
+/// Adds an Open With submenu to a parent entry menu.
 pub fn add_choice_submenu(
     menu: PopupMenu,
     choices: Vec<Choice>,
@@ -116,26 +117,25 @@ impl CatalogCache {
 }
 
 impl Commander {
-    /// Current local file and the Open With choices available in cached catalog data.
+    /// Current local entry and the Open With choices available in cached catalog data.
     pub fn open_with_menu_data(&self, cx: &App) -> Option<(std::path::PathBuf, Vec<Choice>)> {
         let folder = self.folders[self.active].read(cx);
         if folder.archive().is_some() || folder.is_remote() {
             return None;
         }
         let entry = folder.current()?.clone();
-        if entry.is_dir {
+        if entry.is_parent {
             return None;
         }
         let path = entry.location.as_local_path()?.to_path_buf();
-        let openers = crate::openers::matching(&self.openers, &path)
+        let openers = crate::openers::matching_entry(&self.openers, &path, entry.is_dir)
             .into_iter()
             .cloned()
             .collect();
-        let apps = self
-            .catalog_cache
-            .as_ref()
-            .map_or_else(Vec::new, |cache| cache.application_list(&entry.name));
-        Some((path, apps::merge(openers, apps)))
+        let apps = self.catalog_cache.as_ref().map_or_else(Vec::new, |cache| {
+            cache.application_list(&entry.name, entry.is_dir)
+        });
+        Some((path, apps::merge(openers, apps, entry.is_dir)))
     }
 
     /// Loads the desktop application catalog before menus need its choices.
@@ -157,7 +157,7 @@ impl Commander {
         });
     }
 
-    /// Runs one selected Open With choice for a file.
+    /// Runs one selected Open With choice for a file or directory.
     pub fn run_open_with_choice(
         &mut self,
         choice: Choice,
@@ -237,7 +237,7 @@ impl Commander {
     }
 
     /// Shift-Enter: looks the applications up in the background, then lets
-    /// the user choose how to open the cursor file.
+    /// the user choose how to open the cursor entry.
     pub fn open_with(&mut self, _: &OpenWith, window: &mut Window, cx: &mut Context<Self>) {
         if self.refuse_in_archive(cx) || self.refuse_on_remote(cx) {
             return;
@@ -245,13 +245,13 @@ impl Commander {
         let Some(entry) = self.folders[self.active].read(cx).current().cloned() else {
             return;
         };
-        if entry.is_dir {
+        if entry.is_parent {
             return;
         }
         let Some(path) = entry.location.as_local_path().map(Path::to_path_buf) else {
             return;
         };
-        let openers: Vec<_> = crate::openers::matching(&self.openers, &path)
+        let openers: Vec<_> = crate::openers::matching_entry(&self.openers, &path, entry.is_dir)
             .into_iter()
             .cloned()
             .collect();
@@ -268,6 +268,7 @@ impl Commander {
             });
         let name = entry.name.clone();
         let file_name = name.clone();
+        let is_dir = entry.is_dir;
         self.status = "Looking up applications…".into();
         cx.notify();
         self._open_with_task = cx.spawn_in(window, async move |this, cx| {
@@ -282,7 +283,7 @@ impl Commander {
                             loaded,
                         },
                     );
-                    let apps = cache.application_list(&name);
+                    let apps = cache.application_list(&name, is_dir);
                     (reloaded.then_some(cache), apps)
                 })
                 .await;
@@ -293,7 +294,13 @@ impl Commander {
                     this.menu_state = None;
                 }
                 this.status = "".into();
-                this.show_open_with(path, file_name, apps::merge(openers, apps), window, cx);
+                this.show_open_with(
+                    path,
+                    file_name,
+                    apps::merge(openers, apps, is_dir),
+                    window,
+                    cx,
+                );
             });
         });
     }

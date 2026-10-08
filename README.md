@@ -28,7 +28,7 @@ palette. The bottom area shows status messages and running jobs.
 | Up / Down, PgUp/Dn  | Move cursor (icon view: one row / a page of rows) |
 | Home / End          | First / last entry                        |
 | Enter / dbl-click   | Enter directory or archive (zip, tar, tar.gz/tgz: browsed like a folder, read-only), or open the file (first matching `[[opener]]`, else the system default) |
-| Shift-Enter         | Open with…: matching `[[opener]]`s, then the desktop's default application (marked "(default)") and other applications registered for the file's type (Linux), then the built-in editor |
+| Shift-Enter         | Open with… for a file or directory: matching `[[opener]]`s, then the desktop's default application (marked "(default)") and other applications registered for its type (Linux); files also offer the built-in editor |
 | Backspace           | Parent directory                          |
 | Alt-Left / Alt-Right | Back / forward through visited directories (per panel) |
 | Tab                 | Switch active panel                       |
@@ -200,8 +200,10 @@ bar.
 
 The File and right-click menus offer Open With as a submenu; Shift-Enter opens
 the same choices in a popup. They list, in this order: matching `[[opener]]`
-rules; the desktop's default application for the file's type, marked
-"(default)"; other applications registered for it; the built-in editor.
+rules; the desktop's default application for the file's type (or
+`inode/directory` for folders), marked "(default)"; other applications
+registered for it. Files also offer the built-in editor. The `..` entry is
+excluded.
 A system entry that runs the same command as a configured opener is dropped,
 and the opener takes the "(default)" mark. Entries whose program is missing
 are greyed out with the reason. On Linux, desktop entries obey `OnlyShowIn`

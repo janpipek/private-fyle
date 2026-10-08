@@ -30,6 +30,11 @@ impl Opener {
     /// Matches if the file has one of the extensions, kinds or names; a rule
     /// without any of them matches every file.
     pub fn matches(&self, path: &Path) -> bool {
+        self.matches_entry(path, false)
+    }
+
+    /// Whether this rule matches a file or directory at `path`.
+    pub fn matches_entry(&self, path: &Path, is_dir: bool) -> bool {
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -43,7 +48,7 @@ impl Opener {
             || self.exts.iter().any(|e| e.eq_ignore_ascii_case(&ext))
             || self
                 .kinds
-                .contains(&icons::icon_for(&name, false, false, false))
+                .contains(&icons::icon_for(&name, is_dir, false, false))
             || self.names.contains(&name)
     }
 
@@ -74,6 +79,14 @@ impl Opener {
 /// Rules matching `path`, in configuration order.
 pub fn matching<'a>(openers: &'a [Opener], path: &Path) -> Vec<&'a Opener> {
     openers.iter().filter(|o| o.matches(path)).collect()
+}
+
+/// Rules matching a file or directory, in configuration order.
+pub fn matching_entry<'a>(openers: &'a [Opener], path: &Path, is_dir: bool) -> Vec<&'a Opener> {
+    openers
+        .iter()
+        .filter(|o| o.matches_entry(path, is_dir))
+        .collect()
 }
 
 #[cfg(test)]
@@ -126,6 +139,16 @@ mod tests {
         assert_eq!(
             opener("x", &[], &[], &[]).command_for(Path::new("/f")),
             None
+        );
+    }
+
+    #[test]
+    fn directory_kind_matches_directories_only() {
+        let rules = [opener("Folder", &["fm"], &[], &[FileIcon::Folder])];
+        assert!(matching_entry(&rules, Path::new("/x/notes"), false).is_empty());
+        assert_eq!(
+            matching_entry(&rules, Path::new("/x/notes"), true)[0].label,
+            "Folder"
         );
     }
 }
