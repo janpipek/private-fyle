@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::desktop::{self, DesktopEntry};
+use crate::ini::Ini;
 use crate::mime::MimeDb;
 use crate::mimeapps::MimeApps;
 use crate::openers::Opener;
@@ -83,7 +84,8 @@ impl Catalog {
                 let Ok(text) = std::fs::read_to_string(&file) else {
                     continue;
                 };
-                if let Some(entry) = desktop::parse(&id, &file, &text, &env.locales)
+                if desktop_visible(&text, &env.desktop_names)
+                    && let Some(entry) = desktop::parse(&id, &file, &text, &env.locales)
                     && !entry.hidden
                 {
                     catalog.insert(entry);
@@ -159,6 +161,34 @@ impl Catalog {
         }
         apps
     }
+}
+
+/// Whether a desktop entry applies to the current desktop environment.
+/// Desktop names are case-sensitive and a colon-separated environment can
+/// match any listed name.
+fn desktop_visible(text: &str, desktops: &[String]) -> bool {
+    let ini = Ini::parse(text);
+    let values = |key| {
+        ini.get("Desktop Entry", key)
+            .unwrap_or_default()
+            .split(';')
+            .filter(|name| !name.is_empty())
+            .map(String::from)
+            .collect::<Vec<_>>()
+    };
+    let only = values("OnlyShowIn");
+    let not = values("NotShowIn");
+    for desktop in desktops {
+        if only.contains(desktop) {
+            return true;
+        }
+        if not.contains(desktop) {
+            return false;
+        }
+    }
+    !ini.section("Desktop Entry")
+        .iter()
+        .any(|(key, _)| key == "OnlyShowIn")
 }
 
 fn application(entry: &DesktopEntry, exists: &dyn Fn(&str) -> bool) -> Application {
@@ -351,7 +381,8 @@ mod tests {
             config_dirs: Vec::new(),
             data_home: Some(home),
             data_dirs: vec![sys],
-            desktops: desktops.iter().map(|d| d.to_string()).collect(),
+            desktops: desktops.iter().map(|d| d.to_lowercase()).collect(),
+            desktop_names: desktops.iter().map(|d| d.to_string()).collect(),
             locales: Vec::new(),
         };
         Fixture { _tmp: tmp, env }
@@ -490,6 +521,70 @@ mod tests {
         });
         let apps = Catalog::load(&fx.env).applications_for("n.txt", false, &all_exist);
         assert_eq!(names(&apps), ["kde4-kate.desktop*", "gedit.desktop"]);
+    }
+
+    #[test]
+    fn only_show_in_and_not_show_in_filter_by_current_desktop() {
+        let fx = fixture(&["KDE", "Plasma"], |_, _, sys| {
+            for (id, visibility) in [
+                ("only-kde", "OnlyShowIn=KDE;"),
+                ("only-gnome", "OnlyShowIn=GNOME;"),
+                ("not-kde", "NotShowIn=KDE;"),
+                ("not-gnome", "NotShowIn=GNOME;"),
+                ("case-sensitive", "OnlyShowIn=kde;"),
+                ("unrestricted", ""),
+            ] {
+                write(
+                    sys,
+                    &format!("applications/{id}.desktop"),
+                    &desktop(
+                        id,
+                        &format!("{id} %f"),
+                        &format!("MimeType=text/plain;\n{visibility}\n"),
+                    ),
+                );
+            }
+        });
+        let apps = Catalog::load(&fx.env).applications_for("n.txt", false, &all_exist);
+        assert_eq!(
+            names(&apps),
+            [
+                "not-gnome.desktop*",
+                "only-kde.desktop",
+                "unrestricted.desktop"
+            ]
+        );
+    }
+
+    #[test]
+    fn only_show_in_does_not_match_when_desktop_is_unknown_or_empty() {
+        for desktops in [&[][..], &["GNOME"][..]] {
+            let fx = fixture(desktops, |_, _, sys| {
+                write(
+                    sys,
+                    "applications/only.desktop",
+                    &desktop("Only", "only %f", "MimeType=text/plain;\nOnlyShowIn=KDE;\n"),
+                );
+            });
+            assert!(
+                Catalog::load(&fx.env)
+                    .applications_for("n.txt", false, &all_exist)
+                    .is_empty()
+            );
+        }
+    }
+
+    #[test]
+    fn conflicting_visibility_matches_use_desktop_order() {
+        let visibility = "OnlyShowIn=KDE;\nNotShowIn=GNOME;";
+        assert!(desktop_visible(
+            &desktop("App", "app", visibility),
+            &["KDE".into(), "GNOME".into()]
+        ));
+        assert!(!desktop_visible(
+            &desktop("App", "app", visibility),
+            &["GNOME".into(), "KDE".into()]
+        ));
     }
 
     #[test]

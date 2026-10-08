@@ -17,10 +17,10 @@
       account; the cursor-placement part is fixed.
 - [ ] Open With on Windows and macOS: read the platform's file-type
       associations behind `apps::Catalog` when those platforms resume.
-- [ ] Open With on Linux, follow-ups: honour `OnlyShowIn`/`NotShowIn`;
-      MIME magic sniffing (now by file name only, so unmatched files are
-      `application/octet-stream`); offer it on downloaded copies of remote
-      files (still refused on remote folders); launching a `Terminal=true`
+- [ ] Open With on Linux, follow-ups: MIME magic sniffing (now by file name
+      only, so unmatched files are `application/octet-stream`); offer it on
+      downloaded copies of remote files (still refused on remote folders);
+      launching a `Terminal=true`
       application is only unit-tested.
 - [ ] Spreadsheet preview for XLS/ODS: calamine builds a dense range before
       sampling, so a sparse sheet declaring a huge range can use a lot of
@@ -97,6 +97,8 @@
 
 ## Done
 
+- [x] Linux Open With honors desktop-entry `OnlyShowIn` and `NotShowIn`
+      against the ordered, case-sensitive `XDG_CURRENT_DESKTOP` names.
 - [x] Pointer selection and drag-and-drop for list and icon panels: Ctrl-click
       toggles marks, Shift-click selects ranges, and panel drops ask Copy or
       Move before starting existing jobs. Local files drag out to desktop

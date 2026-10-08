@@ -14,6 +14,8 @@ pub struct Env {
     pub data_dirs: Vec<PathBuf>,
     /// `XDG_CURRENT_DESKTOP`, lowercased, one entry per colon-separated part.
     pub desktops: Vec<String>,
+    /// `XDG_CURRENT_DESKTOP` names with their original case for desktop entry visibility.
+    pub desktop_names: Vec<String>,
     /// Locale keys for localized names, most specific first
     /// (`de_DE`, `de`).
     pub locales: Vec<String>,
@@ -46,14 +48,15 @@ impl Env {
                 parsed
             }
         };
-        let desktops = var("XDG_CURRENT_DESKTOP")
+        let desktop_names: Vec<String> = var("XDG_CURRENT_DESKTOP")
             .map(|v| {
                 v.split(':')
                     .filter(|d| !d.is_empty())
-                    .map(str::to_lowercase)
+                    .map(String::from)
                     .collect()
             })
             .unwrap_or_default();
+        let desktops = desktop_names.iter().map(|d| d.to_lowercase()).collect();
         let locale = ["LC_ALL", "LC_MESSAGES", "LANG"]
             .iter()
             .find_map(|k| var(k).filter(|v| !v.is_empty()))
@@ -65,6 +68,7 @@ impl Env {
             data_home: absolute("XDG_DATA_HOME").or_else(|| home.map(|h| h.join(".local/share"))),
             data_dirs: list("XDG_DATA_DIRS", &["/usr/local/share", "/usr/share"]),
             desktops,
+            desktop_names,
             locales: locale_keys(&locale),
         }
     }
@@ -162,6 +166,8 @@ mod tests {
             ("LANG", "de_DE.UTF-8"),
         ]);
         assert_eq!(e.locales, ["de_DE", "de"]);
+        assert_eq!(e.desktop_names, ["KDE", "Plasma"]);
+        assert_eq!(e.desktops, ["kde", "plasma"]);
         let paths: Vec<String> = e
             .mimeapps_paths()
             .iter()

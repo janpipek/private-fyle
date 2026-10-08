@@ -202,7 +202,8 @@ default application for the file's type, marked "(default)"; other
 applications registered for it; the built-in editor. A system entry that
 runs the same command as a configured opener is dropped, and the opener
 takes the "(default)" mark. Entries whose program is missing are greyed out
-with the reason. Enter itself is unchanged: first matching opener, else
+with the reason. On Linux, desktop entries obey `OnlyShowIn` and `NotShowIn`
+for the current desktop. Enter itself is unchanged: first matching opener, else
 `xdg-open` (through the `open` crate).
 
 On Linux the types and applications come from the desktop's files, read
