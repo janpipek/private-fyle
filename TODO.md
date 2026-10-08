@@ -22,6 +22,9 @@
       downloaded copies of remote files (still refused on remote folders);
       launching a `Terminal=true`
       application is only unit-tested.
+- [ ] Open With application icons: show each installed app's desktop icon in
+      the chooser where available, with a GPUI Kit fallback. Decide how to
+      load external app icons under the current default-bundle icon policy.
 - [ ] Spreadsheet preview for XLS/ODS: calamine builds a dense range before
       sampling, so a sparse sheet declaring a huge range can use a lot of
       memory. XLSX/XLSM/XLSB now stream cells. The 32 MiB file and 256 MiB
