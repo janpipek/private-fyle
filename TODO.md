@@ -51,8 +51,10 @@
       Base layout availability on usable space after UI scaling. Decide
       minimum pane sizes, follow-selection versus pinned-file behavior, and
       focus/shortcut rules that retain an explicit source and destination for
-      file commands. Model layout and inspector state independently and test
-      focus, resize and pending-load transitions. Decide before implementing.
+      file commands. A UI-independent candidate model (`workspace.rs`) now
+      covers two panels, two panels plus inspector, and one panel plus inspector;
+      it tests focus, resize and pending-load transitions. Decide the UI
+      presentation and sizing policy before wiring it into the window.
 - [ ] Mouse drag follow-ups: offer outgoing desktop file data for remote and
       archive entries after background materialization; support nonlocal URI
       data from external applications; consider drag feedback and modifier

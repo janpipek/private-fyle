@@ -55,6 +55,7 @@ mod thumbnails;
 mod tools;
 mod tools_view;
 mod transfer;
+pub mod workspace;
 mod xattr;
 mod xdg;
 mod zoom;
