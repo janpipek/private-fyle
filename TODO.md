@@ -22,9 +22,6 @@
       `application/octet-stream`); offer it on downloaded copies of remote
       files (still refused on remote folders); launching a `Terminal=true`
       application is only unit-tested.
-- [ ] Markdown preview: bold and italic did not look bold or italic in a
-      headless screenshot of a DOCX preview (it renders through the Markdown
-      view). Check whether `.md` files are affected too and fix the view.
 - [ ] Spreadsheet preview: calamine builds a dense range for the whole sheet,
       so a sparse sheet declaring a huge range can use a lot of memory; the
       32 MiB file and 256 MiB uncompressed caps limit but don't prevent it.
@@ -106,6 +103,9 @@
 
 ## Done
 
+- [x] Markdown preview shows bold and italic in `.md`, DOCX/ODT and notebook
+      text on Linux with variable Cantarell or Noto Sans: use an installed
+      static-face font for rich text when the theme selects one of those.
 - [x] Remote Go Up / `..` puts the cursor on the folder just left (the
       shared selection rule only handled the remote root before); model tests
       cover `..` and Go Up in a Proton subfolder, a nested subfolder and the root.

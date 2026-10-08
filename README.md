@@ -103,6 +103,9 @@ count. Layout, fonts, footnotes, headers and underline are not reproduced and
 deleted tracked changes are skipped. Pure Rust, bounded to 8 MiB of
 uncompressed XML, 5000 blocks and 300000 characters (then marked truncated).
 Legacy `.doc` and encrypted files show an explanatory message or the hex dump.
+Markdown previews (including document and notebook text) use an installed font
+with distinct bold and italic faces when the Linux theme font resolves to a
+variable Cantarell or Noto Sans face.
 
 F3 previews `.ipynb` notebooks as a lazy, read-only list of Markdown and
 highlighted code cells with their saved text, error and PNG/JPEG outputs. The

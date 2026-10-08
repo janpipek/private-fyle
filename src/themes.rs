@@ -7,9 +7,39 @@
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::OnceLock;
 
 use gpui_kit::component::{Theme, ThemeConfig, ThemeMode, ThemeRegistry};
 use gpui_kit::*;
+
+/// Chooses a font with distinct bold and italic faces for rendered Markdown.
+/// GPUI's Linux text renderer can flatten those faces for variable UI fonts.
+pub fn rich_text_font(family: &SharedString, installed: &[String]) -> SharedString {
+    if cfg!(target_os = "linux")
+        && matches!(family.as_ref(), "Cantarell" | "Noto Sans" | ".SystemUIFont")
+    {
+        for candidate in ["DejaVu Sans", "Liberation Sans", "Nimbus Sans"] {
+            if installed.iter().any(|name| name == candidate) {
+                return candidate.into();
+            }
+        }
+    }
+    family.clone()
+}
+
+/// Resolves the rich-text family without scanning system fonts on every frame.
+pub fn rich_text_font_for_app(family: &SharedString, cx: &App) -> SharedString {
+    if !cfg!(target_os = "linux")
+        || !matches!(family.as_ref(), "Cantarell" | "Noto Sans" | ".SystemUIFont")
+    {
+        return family.clone();
+    }
+    static INSTALLED: OnceLock<Vec<String>> = OnceLock::new();
+    rich_text_font(
+        family,
+        INSTALLED.get_or_init(|| cx.text_system().all_font_names()),
+    )
+}
 
 /// `(file name, contents)` of the bundled theme files.
 pub const BUNDLED: &[(&str, &str)] = &[
@@ -181,9 +211,24 @@ fn find(name: &str, cx: &App) -> Option<Rc<ThemeConfig>> {
 #[cfg(test)]
 mod tests {
     // Not `super::*`: gpui's glob export would shadow `#[test]`.
-    use super::{BUNDLED, ThemeChoice, ThemePicker};
+    use super::{BUNDLED, ThemeChoice, ThemePicker, rich_text_font};
+    #[cfg(target_os = "linux")]
+    use gpui_kit::SharedString;
     use gpui_kit::component::ThemeSet;
     use std::collections::HashSet;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn rich_text_uses_static_faces_when_noto_is_selected() {
+        let noto = SharedString::from("Noto Sans");
+        assert_eq!(
+            rich_text_font(&noto, &["Noto Sans".into(), "DejaVu Sans".into()]),
+            "DejaVu Sans"
+        );
+        assert_eq!(rich_text_font(&noto, &["Noto Sans".into()]), noto);
+        let custom = SharedString::from("My Font");
+        assert_eq!(rich_text_font(&custom, &["DejaVu Sans".into()]), custom);
+    }
 
     fn theme_names(json: &str) -> Result<Vec<String>, String> {
         let set: ThemeSet = serde_json::from_str(json).map_err(|e| e.to_string())?;

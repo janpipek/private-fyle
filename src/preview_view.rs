@@ -560,7 +560,11 @@ impl PreviewPane {
                 .size_full()
                 .overflow_y_scrollbar()
                 .p_3()
-                .child(TextView::markdown("markdown-view", text.clone()))
+                .child(
+                    TextView::markdown("markdown-view", text.clone()).font_family(
+                        crate::themes::rich_text_font_for_app(&theme.font_family, cx),
+                    ),
+                )
                 .into_any_element(),
             Content::Notebook(notebook) => crate::notebook_view::render(
                 notebook.clone(),

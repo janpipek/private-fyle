@@ -117,10 +117,13 @@ fn render_cell(
         Cell::Markdown(text) => shell(
             "Markdown",
             div()
-                .child(TextView::markdown(
-                    format!("notebook-markdown-{index}"),
-                    text.clone(),
-                ))
+                .child(
+                    TextView::markdown(format!("notebook-markdown-{index}"), text.clone())
+                        .font_family(crate::themes::rich_text_font_for_app(
+                            &theme.font_family,
+                            cx,
+                        )),
+                )
                 .into_any_element(),
         ),
         Cell::Code { source, outputs } => {
