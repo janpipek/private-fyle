@@ -1,7 +1,30 @@
 //! Commands that relate the two panels to each other, as UI-independent
 //! decisions: where "Go to Other Panel's Folder" leads.
 
+use crate::location::Location;
 use crate::location::PanelTarget;
+use crate::model::{Folder, PanelContent};
+
+/// The typed directory a panel can accept a file drop into.
+pub fn drop_directory(folder: &Folder, row: Option<usize>) -> Result<Location, &'static str> {
+    if let Some(target) = row.and_then(|ix| folder.entries().get(ix)) {
+        if !target.is_dir {
+            return Err("Drop onto a folder");
+        }
+        return match &target.location {
+            location @ (Location::Local(_) | Location::Remote(_)) => Ok(location.clone()),
+            Location::Archive { .. } => Err("Archive contents are read-only"),
+        };
+    }
+    match folder.content() {
+        PanelContent::Directory(location @ (Location::Local(_) | Location::Remote(_))) => {
+            Ok(location.clone())
+        }
+        PanelContent::Directory(Location::Archive { .. }) => Err("Archive contents are read-only"),
+        PanelContent::Search { .. } => Err("Open a directory before dropping files"),
+        PanelContent::Places => Err("Choose a destination folder before dropping files"),
+    }
+}
 
 /// Why the other panel's folder cannot be followed.
 pub const OTHER_IS_PLACES: &str = "The other panel shows Places";
@@ -64,7 +87,7 @@ pub fn swap_blocked(activity: &Activity) -> Option<&'static str> {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{Activity, OTHER_IS_PLACES, other_panel_target, swap_blocked};
+    use super::{Activity, OTHER_IS_PLACES, drop_directory, other_panel_target, swap_blocked};
     use crate::location::{Location, PanelTarget};
     use crate::model::Folder;
     use crate::model::test_support::{fixture, loaded};
@@ -83,6 +106,26 @@ mod tests {
             Ok(PanelTarget::Location(
                 Location::local(dir.path().to_path_buf()).unwrap()
             ))
+        );
+    }
+
+    #[test]
+    fn drop_destination_requires_a_directory() {
+        let dir = fixture();
+        let mut folder = loaded(&dir);
+        assert_eq!(
+            drop_directory(&folder, None),
+            Ok(Location::local(dir.path().to_path_buf()).unwrap())
+        );
+        assert_eq!(
+            drop_directory(&folder, Some(1)),
+            Ok(Location::local(dir.path().join("sub")).unwrap())
+        );
+        assert_eq!(drop_directory(&folder, Some(2)), Err("Drop onto a folder"));
+        folder.show_results(dir.path().to_path_buf(), "matches".into());
+        assert_eq!(
+            drop_directory(&folder, None),
+            Err("Open a directory before dropping files")
         );
     }
 

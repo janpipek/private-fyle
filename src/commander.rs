@@ -2,6 +2,7 @@
 //! commands that act on them.
 
 mod appearance;
+mod drag_drop;
 mod files;
 mod jobs;
 mod keys;
@@ -42,7 +43,7 @@ use crate::location::Location;
 use crate::menu_bar::MenuBar;
 use crate::menus::Cmd;
 use crate::model::Folder;
-use crate::panel::{Activate, FolderView, HeaderEvent, TreeExpansionChanged};
+use crate::panel::{Activate, FolderView, HeaderEvent, PanelDrop, TreeExpansionChanged};
 use crate::places::History;
 use crate::preview::Registry as PreviewRegistry;
 use crate::preview_view::PreviewPane;
@@ -238,6 +239,13 @@ impl Commander {
                         window,
                         cx,
                     );
+                },
+            ));
+            subscriptions.push(cx.subscribe_in(
+                view,
+                window,
+                move |this, _, event: &PanelDrop, window, cx| {
+                    this.handle_panel_drop(ix, event, window, cx);
                 },
             ));
             subscriptions.push(cx.subscribe_in(

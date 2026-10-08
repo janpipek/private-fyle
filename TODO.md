@@ -53,17 +53,10 @@
       focus/shortcut rules that retain an explicit source and destination for
       file commands. Model layout and inspector state independently and test
       focus, resize and pending-load transitions. Decide before implementing.
-- [ ] Mouse interaction and drag-and-drop, open design: start with dragging
-      selected typed locations between directory panels through existing
-      transfer jobs, progress, cancellation and conflict handling. Show the
-      proposed Copy/Move operation and destination before dropping, respecting
-      provider capabilities and read-only archive content. Add conventional
-      pointer selection, modifier-click toggles and selection ranges using
-      the selection model and keymap conventions. Plan external application
-      drops separately, including native file/URI data, remote materialization,
-      archive extraction and permissions. Decide default drop actions and
-      modifiers before implementing; test source/destination identity through
-      focus changes, cancelled drags and pending loads.
+- [ ] Mouse drag follow-ups: offer outgoing desktop file data for remote and
+      archive entries after background materialization; support nonlocal URI
+      data from external applications; consider drag feedback and modifier
+      shortcuts for the Copy/Move choice. Check behavior on a full desktop.
 - [ ] Legacy Word (DOC) in F3: out of scope for now (no pure-Rust reader);
       decide later whether to add one or an optional external converter.
 - [ ] Tabular conversions in the Tools Convert group: extend the existing
@@ -104,6 +97,11 @@
 
 ## Done
 
+- [x] Pointer selection and drag-and-drop for list and icon panels: Ctrl-click
+      toggles marks, Shift-click selects ranges, and panel drops ask Copy or
+      Move before starting existing jobs. Local files drag out to desktop
+      applications and native desktop paths drop into panels. Source identity
+      survives focus changes, with pending or changed listings rejected.
 - [x] Stream XLSX/XLSM/XLSB preview cells into a bounded sample instead of
       allocating the sheet's full declared range; test sparse far-apart cells.
 - [x] Markdown preview shows bold and italic in `.md`, DOCX/ODT and notebook

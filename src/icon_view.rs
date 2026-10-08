@@ -23,8 +23,9 @@ use crate::fs_ops;
 use crate::glyphs::glyph;
 use crate::grid::{self, GAP, Layout, Move, PADDING};
 use crate::icons;
-use crate::model::{Folder, Row};
+use crate::model::{Folder, PointerSelection, Row};
 use crate::panel::metadata::{self, MetadataState};
+use crate::panel::{PanelDrag, drag_ghost, native_drag_payload};
 use crate::thumb_queue::{Key, Queue};
 use crate::thumbnails::{self, SizeClass};
 
@@ -79,6 +80,7 @@ pub struct IconGrid {
     /// Width and height of the grid area as last painted; the layout and
     /// the arrow keys depend on it, and it is not known before painting.
     area: Rc<Cell<(f32, f32)>>,
+    drop_row: Rc<Cell<Option<usize>>>,
     /// The (cursor, columns) last scrolled into view, so scrolling with the
     /// wheel is not undone by the next repaint.
     scrolled_to: Option<(usize, usize, u64, usize)>,
@@ -103,6 +105,7 @@ impl IconGrid {
         folder: Entity<Folder>,
         focus: FocusHandle,
         metadata: Entity<MetadataState>,
+        drop_row: Rc<Cell<Option<usize>>>,
         icon_size: u32,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -126,6 +129,7 @@ impl IconGrid {
             active: false,
             scroll: UniformListScrollHandle::new(),
             area: Rc::new(Cell::new((0., 0.))),
+            drop_row,
             scrolled_to: None,
             context_menu: None,
             thumbs: Queue::new(THUMB_CAPACITY, THUMB_JOBS),
@@ -427,10 +431,26 @@ impl IconGrid {
         let marked_border = theme.danger;
         let (focus, folder_entity) = (self.focus.clone(), self.folder.clone());
         let builder = self.context_menu.clone();
+        let drop_row = self.drop_row.clone();
+        let drag = folder.drag_snapshot(ix).map(|snapshot| PanelDrag {
+            folder: folder_entity.clone(),
+            snapshot,
+        });
         let visual = self.cell_visual(row, cx);
 
         div()
             .id(("cell", ix))
+            .on_hover(move |hovered, _, _| {
+                if *hovered {
+                    drop_row.set(Some(ix));
+                } else if drop_row.get() == Some(ix) {
+                    drop_row.set(None);
+                }
+            })
+            .when_some(drag, |cell, drag| {
+                cell.on_drag(drag, |drag, _, _, cx| drag_ghost(drag, cx))
+                    .external_drag_payload(|drag: &PanelDrag, _, _| native_drag_payload(drag))
+            })
             .relative()
             .flex_none()
             .w(px(layout.cell_width))
@@ -465,6 +485,16 @@ impl IconGrid {
                 MouseButton::Left,
                 cx.listener(move |this, event: &MouseDownEvent, window, cx| {
                     this.focus.focus(window, cx);
+                    let mode = match (event.modifiers.control, event.modifiers.shift) {
+                        (false, false) => PointerSelection::Single,
+                        (true, false) => PointerSelection::Toggle,
+                        (false, true) => PointerSelection::Range,
+                        (true, true) => PointerSelection::AddRange,
+                    };
+                    this.folder.update(cx, |folder, cx| {
+                        folder.pointer_select(ix, mode);
+                        cx.notify();
+                    });
                     cx.emit(if event.click_count >= 2 {
                         GridEvent::Activate(ix)
                     } else {

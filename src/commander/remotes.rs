@@ -303,6 +303,7 @@ impl Commander {
                             plan,
                             sources.to_vec(),
                             dest.clone(),
+                            this.active,
                             window,
                             cx,
                         );
@@ -318,9 +319,10 @@ impl Commander {
         plan: TransferPlan,
         sources: Vec<TargetLocation>,
         dest: &TargetLocation,
+        source_ix: usize,
         cx: &App,
     ) -> Result<rjobs::Transfer, String> {
-        let source_folder = self.folders[self.active].read(cx);
+        let source_folder = self.folders[source_ix].read(cx);
         match plan {
             TransferPlan::Upload => {
                 let (provider, dest) = self.resolve_remote(dest)?;
@@ -378,16 +380,18 @@ impl Commander {
         }
     }
 
-    fn start_remote_transfer(
+    /// Starts a typed remote transfer from the captured source panel.
+    pub fn start_remote_transfer(
         &mut self,
         plan: TransferPlan,
         sources: Vec<TargetLocation>,
         dest: TargetLocation,
+        source_ix: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let display_dest = dest.panel_path();
-        let transfer = match self.prepare_transfer(plan, sources, &dest, cx) {
+        let transfer = match self.prepare_transfer(plan, sources, &dest, source_ix, cx) {
             Ok(transfer) if !transfer.is_empty() => transfer,
             Ok(_) => return,
             Err(message) => {

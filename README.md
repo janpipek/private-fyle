@@ -152,6 +152,14 @@ its recorded modification time matches, otherwise it is regenerated. Files
 that fail to decode are recorded under `fail/fyle/` and not retried until they
 change. Files inside archives keep their icons.
 
+In either panel, click to select an item, Ctrl-click to toggle marks, and
+Shift-click to mark a range (Ctrl-Shift-click adds a range). Drag a selected
+group between panels or onto a folder to choose Copy or Move; the transfer
+uses the usual progress and conflict dialogs. Archive contents can be copied
+to a local folder. Local files can also be dragged out to another desktop
+application, and local files from another application can be dropped into a
+panel. Remote and archive entries do not yet offer outgoing desktop file data.
+
 Click a column's sort icon to sort (directories always stay on top); drag
 header borders to resize. Unknown file sizes show as `—`. Columns… (in the
 command palette) picks the columns from a grouped catalog: file, owner and permissions, Git status,

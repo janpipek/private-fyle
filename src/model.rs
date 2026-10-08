@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 mod archives;
 mod history;
 mod marks;
+pub use marks::{DragSnapshot, PointerSelection};
 mod remote;
 mod results;
 mod sizes;
@@ -103,6 +104,8 @@ pub struct Folder {
     mount: Option<Mount>,
     cursor: usize,
     marked: HashSet<Location>,
+    /// Stable start of a Shift-click range, across later cursor moves.
+    pointer_anchor: Option<Location>,
     sort: Sort,
     show_hidden: bool,
     tree: bool,
@@ -144,6 +147,7 @@ impl Folder {
             mount: None,
             cursor: 0,
             marked: HashSet::new(),
+            pointer_anchor: None,
             sort: Sort::default(),
             show_hidden: false,
             tree: false,

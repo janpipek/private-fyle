@@ -28,7 +28,7 @@ use crate::grid::ViewMode;
 use crate::icon_view::{GridEvent, IconGrid};
 use crate::icons;
 use crate::location::PanelTarget;
-use crate::model::{Folder, Sort};
+use crate::model::{DragSnapshot, Folder, PointerSelection, Sort};
 use gpui_kit::assets::IconName as Lucide;
 
 pub mod metadata;
@@ -41,6 +41,58 @@ pub struct Activate;
 
 /// Emitted when a tree chevron changes which folders should be listed.
 pub struct TreeExpansionChanged;
+
+/// A drag started on a row, with its source identity held across focus changes.
+#[derive(Clone)]
+pub struct PanelDrag {
+    pub folder: Entity<Folder>,
+    pub snapshot: DragSnapshot,
+}
+
+/// A drop received by a panel; the Commander chooses and runs the operation.
+pub enum PanelDrop {
+    Internal(PanelDrag, Option<usize>),
+    External(Vec<std::path::PathBuf>, Option<usize>),
+}
+
+/// A small visual label following a panel drag.
+pub struct DragGhost {
+    label: String,
+}
+
+impl Render for DragGhost {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .p_2()
+            .rounded(cx.theme().radius)
+            .bg(cx.theme().popover)
+            .border_1()
+            .border_color(cx.theme().border)
+            .child(self.label.clone())
+    }
+}
+
+/// Builds the drag label without reading file metadata on the UI thread.
+pub fn drag_ghost(drag: &PanelDrag, cx: &mut App) -> Entity<DragGhost> {
+    let label = match drag.snapshot.items.as_slice() {
+        [one] => one
+            .location
+            .panel_path()
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned(),
+        many => format!("{} items", many.len()),
+    };
+    cx.new(|_| DragGhost { label })
+}
+
+/// Offers local entries to the desktop as native file paths on drag out.
+pub fn native_drag_payload(drag: &PanelDrag) -> Option<ExternalDragPayload> {
+    Some(ExternalDragPayload::Files(FileDragPaths::new(
+        drag.snapshot.native_paths()?,
+    )))
+}
 
 /// Requests from a panel header, carrying enough data for Commander to keep
 /// the originating panel when the other panel was active.
@@ -94,6 +146,7 @@ pub struct FolderView {
     /// Listing generation the Git column was last computed for.
     git_generation: Option<u64>,
     expanded_snapshot: HashSet<crate::location::Location>,
+    drop_row: Rc<Cell<Option<usize>>>,
     _git_task: Task<()>,
     _subscriptions: Vec<Subscription>,
 }
@@ -101,6 +154,7 @@ pub struct FolderView {
 impl EventEmitter<Activate> for FolderView {}
 impl EventEmitter<HeaderEvent> for FolderView {}
 impl EventEmitter<TreeExpansionChanged> for FolderView {}
+impl EventEmitter<PanelDrop> for FolderView {}
 
 impl FolderView {
     pub fn new(
@@ -112,6 +166,7 @@ impl FolderView {
         cx: &mut Context<Self>,
     ) -> Self {
         let metadata = cx.new(|_| metadata::MetadataState::new());
+        let drop_row = Rc::new(Cell::new(None));
         let delegate = FileTable {
             folder: folder.clone(),
             columns,
@@ -120,6 +175,7 @@ impl FolderView {
             context_menu: None,
             focus: None,
             context_row: Rc::new(Cell::new(None)),
+            drop_row: drop_row.clone(),
         };
         let table = cx.new(|cx| {
             TableState::new(delegate, window, cx)
@@ -129,8 +185,16 @@ impl FolderView {
                 .loop_selection(false)
         });
         let focus = table.focus_handle(cx);
-        let grid =
-            cx.new(|cx| IconGrid::new(folder.clone(), focus, metadata.clone(), icon_size, cx));
+        let grid = cx.new(|cx| {
+            IconGrid::new(
+                folder.clone(),
+                focus,
+                metadata.clone(),
+                drop_row.clone(),
+                icon_size,
+                cx,
+            )
+        });
         let subscriptions = vec![
             cx.subscribe(&grid, |this, _, event: &GridEvent, cx| match event {
                 GridEvent::Select(ix) => this.set_cursor(*ix, cx),
@@ -177,6 +241,7 @@ impl FolderView {
             _locations_menu_dismiss: None,
             git_generation: None,
             expanded_snapshot,
+            drop_row,
             _git_task: Task::ready(()),
             _subscriptions: subscriptions,
         };
@@ -587,6 +652,10 @@ impl Render for FolderView {
         let bookmark_view = view.clone();
         let edit_view = view.clone();
         let copy_view = view;
+        let internal_drop_view = cx.weak_entity();
+        let external_drop_view = cx.weak_entity();
+        let internal_drop_row = self.drop_row.clone();
+        let external_drop_row = self.drop_row.clone();
         self.breadcrumb_scroll
             .scroll_to_item(breadcrumb_items.len().saturating_sub(1));
         let breadcrumb_scroll = self.breadcrumb_scroll.clone();
@@ -765,6 +834,23 @@ impl Render for FolderView {
                     .text_color(theme.muted_foreground)
                     .child(footer),
             )
+            .drag_over::<PanelDrag>(|panel, _, _, cx| {
+                panel.border_2().border_color(cx.theme().drag_border)
+            })
+            .drag_over::<ExternalPaths>(|panel, _, _, cx| {
+                panel.border_2().border_color(cx.theme().drag_border)
+            })
+            .on_drop(move |drag: &PanelDrag, _, cx| {
+                let row = internal_drop_row.get();
+                let _ = internal_drop_view
+                    .update(cx, |_, cx| cx.emit(PanelDrop::Internal(drag.clone(), row)));
+            })
+            .on_drop(move |paths: &ExternalPaths, _, cx| {
+                let paths = paths.paths().to_vec();
+                let row = external_drop_row.get();
+                let _ =
+                    external_drop_view.update(cx, |_, cx| cx.emit(PanelDrop::External(paths, row)));
+            })
     }
 }
 
@@ -777,6 +863,7 @@ pub struct FileTable {
     context_menu: Option<ContextMenuBuilder>,
     focus: Option<FocusHandle>,
     context_row: Rc<Cell<Option<usize>>>,
+    drop_row: Rc<Cell<Option<usize>>>,
 }
 
 impl TableDelegate for FileTable {
@@ -784,11 +871,31 @@ impl TableDelegate for FileTable {
         &mut self,
         row_ix: usize,
         _: &mut Window,
-        _: &mut Context<TableState<Self>>,
+        cx: &mut Context<TableState<Self>>,
     ) -> Stateful<Div> {
         let context_row = self.context_row.clone();
+        let drop_row = self.drop_row.clone();
+        let folder = self.folder.clone();
+        let drag = folder
+            .read(cx)
+            .drag_snapshot(row_ix)
+            .map(|snapshot| PanelDrag {
+                folder: folder.clone(),
+                snapshot,
+            });
         div()
             .id(("row", row_ix))
+            .on_hover(move |hovered, _, _| {
+                if *hovered {
+                    drop_row.set(Some(row_ix));
+                } else if drop_row.get() == Some(row_ix) {
+                    drop_row.set(None);
+                }
+            })
+            .when_some(drag, |row, drag| {
+                row.on_drag(drag, |drag, _, _, cx| drag_ghost(drag, cx))
+                    .external_drag_payload(|drag: &PanelDrag, _, _| native_drag_payload(drag))
+            })
             .when_some(self.focus.clone(), |row, focus| {
                 // Focus before the table's context menu captures where to return
                 // on dismissal, including when the other panel was active.
@@ -796,6 +903,17 @@ impl TableDelegate for FileTable {
                     if event.button == MouseButton::Right {
                         context_row.set(Some(row_ix));
                         focus.focus(window, cx);
+                    } else if event.button == MouseButton::Left {
+                        let mode = match (event.modifiers.control, event.modifiers.shift) {
+                            (false, false) => PointerSelection::Single,
+                            (true, false) => PointerSelection::Toggle,
+                            (false, true) => PointerSelection::Range,
+                            (true, true) => PointerSelection::AddRange,
+                        };
+                        folder.update(cx, |folder, cx| {
+                            folder.pointer_select(row_ix, mode);
+                            cx.notify();
+                        });
                     }
                 })
             })
