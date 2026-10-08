@@ -84,6 +84,18 @@ impl Folder {
                 self.pointer_anchor = Some(location);
             }
             PointerSelection::Toggle => {
+                // With no explicit marks, the cursor row is the implicit
+                // selection. Preserve it when Ctrl-click adds another row.
+                if self.marked.is_empty()
+                    && let Some(previous) =
+                        previous.as_ref().filter(|previous| *previous != &location)
+                    && self
+                        .entries
+                        .iter()
+                        .any(|row| !row.is_parent && &row.location == previous)
+                {
+                    self.marked.insert(previous.clone());
+                }
                 if !self.marked.remove(&location) {
                     self.marked.insert(location.clone());
                 }
@@ -297,7 +309,7 @@ mod tests {
         folder.pointer_select(2, PointerSelection::Single);
         assert_eq!(target_paths(&folder), [dir.path().join("a.txt")]);
         folder.pointer_select(3, PointerSelection::Toggle);
-        assert_eq!(folder.marked_count(), 1);
+        assert_eq!(folder.marked_count(), 2);
         folder.pointer_select(1, PointerSelection::Range);
         assert_eq!(folder.marked_count(), 3);
         assert_eq!(folder.drag_locations(2).len(), 3);
@@ -318,6 +330,40 @@ mod tests {
         assert_eq!(drag.native_paths().unwrap().len(), 2);
         folder.load().unwrap();
         assert!(!drag.is_current(&folder));
+    }
+
+    #[test]
+    fn ctrl_click_adds_to_implicit_cursor_selection_and_drag_group() {
+        let dir = fixture();
+        let mut folder = loaded(&dir); // .., sub, a.txt, b.txt
+        folder.set_cursor(2);
+
+        folder.pointer_select(3, PointerSelection::Toggle);
+
+        assert_eq!(
+            target_paths(&folder),
+            [dir.path().join("a.txt"), dir.path().join("b.txt")]
+        );
+        let drag = folder.drag_snapshot(3).unwrap();
+        assert_eq!(drag.items.len(), 2);
+        assert_eq!(
+            drag.native_paths().unwrap(),
+            [
+                (dir.path().join("a.txt"), false),
+                (dir.path().join("b.txt"), false)
+            ]
+        );
+
+        // The parent row is never added to the drag group.
+        let parent = folder.entries()[0].location.clone();
+        folder.set_cursor(0);
+        folder.pointer_select(1, PointerSelection::Toggle);
+        assert!(
+            !folder
+                .drag_locations(1)
+                .iter()
+                .any(|location| location == &parent)
+        );
     }
 
     #[test]
