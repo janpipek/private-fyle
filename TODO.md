@@ -17,6 +17,23 @@
       account; the cursor-placement part is fixed.
 - [ ] Open With on Windows and macOS: read the platform's file-type
       associations behind `apps::Catalog` when those platforms resume.
+- [ ] Open With on Linux, follow-ups: honour `OnlyShowIn`/`NotShowIn`;
+      MIME magic sniffing (now by file name only, so unmatched files are
+      `application/octet-stream`); offer it on downloaded copies of remote
+      files (still refused on remote folders); launching a `Terminal=true`
+      application is only unit-tested.
+- [ ] Markdown preview: bold and italic did not look bold or italic in a
+      headless screenshot of a DOCX preview (it renders through the Markdown
+      view). Check whether `.md` files are affected too and fix the view.
+- [ ] Spreadsheet preview: calamine builds a dense range for the whole sheet,
+      so a sparse sheet declaring a huge range can use a lot of memory; the
+      32 MiB file and 256 MiB uncompressed caps limit but don't prevent it.
+- [ ] Headless key input: under bare Xvfb (no window manager) keys sent with
+      `xdotool --window` are ignored, and plain `xdotool key` after a click
+      reaches the app but F-keys misbehave: F1 opened Locations (Alt-F1's
+      action, as if Alt were held) and F2, F3 and F4 did nothing, while Down
+      and Ctrl-P worked. Not yet known whether only the test setup or real
+      sessions are affected; check F3 on a normal desktop first.
 - [ ] Archive follow-ups: nested archives; maybe write support.
 - [ ] File inspection: separate Properties and View as two perspectives.
       Properties shows filesystem attributes and format metadata; View (F3)
