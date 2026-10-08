@@ -16,6 +16,7 @@ mod search;
 mod tools;
 mod view;
 mod web;
+mod workspace_view;
 
 pub use self::keys::{
     CopyLocation, EditLocation, GoTo, Open, Quit, SortByExt, SortByModified, SortByName,
@@ -29,7 +30,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use gpui_kit::component::menu::PopupMenu;
-use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -51,14 +52,17 @@ use crate::preview_view::PreviewPane;
 use crate::remote;
 use crate::settings::Settings;
 use crate::tools::{Programs, Registry};
+use crate::workspace::{LayoutMode, PanelSide, Workspace};
 use crate::zoom;
 
 pub struct Commander {
     folders: [Entity<Folder>; 2],
     views: [Entity<FolderView>; 2],
-    /// Quick view shown in place of the inactive panel while enabled.
+    /// Content pane used by the inspector.
     preview: Entity<PreviewPane>,
-    preview_on: bool,
+    workspace: Workspace,
+    layout_saves: crate::places::history_save::Queue<LayoutMode>,
+    _layout_save_task: Task<()>,
     tools: Arc<Registry>,
     programs: Arc<Programs>,
     /// Planning or running a tool in the background.
@@ -150,6 +154,9 @@ pub struct Commander {
     show_hidden: bool,
     panel_split: f32,
     dragging_split: bool,
+    inspector_split: f32,
+    dragging_inspector_split: bool,
+    inspector_split_horizontal: bool,
     status: SharedString,
     _subscriptions: Vec<Subscription>,
     _mkdir_subscription: Option<Subscription>,
@@ -209,6 +216,15 @@ impl Commander {
 
         let registry = Arc::new(PreviewRegistry::with_defaults());
         let preview = cx.new(|cx| PreviewPane::new(registry, window, cx));
+        let mut workspace = Workspace::default();
+        let layout = if settings.workspace.layout == LayoutMode::TwoPanels
+            && settings.preview.open_on_start
+        {
+            LayoutMode::TwoPanelsInspector
+        } else {
+            settings.workspace.layout
+        };
+        workspace.set_mode(layout);
 
         let mut subscriptions = Vec::new();
         for folder in &folders {
@@ -219,8 +235,9 @@ impl Commander {
         }
         for (ix, view) in views.iter().enumerate() {
             let focus = view.read(cx).focus_handle(cx);
-            subscriptions.push(cx.on_focus_in(&focus, window, move |this, _, cx| {
+            subscriptions.push(cx.on_focus_in(&focus, window, move |this, window, cx| {
                 this.set_active(ix, cx);
+                this.update_preview(window, cx);
             }));
             subscriptions.push(cx.subscribe_in(
                 view,
@@ -297,7 +314,9 @@ impl Commander {
             folders,
             views,
             preview,
-            preview_on: settings.preview.open_on_start,
+            workspace,
+            layout_saves: Default::default(),
+            _layout_save_task: Task::ready(()),
             tools: Arc::new(tools_registry),
             programs: Arc::new(Programs::from_env()),
             catalog_cache: None,
@@ -363,6 +382,9 @@ impl Commander {
             show_hidden: settings.show_hidden,
             panel_split: 0.5,
             dragging_split: false,
+            inspector_split: 0.68,
+            dragging_inspector_split: false,
+            inspector_split_horizontal: true,
             status: settings_error.map_or(status, Into::into),
             _subscriptions: subscriptions,
             _mkdir_subscription: None,
@@ -425,6 +447,11 @@ impl Commander {
 
     fn set_active(&mut self, ix: usize, cx: &mut Context<Self>) {
         self.active = ix;
+        self.workspace.set_active_panel(if ix == 0 {
+            PanelSide::Left
+        } else {
+            PanelSide::Right
+        });
         for (i, view) in self.views.iter().enumerate() {
             view.update(cx, |view, cx| view.set_active(i == ix, cx));
         }
@@ -516,6 +543,19 @@ impl Render for Commander {
             .on_action(cx.listener(Self::toggle_hidden))
             .on_action(cx.listener(Self::toggle_tree))
             .on_action(cx.listener(Self::toggle_preview))
+            .on_action(cx.listener(|this, _: &keys::LayoutTwoPanels, window, cx| {
+                this.set_workspace_layout(LayoutMode::TwoPanels, window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &keys::LayoutTwoPanelsInspector, window, cx| {
+                    this.set_workspace_layout(LayoutMode::TwoPanelsInspector, window, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &keys::LayoutOnePanelInspector, window, cx| {
+                    this.set_workspace_layout(LayoutMode::OnePanelInspector, window, cx)
+                }),
+            )
             .on_action(cx.listener(Self::filter))
             .on_action(cx.listener(Self::edit_file))
             .on_action(cx.listener(Self::new_file))
@@ -584,12 +624,64 @@ impl Render for Commander {
                         cx.notify();
                         return;
                     }
-                    let win_width = f32::from(window.viewport_size().width);
+                    let dock_ratio = if this.workspace.mode().has_inspector()
+                        && this.editor.is_none()
+                        && this.inspector_split_horizontal
+                    {
+                        this.inspector_split
+                    } else {
+                        1.0
+                    };
+                    let win_width = (f32::from(window.viewport_size().width) - 16.0) * dock_ratio;
                     if win_width > 0.0 {
-                        let mouse_x = f32::from(event.position.x);
+                        let mouse_x = f32::from(event.position.x) - 8.0;
                         let ratio = (mouse_x / win_width).clamp(0.15, 0.85);
                         if (this.panel_split - ratio).abs() > 0.001 {
                             this.panel_split = ratio;
+                            cx.notify();
+                        }
+                    }
+                }
+                if this.dragging_inspector_split {
+                    if !event.dragging() {
+                        this.dragging_inspector_split = false;
+                        cx.notify();
+                        return;
+                    }
+                    let viewport = window.viewport_size();
+                    let (extent, position) = if this.inspector_split_horizontal {
+                        (f32::from(viewport.width), f32::from(event.position.x))
+                    } else {
+                        (f32::from(viewport.height), f32::from(event.position.y))
+                    };
+                    if extent > 0.0 {
+                        let scale = f32::from(cx.theme().font_size) / 16.0;
+                        let mode = this.workspace.mode();
+                        let count = if mode == LayoutMode::OnePanelInspector {
+                            1.0
+                        } else {
+                            2.0
+                        };
+                        let (folder_min, inspector_min, available, origin) =
+                            if this.inspector_split_horizontal {
+                                (
+                                    340.0 * count + 14.0 * (count - 1.0) + 14.0,
+                                    300.0,
+                                    (extent - 16.0).max(0.0),
+                                    8.0,
+                                )
+                            } else {
+                                (220.0 + 14.0, 180.0, (extent - 80.0).max(0.0), 40.0)
+                            };
+                        let minimum = folder_min * scale / available;
+                        let maximum = 1.0 - inspector_min * scale / available;
+                        let ratio = if minimum <= maximum {
+                            ((position - origin) / available).clamp(minimum, maximum)
+                        } else {
+                            0.68
+                        };
+                        if (this.inspector_split - ratio).abs() > 0.001 {
+                            this.inspector_split = ratio;
                             cx.notify();
                         }
                     }
@@ -600,6 +692,10 @@ impl Render for Commander {
                 cx.listener(|this, _, _, cx| {
                     if this.dragging_split {
                         this.dragging_split = false;
+                        cx.notify();
+                    }
+                    if this.dragging_inspector_split {
+                        this.dragging_inspector_split = false;
                         cx.notify();
                     }
                 }),
@@ -625,62 +721,7 @@ impl Render for Commander {
                         .child(div().occlude().top_1().child(menu)),
                 ))
             })
-            .child({
-                let left_w = DefiniteLength::Fraction(self.panel_split);
-                let right_w = DefiniteLength::Fraction(1.0 - self.panel_split);
-
-                let left_child =
-                    if let Some(editor) = self.editor.as_ref().filter(|_| 0 != self.active) {
-                        editor.clone().into_any_element()
-                    } else if self.preview_on && 0 != self.active {
-                        self.preview.clone().into_any_element()
-                    } else {
-                        self.views[0].clone().into_any_element()
-                    };
-
-                let right_child =
-                    if let Some(editor) = self.editor.as_ref().filter(|_| 1 != self.active) {
-                        editor.clone().into_any_element()
-                    } else if self.preview_on && 1 != self.active {
-                        self.preview.clone().into_any_element()
-                    } else {
-                        self.views[1].clone().into_any_element()
-                    };
-
-                let left_pane = div().w(left_w).min_w_0().h_full().child(left_child);
-                let right_pane = div().w(right_w).min_w_0().h_full().child(right_child);
-
-                let divider = div()
-                    .id("panel-divider")
-                    .w(px(6.))
-                    .h_full()
-                    .flex_none()
-                    .cursor(CursorStyle::ResizeLeftRight)
-                    .hover(|style| style.bg(theme.primary))
-                    .when(self.dragging_split, |style| style.bg(theme.primary))
-                    .when(!self.dragging_split, |style| style.bg(theme.border))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(|this, event: &MouseDownEvent, _window, cx| {
-                            if event.click_count == 2 {
-                                this.panel_split = 0.5;
-                                this.dragging_split = false;
-                            } else {
-                                this.dragging_split = true;
-                            }
-                            cx.notify();
-                        }),
-                    );
-
-                h_flex()
-                    .flex_1()
-                    .min_h_0()
-                    .gap_1()
-                    .p_2()
-                    .child(left_pane)
-                    .child(divider)
-                    .child(right_pane)
-            })
+            .child(self.render_workspace(window, cx))
             .child(
                 div()
                     .px_2()

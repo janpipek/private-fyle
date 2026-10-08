@@ -7,6 +7,7 @@
 use crate::fs_ops::SortKey;
 use crate::grid::{self, ViewMode};
 use crate::remote::{Capabilities, Removal};
+use crate::workspace::LayoutMode;
 
 /// A user-visible command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -35,6 +36,9 @@ pub enum Cmd {
     ClearSelection,
     Filter,
     TogglePreview,
+    LayoutTwoPanels,
+    LayoutTwoPanelsInspector,
+    LayoutOnePanelInspector,
     ToggleTree,
     ListView,
     IconView,
@@ -110,6 +114,8 @@ pub struct State {
     pub icon_size: u32,
     pub hidden: bool,
     pub preview: bool,
+    /// The selected folder/inspector arrangement.
+    pub workspace_layout: LayoutMode,
     pub jobs_running: bool,
     pub sort: crate::model::Sort,
     pub can_go_back: bool,
@@ -126,7 +132,7 @@ pub struct State {
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 64] = [
+    pub const ALL: [Cmd; 67] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::OpenInBrowser,
@@ -154,6 +160,9 @@ impl Cmd {
         Cmd::EditFile,
         Cmd::NewFile,
         Cmd::TogglePreview,
+        Cmd::LayoutTwoPanels,
+        Cmd::LayoutTwoPanelsInspector,
+        Cmd::LayoutOnePanelInspector,
         Cmd::ToggleTree,
         Cmd::ListView,
         Cmd::IconView,
@@ -220,6 +229,9 @@ impl Cmd {
             Cmd::ClearSelection => "Clear Selection",
             Cmd::Filter => "Filter…",
             Cmd::TogglePreview => "Preview",
+            Cmd::LayoutTwoPanels => "Two Panels",
+            Cmd::LayoutTwoPanelsInspector => "Two Panels + Preview",
+            Cmd::LayoutOnePanelInspector => "One Panel + Preview",
             Cmd::ToggleTree => "Tree",
             Cmd::ListView => "List View",
             Cmd::IconView => "Icon View",
@@ -276,6 +288,9 @@ impl Cmd {
             Cmd::Rename => "Rename (bulk when several are marked)",
             Cmd::ExtractArchive => "Extract archive into a folder in the other panel",
             Cmd::TogglePreview => "Toggle preview",
+            Cmd::LayoutTwoPanels => "Show both folder panels",
+            Cmd::LayoutTwoPanelsInspector => "Show both panels and preview",
+            Cmd::LayoutOnePanelInspector => "Show the active panel and preview",
             Cmd::ToggleTree => "Toggle tree mode",
             Cmd::ListView => "Show the active panel as a list",
             Cmd::IconView => "Show the active panel as icons",
@@ -313,6 +328,13 @@ impl Cmd {
     pub fn checked(self, state: &State) -> Option<bool> {
         match self {
             Cmd::TogglePreview => Some(state.preview),
+            Cmd::LayoutTwoPanels => Some(state.workspace_layout == LayoutMode::TwoPanels),
+            Cmd::LayoutTwoPanelsInspector => {
+                Some(state.workspace_layout == LayoutMode::TwoPanelsInspector)
+            }
+            Cmd::LayoutOnePanelInspector => {
+                Some(state.workspace_layout == LayoutMode::OnePanelInspector)
+            }
             Cmd::ToggleTree => Some(state.tree),
             Cmd::ListView => Some(state.view == ViewMode::List),
             Cmd::IconView => Some(state.view == ViewMode::Icons),
@@ -527,7 +549,13 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
         ),
         ("View", {
             let mut view = items(&[
-                &[TogglePreview, ToggleTree, ToggleHidden],
+                &[
+                    TogglePreview,
+                    LayoutTwoPanels,
+                    LayoutTwoPanelsInspector,
+                    LayoutOnePanelInspector,
+                ],
+                &[ToggleTree, ToggleHidden],
                 &[ListView, IconView, LargerIcons, SmallerIcons],
                 &[Expand, Collapse],
             ]);
@@ -614,6 +642,51 @@ mod tests {
                     .any(|w| w == [Item::Separator, Item::Separator]),
                 "{name}"
             );
+        }
+    }
+
+    #[test]
+    fn workspace_layout_commands_are_view_toggles() {
+        let layouts = [
+            (Cmd::LayoutTwoPanels, LayoutMode::TwoPanels),
+            (
+                Cmd::LayoutTwoPanelsInspector,
+                LayoutMode::TwoPanelsInspector,
+            ),
+            (Cmd::LayoutOnePanelInspector, LayoutMode::OnePanelInspector),
+        ];
+        let view = menu_bar()
+            .into_iter()
+            .find_map(|(name, items)| (name == "View").then_some(items))
+            .expect("View menu exists");
+
+        for (cmd, mode) in layouts {
+            assert!(view.contains(&Item::Cmd(cmd)));
+            assert!(Cmd::ALL.contains(&cmd));
+            assert!(cmd.label().contains("Panel"));
+            assert!(!cmd.palette_label().is_empty());
+            assert_eq!(
+                cmd.checked(&State {
+                    workspace_layout: mode,
+                    ..State::default()
+                }),
+                Some(true)
+            );
+            for other in [
+                LayoutMode::TwoPanels,
+                LayoutMode::TwoPanelsInspector,
+                LayoutMode::OnePanelInspector,
+            ] {
+                assert_eq!(
+                    cmd.checked(&State {
+                        workspace_layout: other,
+                        ..State::default()
+                    }),
+                    Some(mode == other),
+                    "{cmd:?} in {other:?}"
+                );
+            }
+            assert_eq!(cmd.unavailable(&State::default()), None);
         }
     }
 

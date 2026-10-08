@@ -53,11 +53,11 @@ palette. The bottom area shows status messages and running jobs.
 | Alt-F7 / Ctrl-Shift-F | Find files by name (glob or substring) and/or containing text (literal or regex; hits show the matching line, and F3 preview scrolls to it), below the panel directory; results fill the panel (Enter shows a hit in its folder, Backspace returns, Esc stops) |
 | Ctrl-G / Alt-F1     | Locations: drives/mounted volumes, desktop places (home, user folders, GTK/KDE bookmarks), fyle bookmarks and frequent directories |
 | Ctrl-L              | Edit or paste the active panel's full path |
-| Ctrl-U              | Swap Panels: exchange the two panels' content (typed local, remote, archive or search location), cursor, marks, filter, sort, tree state, history and list/icon view; the active side stays active. Unavailable with an explanation while the F4 editor or F3 preview covers a panel, or while a folder is loading or a search / size scan is running (Esc cancels it) |
+| Ctrl-U              | Swap Panels: exchange the two panels' content (typed local, remote, archive or search location), cursor, marks, filter, sort, tree state, history and list/icon view; the active side stays active. Unavailable with an explanation while the F4 editor covers a panel, or while a folder is loading or a search / size scan is running (Esc cancels it) |
 | Ctrl-Left / Ctrl-Right | Go to Other Panel's Folder: the active panel shows the other panel's folder (local, remote or archive location kept; search results lead to their root; a navigation still loading there is followed to its destination; unavailable when the other panel shows Places) |
 | Ctrl-D              | Add or remove the current directory's bookmark (saved in `config.toml`); the star in the location bar shows and toggles it |
 | F9                  | Open a terminal in the panel directory (`[terminal]` in `config.toml`) |
-| F3                  | Toggle quick preview (replaces the other panel, follows the cursor) |
+| F3                  | Toggle Preview in the inspector; it follows the active panel's cursor and does not replace the inactive folder panel |
 | F4                  | Edit the cursor file (UTF-8 text, up to 8 MiB) in place of the other panel; Ctrl-S saves, Esc/Ctrl-W closes (with unsaved changes it asks: Save, Discard or Cancel); saving asks before overwriting a file changed on disk. `[editor] command` in `config.toml` uses an external editor instead |
 | Ctrl-P              | Command palette: all commands with their keys, filtered by typing |
 | Ctrl-K Ctrl-T       | Theme picker: arrows preview live, Enter keeps and saves to `config.toml`, Esc restores |
@@ -69,6 +69,14 @@ palette. The bottom area shows status messages and running jobs.
 | Ctrl-+ / Ctrl-- / Ctrl-0 | Zoom in / out / reset (also Ctrl-wheel throughout the panels, including table rows, headers and blank space); saved as `font_size` in `config.toml` |
 | Ctrl-Shift-C        | Cancel running copy/move/delete jobs (also a Cancel button per job) |
 | F10 / Ctrl-Q        | Quit                                      |
+
+The View menu offers three workspace layouts: both folder panels, both panels
+with a Preview inspector, or the active panel with Preview. In the one-panel
+layout, the other panel remains the destination for copy and move commands and
+is identified by its destination label. F3 opens or closes the inspector. The
+selected layout is saved in `config.toml` and restored at startup; set
+`[workspace] layout` to `"two_panels"`, `"two_panels_inspector"` or
+`"one_panel_inspector"` to choose it directly.
 
 Symbolic links keep their target's file icon with a small badge: a curved
 arrow for a working link, a crossed circle (and a muted name) for a broken
@@ -234,6 +242,8 @@ associations are not read yet.
 All keys are optional; see [`config.example.toml`](config.example.toml) for
 every key with its default. Errors (including unknown keys) are shown in the
 status line and the defaults are used. Settings are read at startup.
+The View menu's workspace layout choice is saved automatically in
+`[workspace] layout`.
 
 Bookmarks still accept ordinary path strings in `config.toml`; newly saved
 bookmarks use a versioned location value so native path bytes and control
@@ -480,7 +490,7 @@ Where things live (`src/`):
 | `panel.rs`, `panel/metadata.rs` | `FolderView` and table wiring; bounded metadata request/cache model shared by list and icon views, with local metadata reads in background workers |
 | `thumbnails.rs`, `thumb_queue.rs`, `raw_preview.rs` | Icon view thumbnails: the freedesktop cache (URI and MD5 names, validity by `Thumb::MTime`, atomic writes, failure records), bounded JPEG preview extraction for common RAW extensions, and the load scheduler with its LRU, all UI-independent and tested |
 | `grid.rs`, `icon_view.rs`, `glyphs.rs`, `context_menu.rs` | Icon view: `ViewMode`, icon sizes, `Layout` (columns for a width) and cursor moves (UI-independent, tested); the lazy `IconGrid` view; the `FileIcon` → glyph table and the right-click menu shared with the list |
-| `workspace.rs` | Candidate UI-independent workspace state for two panels, two panels plus inspector, or one panel plus inspector; tracks source/destination, selection-following requests and feasible dock positions. Not yet connected to the window |
+| `workspace.rs` | UI-independent workspace state for two panels, two panels plus Preview, or one panel plus Preview; tracks source/destination, selection-following requests and feasible dock positions. |
 | `columns.rs` | `ColumnKind` catalog, grouped, ids like `exif.iso`. A new column is a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |
 | `fs_ops.rs`, `transfer.rs`, `jobs.rs` | `Entry` and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
 | `remote.rs`, `remote/` | Remote providers: `Provider` trait, `Location` paths, Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `LocalCopy` keeps a typed source address separate from the cache path used at native I/O boundaries; `model/remote.rs` holds cached listings |

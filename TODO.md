@@ -43,18 +43,10 @@
       the background with cancellation and bounded reads, and allow either
       perspective independently. Properties command placement/shortcut and
       the presentation of structured metadata remain to be decided.
-- [ ] Workspace layout, open design: keep both directory panels visible and
-      usable for file operations while an independent inspector shows Preview,
-      Properties or another supported perspective. Consider three resizable
-      panes with the inspector docked to the right or bottom; evaluate a 2x2
-      layout for two inspectors (Preview plus Properties, or one per directory).
-      Base layout availability on usable space after UI scaling. Decide
-      minimum pane sizes, follow-selection versus pinned-file behavior, and
-      focus/shortcut rules that retain an explicit source and destination for
-      file commands. A UI-independent candidate model (`workspace.rs`) now
-      covers two panels, two panels plus inspector, and one panel plus inspector;
-      it tests focus, resize and pending-load transitions. Decide the UI
-      presentation and sizing policy before wiring it into the window.
+- [ ] Workspace layout follow-ups: test the current right/bottom inspector
+      arrangements across window sizes and UI scaling; decide whether to add
+      a two-inspector layout. Properties remains a separate
+      inspection perspective; see File inspection above.
 - [ ] Mouse drag follow-ups: offer outgoing desktop file data for remote and
       archive entries after background materialization; support nonlocal URI
       data from external applications; consider drag feedback and modifier
@@ -98,6 +90,12 @@
 - [ ] macOS support (later): CI job, app menu, Cmd shortcuts, app bundle.
 
 ## Done
+
+- [x] Workspace layouts: View offers two panels, two panels plus a Preview
+      inspector, and one panel plus Preview. F3 toggles the inspector without
+      replacing the inactive folder panel; the hidden panel remains the
+      destination for copy and move commands. The selected layout is saved to
+      `[workspace] layout` and restored at startup.
 
 - [x] Open With accepts local directories through Shift-Enter, the File menu
       and right-click menu; use `inode/directory` associations and matching

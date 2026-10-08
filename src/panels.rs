@@ -53,8 +53,6 @@ pub fn other_panel_target(
 pub struct Activity {
     /// The F4 editor covers the inactive panel.
     pub editor_open: bool,
-    /// The F3 quick view covers the inactive panel.
-    pub preview_open: bool,
     /// A navigation, archive read or remote reload is in flight.
     pub loading: bool,
     /// A search or a folder size scan is running.
@@ -67,13 +65,11 @@ pub struct Activity {
 /// re-pointing it, swapping waits until it is finished or cancelled (Esc).
 /// Metadata and thumbnails are not affected: they are keyed by the listing
 /// generation, which [`crate::model::Folder::swap_with`] renews. The editor
-/// and the quick view cover the inactive panel, so the swap would be
-/// invisible on one side; close them first.
+/// covers the inactive panel, so the swap would be invisible on one side;
+/// close it first. The inspector follows the active selection after a swap.
 pub fn swap_blocked(activity: &Activity) -> Option<&'static str> {
     if activity.editor_open {
         Some("Close the editor first")
-    } else if activity.preview_open {
-        Some("Close the preview (F3) first")
     } else if activity.loading {
         Some("A folder is still loading (Esc cancels)")
     } else if activity.scanning {
@@ -188,15 +184,11 @@ mod tests {
     }
 
     #[test]
-    fn swapping_waits_for_work_and_covering_panes() {
+    fn swapping_waits_for_work_and_editor() {
         assert_eq!(swap_blocked(&Activity::default()), None);
         for activity in [
             Activity {
                 editor_open: true,
-                ..Default::default()
-            },
-            Activity {
-                preview_open: true,
                 ..Default::default()
             },
             Activity {

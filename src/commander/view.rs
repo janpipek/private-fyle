@@ -22,6 +22,8 @@ use crate::fs_ops;
 use crate::grid::ViewMode;
 use crate::menus::Cmd;
 use crate::model::Folder;
+use crate::settings;
+use crate::workspace::{LayoutMode, PanelSide, Perspective};
 
 impl Commander {
     pub fn filter(&mut self, _: &Filter, window: &mut Window, cx: &mut Context<Self>) {
@@ -34,26 +36,88 @@ impl Commander {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.preview_on = !self.preview_on;
+        self.workspace.toggle_inspector();
+        self.workspace.set_perspective(Perspective::Preview);
+        self.queue_layout_save(cx);
         self.update_preview(window, cx);
         cx.notify();
+    }
+
+    /// Selects the folder/inspector arrangement from the View menu.
+    pub fn set_workspace_layout(
+        &mut self,
+        mode: LayoutMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.workspace.mode() == mode {
+            return;
+        }
+        self.workspace.set_mode(mode);
+        self.workspace.set_perspective(Perspective::Preview);
+        self.queue_layout_save(cx);
+        self.update_preview(window, cx);
+        self.focus_active(window, cx);
+        cx.notify();
+    }
+
+    fn queue_layout_save(&mut self, cx: &mut Context<Self>) {
+        if let Some(layout) = self.layout_saves.enqueue(self.workspace.mode()) {
+            self.start_layout_save(layout, cx);
+        }
+    }
+
+    fn start_layout_save(&mut self, layout: LayoutMode, cx: &mut Context<Self>) {
+        self._layout_save_task = cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move { settings::save_workspace_layout(layout) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if let Err(error) = result {
+                    this.status = error.into();
+                    cx.notify();
+                }
+                if let Some(next) = this.layout_saves.complete() {
+                    this.start_layout_save(next, cx);
+                }
+            });
+        });
     }
 
     /// Points the quick view at the active panel's cursor entry, at the
     /// matching line for a content search hit.
     pub fn update_preview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let row = self.folders[self.active]
+            .read(cx)
+            .current()
+            .filter(|row| !row.is_parent)
+            .cloned();
+        self.workspace.set_selection(
+            if self.active == 0 {
+                PanelSide::Left
+            } else {
+                PanelSide::Right
+            },
+            row.as_ref().map(|row| row.location.clone()),
+        );
         let row = self
-            .preview_on
-            .then(|| self.folders[self.active].read(cx).current())
+            .workspace
+            .mode()
+            .has_inspector()
+            .then_some(row)
             .flatten();
-        let mut target = row.and_then(|row| match &row.location {
+        let mut target = row.as_ref().and_then(|row| match &row.location {
             crate::location::Location::Local(local) => Some(local.as_path().to_path_buf()),
             crate::location::Location::Remote(_) => None,
             crate::location::Location::Archive { .. } => Some(row.path.clone()),
         });
-        let line = row.and_then(|row| row.hit_line.as_ref()).map(|(n, _)| *n);
-        let mut identity = row.map(|row| row.location.clone());
+        let line = row
+            .as_ref()
+            .and_then(|row| row.hit_line.as_ref())
+            .map(|(n, _)| *n);
+        let mut identity = row.as_ref().map(|row| row.location.clone());
         let remote = row
+            .as_ref()
             .filter(|row| matches!(&row.location, crate::location::Location::Remote(_)))
             .map(|row| (row.location.clone(), row.size, row.is_dir || row.is_parent));
         if let Some((location, size, folder)) = remote {

@@ -161,7 +161,6 @@ impl Commander {
     pub fn swap_blocked(&self, cx: &App) -> Option<&'static str> {
         crate::panels::swap_blocked(&crate::panels::Activity {
             editor_open: self.editor.is_some(),
-            preview_open: self.preview_on,
             loading: self.navigation_pending.iter().any(|&pending| pending)
                 || self.reload_cancel.iter().any(Option::is_some)
                 || self.remote_check.is_some()

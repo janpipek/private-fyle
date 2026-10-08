@@ -15,6 +15,7 @@ use crate::fs_ops::SortKey;
 use crate::grid::ViewMode;
 use crate::location::Location;
 use crate::model::Sort;
+use crate::workspace::LayoutMode;
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -35,6 +36,7 @@ pub struct Settings {
     pub keymap: Vec<KeymapEntry>,
     pub window: WindowSettings,
     pub panels: PanelSettings,
+    pub workspace: WorkspaceSettings,
     pub preview: PreviewSettings,
     pub editor: EditorSettings,
     pub terminal: TerminalSettings,
@@ -125,6 +127,14 @@ pub struct PreviewSettings {
     pub open_on_start: bool,
 }
 
+/// Which workspace layout opens at startup.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct WorkspaceSettings {
+    /// The visible folder panels and optional inspector.
+    pub layout: LayoutMode,
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -136,6 +146,7 @@ impl Default for Settings {
             openers: Vec::new(),
             window: WindowSettings::default(),
             panels: PanelSettings::default(),
+            workspace: WorkspaceSettings::default(),
             preview: PreviewSettings::default(),
             editor: EditorSettings::default(),
             terminal: TerminalSettings::default(),
@@ -372,6 +383,66 @@ pub fn save_icon_size_to(path: &Path, size: u32) -> Result<(), String> {
     save_panel_value_to(path, "icon_size", i64::from(size).into())
 }
 
+/// Saves the chosen workspace layout while preserving other settings.
+pub fn save_workspace_layout(layout: LayoutMode) -> Result<PathBuf, String> {
+    let path = Settings::path().ok_or("No config directory on this platform")?;
+    save_workspace_layout_to(&path, layout)?;
+    Ok(path)
+}
+
+/// Writes `[workspace] layout` and keeps the other settings and comments.
+pub fn save_workspace_layout_to(path: &Path, layout: LayoutMode) -> Result<(), String> {
+    let error = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(error(&e)),
+    };
+    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| error(&e))?;
+    match doc.get_mut("workspace") {
+        Some(item) => {
+            if let Some(workspace) = item.as_table_mut() {
+                if let Some(value) = workspace
+                    .get_mut("layout")
+                    .and_then(toml_edit::Item::as_value_mut)
+                {
+                    replace_layout_value(value, layout);
+                } else {
+                    workspace["layout"] = toml_edit::value(layout.id());
+                }
+            } else if let Some(workspace) = item
+                .as_value_mut()
+                .and_then(toml_edit::Value::as_inline_table_mut)
+            {
+                if let Some(value) = workspace.get_mut("layout") {
+                    replace_layout_value(value, layout);
+                } else {
+                    workspace.insert("layout", layout.id().into());
+                }
+            } else {
+                return Err(format!("{}: [workspace] must be a table", path.display()));
+            }
+        }
+        None => {
+            doc["workspace"] = toml_edit::table();
+            let workspace = doc["workspace"]
+                .as_table_mut()
+                .expect("workspace was just set to a table");
+            workspace["layout"] = toml_edit::value(layout.id());
+        }
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| error(&e))?;
+    }
+    std::fs::write(path, doc.to_string()).map_err(|e| error(&e))
+}
+
+fn replace_layout_value(value: &mut toml_edit::Value, layout: LayoutMode) {
+    let decor = value.decor().clone();
+    *value = layout.id().into();
+    *value.decor_mut() = decor;
+}
+
 fn save_panel_value_to(path: &Path, key: &str, value: toml_edit::Value) -> Result<(), String> {
     let error = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
     let text = match std::fs::read_to_string(path) {
@@ -433,6 +504,9 @@ mod tests {
             [preview]
             open_on_start = true
 
+            [workspace]
+            layout = "one_panel_inspector"
+
             [terminal]
             command = ["kitty", "-d", "{dir}"]
             "#,
@@ -457,6 +531,7 @@ mod tests {
             }
         );
         assert!(settings.preview.open_on_start);
+        assert_eq!(settings.workspace.layout, LayoutMode::OnePanelInspector);
     }
 
     #[test]
@@ -471,12 +546,67 @@ mod tests {
         assert!(Settings::parse("show_hiden = true").is_err());
         assert!(Settings::parse("theme = 1").is_err());
         assert!(Settings::parse("[panels]\nsort = \"color\"").is_err());
+        assert!(Settings::parse("[workspace]\nlayout = \"three_panels\"").is_err());
     }
 
     #[test]
     fn example_file_matches_defaults() {
         let example = include_str!("../config.example.toml");
         assert_eq!(Settings::parse(example).unwrap(), Settings::default());
+    }
+
+    #[test]
+    fn saves_workspace_layout_without_losing_other_settings() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+        std::fs::write(&path, "# Keep this\n[workspace]\nlayout = \"two_panels\" # layout\n[preview]\nopen_on_start = false\n").unwrap();
+        save_workspace_layout_to(&path, LayoutMode::OnePanelInspector).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# Keep this"));
+        assert!(text.contains("# layout"));
+        assert!(text.contains("open_on_start = false"));
+        assert_eq!(
+            Settings::parse(&text).unwrap().workspace.layout,
+            LayoutMode::OnePanelInspector
+        );
+    }
+
+    #[test]
+    fn saves_workspace_layout_when_config_is_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("nested/config.toml");
+        save_workspace_layout_to(&path, LayoutMode::TwoPanelsInspector).unwrap();
+        assert_eq!(
+            Settings::load_from(&path).0.workspace.layout,
+            LayoutMode::TwoPanelsInspector
+        );
+    }
+
+    #[test]
+    fn saves_workspace_layout_in_an_inline_table() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+        std::fs::write(
+            &path,
+            "show_hidden = true\nworkspace = { layout = \"two_panels\" }\n",
+        )
+        .unwrap();
+        save_workspace_layout_to(&path, LayoutMode::OnePanelInspector).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("show_hidden = true"));
+        assert_eq!(
+            Settings::parse(&text).unwrap().workspace.layout,
+            LayoutMode::OnePanelInspector
+        );
+    }
+
+    #[test]
+    fn rejects_non_table_workspace_when_saving_layout() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("config.toml");
+        std::fs::write(&path, "workspace = false\n").unwrap();
+        let error = save_workspace_layout_to(&path, LayoutMode::OnePanelInspector).unwrap_err();
+        assert!(error.contains("[workspace] must be a table"));
     }
 
     #[test]

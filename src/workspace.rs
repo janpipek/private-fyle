@@ -2,6 +2,7 @@
 //! selection-following requests, and whether a viewport can fit each layout.
 
 use crate::location::Location;
+use serde::Deserialize;
 
 /// Which folder panel is the source of commands and inspector selection.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -31,7 +32,8 @@ impl PanelSide {
 }
 
 /// Which folder panels and inspector are visible.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum LayoutMode {
     /// The current two-folder workspace.
     #[default]
@@ -43,6 +45,15 @@ pub enum LayoutMode {
 }
 
 impl LayoutMode {
+    /// The value stored in configuration.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::TwoPanels => "two_panels",
+            Self::TwoPanelsInspector => "two_panels_inspector",
+            Self::OnePanelInspector => "one_panel_inspector",
+        }
+    }
+
     /// Whether this layout has an inspector slot.
     pub fn has_inspector(self) -> bool {
         self != Self::TwoPanels
@@ -96,6 +107,7 @@ pub enum InspectorLoad {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Workspace {
     mode: LayoutMode,
+    last_inspector_mode: LayoutMode,
     perspective: Perspective,
     active: PanelSide,
     selections: [Option<Location>; 2],
@@ -107,6 +119,7 @@ impl Default for Workspace {
     fn default() -> Self {
         Self {
             mode: LayoutMode::TwoPanels,
+            last_inspector_mode: LayoutMode::TwoPanelsInspector,
             perspective: Perspective::Preview,
             active: PanelSide::Left,
             selections: [None, None],
@@ -160,8 +173,20 @@ impl Workspace {
         }
         let inspector_changed = self.mode.has_inspector() != mode.has_inspector();
         self.mode = mode;
+        if mode.has_inspector() {
+            self.last_inspector_mode = mode;
+        }
         if inspector_changed {
             self.restart_request();
+        }
+    }
+
+    /// F3 closes the inspector or restores its last one- or two-panel layout.
+    pub fn toggle_inspector(&mut self) {
+        if self.mode.has_inspector() {
+            self.set_mode(LayoutMode::TwoPanels);
+        } else {
+            self.set_mode(self.last_inspector_mode);
         }
     }
 
@@ -358,6 +383,18 @@ mod tests {
         assert_eq!(workspace.inspector_load(), &InspectorLoad::Empty);
         workspace.set_mode(LayoutMode::OnePanelInspector);
         assert_eq!(pending(&workspace).location, local("/right/file"));
+    }
+
+    #[test]
+    fn f3_restores_the_last_inspector_layout() {
+        let mut workspace = Workspace::default();
+        workspace.toggle_inspector();
+        assert_eq!(workspace.mode(), LayoutMode::TwoPanelsInspector);
+        workspace.set_mode(LayoutMode::OnePanelInspector);
+        workspace.toggle_inspector();
+        assert_eq!(workspace.mode(), LayoutMode::TwoPanels);
+        workspace.toggle_inspector();
+        assert_eq!(workspace.mode(), LayoutMode::OnePanelInspector);
     }
 
     #[test]
