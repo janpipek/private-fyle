@@ -1,11 +1,12 @@
 //! Bounded spreadsheet sheet samples (XLSX, XLSM, XLS, XLSB, ODS) through
 //! `calamine`, rendered by the table preview one sheet at a time.
 
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io;
 use std::path::Path;
 
-use calamine::{Data, Reader, open_workbook_auto};
+use calamine::{Cell, Data, DataRef, Reader, Sheets, open_workbook_auto};
 
 use super::{Content, Previewer, Probe};
 
@@ -140,6 +141,17 @@ fn sheet_of<RS: io::Read + io::Seek>(
     workbook: &mut calamine::Sheets<RS>,
     name: &str,
 ) -> io::Result<Sheet> {
+    match workbook {
+        Sheets::Xlsx(book) => {
+            let mut reader = book.worksheet_cells_reader(name).map_err(invalid_data)?;
+            return sparse_sheet(|| reader.next_cell().map_err(invalid_data));
+        }
+        Sheets::Xlsb(book) => {
+            let mut reader = book.worksheet_cells_reader(name).map_err(invalid_data)?;
+            return sparse_sheet(|| reader.next_cell().map_err(invalid_data));
+        }
+        _ => {}
+    }
     let range = workbook.worksheet_range(name).map_err(invalid_data)?;
     let Some((row0, col0)) = range.start() else {
         return Ok(Sheet::default());
@@ -160,6 +172,70 @@ fn sheet_of<RS: io::Read + io::Seek>(
                 let (text, cut) = cap(format_cell(data));
                 truncated |= cut;
                 text
+            }));
+            out
+        })
+        .collect();
+    Ok(Sheet {
+        header,
+        rows,
+        total_rows,
+        total_cols,
+        truncated,
+    })
+}
+
+/// Samples streamed cells without allocating the sheet's full used rectangle.
+/// The smallest seen row/column can move as cells arrive, so stored sample
+/// cells are pruned whenever the origin changes.
+fn sparse_sheet<'a>(
+    mut next: impl FnMut() -> io::Result<Option<Cell<DataRef<'a>>>>,
+) -> io::Result<Sheet> {
+    let mut bounds: Option<(u32, u32, u32, u32)> = None;
+    let mut cells = BTreeMap::<(u32, u32), String>::new();
+    let mut truncated = false;
+    while let Some(cell) = next()? {
+        if matches!(cell.get_value(), DataRef::Empty) {
+            continue;
+        }
+        let (row, col) = cell.get_position();
+        let (row0, col0, row1, col1) = match bounds {
+            Some((min_row, min_col, max_row, max_col)) => (
+                min_row.min(row),
+                min_col.min(col),
+                max_row.max(row),
+                max_col.max(col),
+            ),
+            None => (row, col, row, col),
+        };
+        if bounds.is_some_and(|(old_row, old_col, _, _)| old_row != row0 || old_col != col0) {
+            cells.retain(|&(r, c), _| r - row0 < MAX_ROWS as u32 && c - col0 < MAX_COLS as u32);
+        }
+        bounds = Some((row0, col0, row1, col1));
+        if row - row0 < MAX_ROWS as u32 && col - col0 < MAX_COLS as u32 {
+            let (text, cut) = cap(format_cell(&Data::from(cell.get_value().clone())));
+            truncated |= cut;
+            cells.insert((row, col), text);
+        }
+    }
+    let Some((row0, col0, row1, col1)) = bounds else {
+        return Ok(Sheet::default());
+    };
+    let total_rows = (row1 - row0) as usize + 1;
+    let total_cols = (col1 - col0) as usize + 1;
+    truncated |= total_rows > MAX_ROWS || total_cols > MAX_COLS;
+    let shown_rows = total_rows.min(MAX_ROWS);
+    let shown_cols = total_cols.min(MAX_COLS);
+    let mut header = vec![String::new()];
+    header.extend((0..shown_cols).map(|i| column_letters(col0 as usize + i)));
+    let rows = (0..shown_rows)
+        .map(|r| {
+            let mut out = Vec::with_capacity(shown_cols + 1);
+            out.push((row0 as usize + r + 1).to_string());
+            out.extend((0..shown_cols).map(|c| {
+                cells
+                    .remove(&(row0 + r as u32, col0 + c as u32))
+                    .unwrap_or_default()
             }));
             out
         })
@@ -389,6 +465,22 @@ mod tests {
             sheet.summary(),
             "500 of 505 rows, 40 of 43 columns (sample truncated)"
         );
+    }
+
+    #[test]
+    fn sparse_xlsx_does_not_expand_its_declared_range() {
+        let dir = TempDir::new().unwrap();
+        let rows = concat!(
+            "<row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>first</t></is></c></row>",
+            "<row r=\"1048576\"><c r=\"XFD1048576\"><v>42</v></c></row>"
+        );
+        let path = xlsx(&dir, &[("Sparse", rows.to_string())]);
+        let sheet = read_sheet(&path, 0).unwrap();
+        assert_eq!(sheet.total_rows, 1_048_576);
+        assert_eq!(sheet.total_cols, 16_384);
+        assert_eq!(sheet.rows.len(), MAX_ROWS);
+        assert_eq!(sheet.rows[0][1], "first");
+        assert!(sheet.truncated);
     }
 
     #[test]

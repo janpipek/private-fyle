@@ -22,9 +22,10 @@
       `application/octet-stream`); offer it on downloaded copies of remote
       files (still refused on remote folders); launching a `Terminal=true`
       application is only unit-tested.
-- [ ] Spreadsheet preview: calamine builds a dense range for the whole sheet,
-      so a sparse sheet declaring a huge range can use a lot of memory; the
-      32 MiB file and 256 MiB uncompressed caps limit but don't prevent it.
+- [ ] Spreadsheet preview for XLS/ODS: calamine builds a dense range before
+      sampling, so a sparse sheet declaring a huge range can use a lot of
+      memory. XLSX/XLSM/XLSB now stream cells. The 32 MiB file and 256 MiB
+      uncompressed caps limit but don't prevent the remaining risk.
 - [ ] Headless key input: under bare Xvfb (no window manager) keys sent with
       `xdotool --window` are ignored, and plain `xdotool key` after a click
       reaches the app but F-keys misbehave: F1 opened Locations (Alt-F1's
@@ -103,6 +104,8 @@
 
 ## Done
 
+- [x] Stream XLSX/XLSM/XLSB preview cells into a bounded sample instead of
+      allocating the sheet's full declared range; test sparse far-apart cells.
 - [x] Markdown preview shows bold and italic in `.md`, DOCX/ODT and notebook
       text on Linux with variable Cantarell or Noto Sans: use an installed
       static-face font for rich text when the theme selects one of those.

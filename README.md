@@ -94,7 +94,9 @@ absolute letters and a row-number column), formulas show their cached values,
 dates appear as ISO text and errors as codes. The sample is limited to 500
 rows and 40 columns with cells capped at 1,024 characters; files over 32 MiB or
 declaring over 256 MiB uncompressed are refused. Corrupt or password-protected
-files show the reader's error.
+files show the reader's error. XLSX, XLSM and XLSB cells are streamed into the
+bounded sample, including sparse sheets with distant cells. XLS and ODS still
+use calamine's in-memory sheet range, which can be large for sparse sheets.
 
 F3 previews Word (`.docx`, `.docm`, `.dotx`, `.dotm`) and OpenDocument text
 (`.odt`, `.ott`) documents as formatted text: headings, bold and italic,
