@@ -2,6 +2,10 @@
 
 - [ ] Menus and selection, remaining parts: output/history in Tools.
       Implement missing actions as separate features.
+- [ ] Put selection tools and other relevant Tools actions directly in nested
+      right-click submenus instead of opening a separate chooser dialog.
+- [ ] Add an image tool to set the selected image as the desktop wallpaper.
+      Choose the Linux desktop integration and handle unsupported sessions.
 - [ ] Keymap presets: selectable fyle, Krusader, Midnight Commander and
       Finder-style presets beneath user overrides. Map only supported
       commands; Finder's Command-key conventions wait for macOS support.
@@ -17,13 +21,39 @@
       downloaded copies of remote files (still refused on remote folders);
       launching a `Terminal=true`
       application is only unit-tested.
+- [ ] Recognise file types beyond extensions across icons, previews and Open
+      With. Use a shared, bounded detection model that combines known names
+      (such as `Justfile` and `CMakeLists.txt`), extensions and content
+      signatures where useful: SQLite databases, XMP sidecars, YAML and GPU
+      shader sources are examples. Decide how to handle ambiguous text formats
+      and remote files before implementation.
 - [ ] Open With application icons: show each installed app's desktop icon in
       the chooser where available, with a GPUI Kit fallback. Decide how to
       load external app icons under the current default-bundle icon policy.
+- [ ] Open With for directories: detect JetBrains IDE project metadata and
+      offer the associated installed IDE explicitly. Decide which project
+      markers identify each IDE and how to handle shared or ambiguous markers.
+- [ ] Hide the built-in editor from Open With for binary formats. Base this on
+      file content as well as the format, so text with an unknown extension
+      remains editable and misleading extensions do not offer the editor.
+- [ ] Classify directory kinds with a shared model so Open With choices,
+      Properties and available Tools reflect the directory's contents and
+      project metadata. Keep detection bounded and decide how to represent
+      directories that match more than one kind.
+- [ ] Add a directory space view as an optional panel, in the spirit of
+      Baobab or Filelight, showing where disk space is used. Scan in the
+      background with cancellation. Consider making it the default F3 view
+      for directories in place of the current direct-child summary; decide
+      its layout and interaction with the existing panels.
 - [ ] Spreadsheet preview for XLS/ODS: calamine builds a dense range before
       sampling, so a sparse sheet declaring a huge range can use a lot of
       memory. XLSX/XLSM/XLSB now stream cells. The 32 MiB file and 256 MiB
       uncompressed caps limit but don't prevent the remaining risk.
+- [ ] Make PDF previews scroll continuously through pages instead of requiring
+      Previous/Next page navigation. Keep page rendering bounded and load
+      pages as they enter view.
+- [ ] Show spreadsheet sheet names as tabs in F3, replacing Previous/Next
+      sheet navigation while preserving the bounded per-sheet sample.
 - [ ] Headless key input: under bare Xvfb (no window manager) keys sent with
       `xdotool --window` are ignored, and plain `xdotool key` after a click
       reaches the app but F-keys misbehave: F1 opened Locations (Alt-F1's
