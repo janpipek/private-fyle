@@ -297,10 +297,10 @@ CI builds and tests on Linux (Windows job disabled for now) (`.github/workflows/
 
 ## Packages
 
-`just rpm` builds a release binary on the host and packages it, with a
-desktop entry, as a Fedora RPM in `dist/fedora` (needs `rpm-build` and
-`desktop-file-utils`). It is an interim setup: no source RPM yet, and no
-packages for other platforms.
+`just rpm` builds a release binary on the host and packages it as a Fedora
+RPM in `dist/fedora` (needs `rpm-build` and `desktop-file-utils`). Its
+desktop entry offers fyle for opening folders. It is an interim setup: no
+source RPM yet, and no packages for other platforms.
 
 ## Remote locations
 
