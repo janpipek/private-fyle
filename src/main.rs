@@ -21,6 +21,7 @@ mod icon_view;
 mod icons;
 mod ini;
 mod jobs;
+mod keymap;
 mod link_badge;
 mod links;
 mod listing;
@@ -125,7 +126,9 @@ fn main() {
                 ..Default::default()
             };
             let mut errors: Vec<String> = settings_error.into_iter().collect();
-            errors.extend(commander::bind_user_keys(&settings.keymap, cx));
+            if let Err(keymap_errors) = commander::validate_user_keys(&settings.keymap, cx) {
+                errors.extend(keymap_errors);
+            }
             errors.extend(themes::register_all(cx));
             gpui_kit::open_window(options, cx, |window, cx| {
                 let choice = ThemeChoice::parse(&settings.theme);
@@ -136,6 +139,7 @@ fn main() {
                 let commander =
                     cx.new(|cx| Commander::new([left, right], &settings, error, window, cx));
                 commander.update(cx, |commander, cx| commander.init(window, cx));
+                errors.extend(commander::bind_user_keys(&settings.keymap, cx));
                 commander
             })
             .expect("failed to open window");

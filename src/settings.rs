@@ -286,6 +286,76 @@ pub fn save_theme_to(path: &Path, name: &str) -> Result<(), String> {
     std::fs::write(path, doc.to_string()).map_err(|e| error(&e))
 }
 
+/// Writes the edited keymap to the config file, preserving unrelated settings.
+pub fn save_keymap(entries: &[KeymapEntry]) -> Result<PathBuf, String> {
+    let path = Settings::path().ok_or("No config directory on this platform")?;
+    save_keymap_to(&path, entries)?;
+    Ok(path)
+}
+
+/// Writes keymap overrides while retaining existing table comments where rows remain.
+pub fn save_keymap_to(path: &Path, entries: &[KeymapEntry]) -> Result<(), String> {
+    let error = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(error(&e)),
+    };
+    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| error(&e))?;
+    if !doc
+        .get("keymap")
+        .is_some_and(toml_edit::Item::is_array_of_tables)
+    {
+        doc["keymap"] = toml_edit::Item::ArrayOfTables(toml_edit::ArrayOfTables::new());
+    }
+    let tables = doc["keymap"]
+        .as_array_of_tables_mut()
+        .expect("keymap set to array of tables");
+    while tables.len() > entries.len() {
+        tables.remove(tables.len() - 1);
+    }
+    for (index, entry) in entries.iter().enumerate() {
+        if index == tables.len() {
+            tables.push(toml_edit::Table::new());
+        }
+        let table = tables
+            .get_mut(index)
+            .expect("table was just added or already exists");
+        set_table_string(table, "keys", &entry.keys);
+        set_table_string(table, "action", &entry.action);
+        if entry.context == KeyContext::Panel {
+            table.remove("context");
+        } else {
+            set_table_string(
+                table,
+                "context",
+                match entry.context {
+                    KeyContext::Panel => "panel",
+                    KeyContext::Global => "global",
+                    KeyContext::Editor => "editor",
+                },
+            );
+        }
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| error(&e))?;
+    }
+    std::fs::write(path, doc.to_string()).map_err(|e| error(&e))
+}
+
+fn set_table_string(table: &mut toml_edit::Table, key: &str, value: &str) {
+    if let Some(existing) = table.get_mut(key).and_then(toml_edit::Item::as_value_mut) {
+        let decor = existing.decor().clone();
+        let toml_edit::Item::Value(replacement) = toml_edit::value(value) else {
+            unreachable!("toml_edit::value creates a value item")
+        };
+        *existing = replacement;
+        *existing.decor_mut() = decor;
+    } else {
+        table[key] = toml_edit::value(value);
+    }
+}
+
 /// Writes `font_size = <size>` into the settings file, keeping the rest of
 /// the file intact. Creates the file if needed.
 pub fn save_font_size(size: f32) -> Result<PathBuf, String> {
@@ -475,6 +545,63 @@ fn expand_home(path: PathBuf) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn save_keymap_keeps_other_settings_and_row_comments() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "# retain me\ntheme = \"dark\"\n\n# shortcut comment\n[[keymap]]\nkeys = \"ctrl-c\"\naction = \"Copy\"\n").expect("write config");
+        save_keymap_to(
+            &path,
+            &[KeymapEntry {
+                keys: "ctrl-alt-c".into(),
+                action: "Copy".into(),
+                context: KeyContext::Panel,
+            }],
+        )
+        .expect("save keymap");
+        let saved = std::fs::read_to_string(path).expect("read config");
+        assert!(saved.contains("# retain me"));
+        assert!(saved.contains("# shortcut comment"));
+        assert!(saved.contains("theme = \"dark\""));
+        assert!(saved.contains("keys = \"ctrl-alt-c\""));
+    }
+
+    #[test]
+    fn saving_empty_keymap_removes_overrides_and_keeps_config_comments() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            "# keep this\ntheme = \"dark\"\n\n[[keymap]]\nkeys = \"ctrl-c\"\naction = \"Copy\"\n",
+        )
+        .expect("write config");
+        save_keymap_to(&path, &[]).expect("save empty keymap");
+        let saved = std::fs::read_to_string(&path).expect("read config");
+        assert!(saved.contains("# keep this"));
+        assert!(saved.contains("theme = \"dark\""));
+        let parsed = Settings::parse(&saved).expect("parse saved config");
+        assert_eq!(parsed.theme, "dark");
+        assert!(parsed.keymap.is_empty());
+    }
+
+    #[test]
+    fn saving_first_keymap_entry_creates_the_table() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("config.toml");
+        save_keymap_to(
+            &path,
+            &[KeymapEntry {
+                keys: "ctrl-alt-o".into(),
+                action: "Open".into(),
+                context: KeyContext::Panel,
+            }],
+        )
+        .expect("save first shortcut");
+        let parsed = Settings::load_from(&path).0;
+        assert_eq!(parsed.keymap.len(), 1);
+        assert_eq!(parsed.keymap[0].keys, "ctrl-alt-o");
+    }
 
     #[test]
     fn empty_file_gives_defaults() {

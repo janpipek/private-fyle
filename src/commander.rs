@@ -5,6 +5,7 @@ mod appearance;
 mod drag_drop;
 mod files;
 mod jobs;
+mod keymap_view;
 mod keys;
 mod location;
 mod menus;
@@ -20,7 +21,7 @@ mod workspace_view;
 
 pub use self::keys::{
     CopyLocation, EditLocation, GoTo, Open, Quit, SortByExt, SortByModified, SortByName,
-    SortBySize, SortDescending, ToggleBookmark, bind_keys, bind_user_keys,
+    SortBySize, SortDescending, ToggleBookmark, bind_keys, bind_user_keys, validate_user_keys,
 };
 
 use std::cell::Cell;
@@ -145,6 +146,10 @@ pub struct Commander {
     editor_command: Vec<String>,
     /// Configured terminal command; empty to detect one.
     terminal_command: Vec<String>,
+    /// Shortcut overrides currently saved for the running session.
+    shortcut_entries: Vec<crate::settings::KeymapEntry>,
+    /// Config write for shortcut edits.
+    _keymap_save_task: Task<()>,
     /// Open editor, shown in place of the inactive panel (before the preview).
     editor: Option<Entity<EditorPane>>,
     _editor_subscription: Option<Subscription>,
@@ -376,6 +381,8 @@ impl Commander {
             editor: None,
             editor_command: settings.editor.command.clone(),
             terminal_command: settings.terminal.command.clone(),
+            shortcut_entries: settings.keymap.clone(),
+            _keymap_save_task: Task::ready(()),
             _editor_subscription: None,
             theme: settings.theme.clone(),
             active: 0,
@@ -579,6 +586,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::swap_panels))
             .on_action(cx.listener(Self::open_terminal))
             .on_action(cx.listener(Self::select_columns))
+            .on_action(cx.listener(Self::edit_shortcuts))
             .on_action(cx.listener(Self::select_all))
             .on_action(cx.listener(Self::invert_selection))
             .on_action(cx.listener(Self::select_pattern))

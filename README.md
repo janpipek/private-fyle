@@ -257,8 +257,11 @@ later visits coalesce into the newest pending snapshot.
 
 ### Keys
 
-`[[keymap]]` entries add or override bindings (`keys`, `action` such as
-`"Copy"` or `"none"` to unbind, `context` = `panel` / `global` / `editor`);
+Help › Edit Keyboard Shortcuts edits existing fyle commands, checks shortcut
+conflicts across overlapping contexts, and saves changes to `config.toml`.
+Reset restores a command's default; Disable removes its shortcut. The
+underlying `[[keymap]]` entries add or override bindings (`keys`, `action` such
+as `"Copy"` or `"none"` to unbind, `context` = `panel` / `global` / `editor`);
 see `config.example.toml`.
 
 ### Themes

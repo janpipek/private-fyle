@@ -79,6 +79,7 @@ pub enum Cmd {
     ZoomIn,
     ZoomOut,
     ZoomReset,
+    EditShortcuts,
 }
 
 /// What availability and toggle states depend on, taken from the window.
@@ -132,7 +133,7 @@ pub struct State {
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 67] = [
+    pub const ALL: [Cmd; 68] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::OpenInBrowser,
@@ -200,6 +201,7 @@ impl Cmd {
         Cmd::OpenConfig,
         Cmd::About,
         Cmd::Quit,
+        Cmd::EditShortcuts,
     ];
 
     /// Name in menus.
@@ -272,6 +274,7 @@ impl Cmd {
             Cmd::ZoomIn => "Zoom In",
             Cmd::ZoomOut => "Zoom Out",
             Cmd::ZoomReset => "Reset Zoom",
+            Cmd::EditShortcuts => "Edit Keyboard Shortcuts…",
         }
     }
 
@@ -317,6 +320,7 @@ impl Cmd {
             Cmd::CopyLocation => "Copy the active panel's full path",
             Cmd::Help => "Help: commands and keys",
             Cmd::OpenConfig => "Edit configuration (config.toml)",
+            Cmd::EditShortcuts => "Edit keyboard shortcuts",
             Cmd::ZoomIn => "Zoom in UI",
             Cmd::ZoomOut => "Zoom out UI",
             Cmd::ZoomReset => "Reset UI zoom",
@@ -597,7 +601,11 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
         ("Tools", items(&[&[ToolsMenu, FindFiles], &[CancelJobs]])),
         (
             "Help",
-            items(&[&[Help, CommandPalette], &[OpenConfig], &[About]]),
+            items(&[
+                &[Help, EditShortcuts, CommandPalette],
+                &[OpenConfig],
+                &[About],
+            ]),
         ),
     ]
 }

@@ -74,6 +74,7 @@ actions!(
         ZoomIn,
         ZoomOut,
         ZoomReset,
+        EditShortcuts,
         Quit,
     ]
 );
@@ -84,8 +85,17 @@ pub const TABLE_CONTEXT: &str = "Commander > DataTable";
 /// The icon grid's equivalent of [`TABLE_CONTEXT`].
 pub const GRID_CONTEXT: &str = "Commander > IconGrid";
 
+/// The range occupied by user bindings in the app's ordered keymap.
+#[derive(Default)]
+struct UserBindings(Option<(usize, usize)>);
+
+impl Global for UserBindings {}
+
 /// Binds the user's `[[keymap]]` entries; returns errors for bad ones.
-pub fn bind_user_keys(entries: &[crate::settings::KeymapEntry], cx: &mut App) -> Vec<String> {
+fn user_key_bindings(
+    entries: &[crate::settings::KeymapEntry],
+    cx: &App,
+) -> (Vec<KeyBinding>, Vec<String>) {
     use crate::settings::KeyContext;
     let mut errors = Vec::new();
     let mut bindings = Vec::new();
@@ -113,9 +123,18 @@ pub fn bind_user_keys(entries: &[crate::settings::KeymapEntry], cx: &mut App) ->
             KeyContext::Editor => &["EditorPane"],
         };
         for context in contexts {
-            let predicate = KeyBindingContextPredicate::parse(context)
-                .ok()
-                .map(Into::into);
+            // The built-in quit shortcut has no context so it also works in dialogs.
+            // A Commander-scoped NoAction cannot suppress that binding.
+            let predicate = if entry.context == KeyContext::Global
+                && entry.action.eq_ignore_ascii_case("none")
+                && entry.keys.eq_ignore_ascii_case("secondary-q")
+            {
+                None
+            } else {
+                KeyBindingContextPredicate::parse(context)
+                    .ok()
+                    .map(Into::into)
+            };
             match KeyBinding::load(
                 &entry.keys,
                 action.boxed_clone(),
@@ -132,8 +151,51 @@ pub fn bind_user_keys(entries: &[crate::settings::KeymapEntry], cx: &mut App) ->
             }
         }
     }
-    cx.bind_keys(bindings);
+    (bindings, errors)
+}
+
+/// Checks user key entries against GPUI's action registry and keystroke parser.
+pub fn validate_user_keys(
+    entries: &[crate::settings::KeymapEntry],
+    cx: &App,
+) -> Result<(), Vec<String>> {
+    let (_, errors) = user_key_bindings(entries, cx);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+/// Installs the user's key entries, replacing any entries installed earlier.
+pub fn replace_user_keys(entries: &[crate::settings::KeymapEntry], cx: &mut App) -> Vec<String> {
+    let (new_bindings, errors) = user_key_bindings(entries, cx);
+    let previous_range = cx
+        .try_global::<UserBindings>()
+        .and_then(|previous| previous.0);
+    let current: Vec<_> = cx.key_bindings().borrow().bindings().cloned().collect();
+    // Bindings registered after the user range append to the keymap, so the
+    // original range remains stable even when views register keys later.
+    let (start, count) = previous_range.unwrap_or((current.len(), 0));
+    let mut retained: Vec<_> = current
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, binding)| {
+            (!(start <= index && index < start + count)).then_some(binding)
+        })
+        .collect();
+    let new_start = retained.len();
+    let new_count = new_bindings.len();
+    retained.extend(new_bindings.iter().cloned());
+    cx.clear_key_bindings();
+    cx.bind_keys(retained);
+    cx.set_global(UserBindings(Some((new_start, new_count))));
     errors
+}
+
+/// Binds user keys during startup, preserving the runtime replacement handle.
+pub fn bind_user_keys(entries: &[crate::settings::KeymapEntry], cx: &mut App) -> Vec<String> {
+    replace_user_keys(entries, cx)
 }
 
 /// Keys for the panel's key context: the list (`Commander > DataTable`) or
@@ -294,6 +356,7 @@ pub fn action_for(cmd: Cmd) -> Box<dyn Action> {
         Cmd::ZoomIn => Box::new(ZoomIn),
         Cmd::ZoomOut => Box::new(ZoomOut),
         Cmd::ZoomReset => Box::new(ZoomReset),
+        Cmd::EditShortcuts => Box::new(EditShortcuts),
     }
 }
 

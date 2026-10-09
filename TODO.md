@@ -2,15 +2,10 @@
 
 - [ ] Menus and selection, remaining parts: output/history in Tools.
       Implement missing actions as separate features.
-- [ ] Keymap editor and presets: build on existing `[[keymap]]` overrides
-      and unbinding, with selectable fyle, Krusader, Midnight Commander and
-      Finder-style presets beneath user overrides. Keep stable command IDs,
-      detect conflicts across overlapping panel/global/editor contexts,
-      support reset, and update menu, palette, F1 and tooltip shortcuts.
-      Save edits with `toml_edit`, preserving comments and other settings.
-      Decide the editor presentation and preset coverage; map only supported
-      commands, with Finder's Command-key conventions tied to later macOS
-      support. References: official Krusader/MC keymaps and Apple shortcuts.
+- [ ] Keymap presets: selectable fyle, Krusader, Midnight Commander and
+      Finder-style presets beneath user overrides. Map only supported
+      commands; Finder's Command-key conventions wait for macOS support.
+      References: official Krusader/MC keymaps and Apple shortcuts.
 - [ ] Missing `..` in Proton Drive, live check: the code builds `..` for
       every remote subfolder, and at a remote root only when the panel came
       from a local folder (none for `fyle proton:/`). Reproduce with a real
@@ -262,6 +257,7 @@
 - [x] Editor: Shift-F4 new file, overwrite prompt when changed on disk, optional external editor ([editor] command).
 - [x] Configurable columns (panels.columns): name, ext, size, modified, permissions, owner.
 - [x] Configurable keymap ([[keymap]] in config.toml) and F1 help listing all commands with keys.
+- [x] In-app editor for fyle key bindings, with conflict checks, disable/reset and comment-preserving config saves.
 - [x] Rename / bulk rename (Shift-F6): one name per line, validated, swap-safe (rename.rs).
 - [x] Quick jump: frecency-ranked directory history and bookmarks (Ctrl-G, Ctrl-D).
 - [x] Places from the desktop: XDG/known user folders, GTK bookmarks, KDE Places, Windows drives (in Go to, Ctrl-G).
