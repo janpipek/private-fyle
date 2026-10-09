@@ -213,8 +213,9 @@ The File and right-click menus offer Open With as a submenu; Shift-Enter opens
 the same choices in a popup. They list, in this order: matching `[[opener]]`
 rules; the desktop's default application for the file's type (or
 `inode/directory` for folders), marked "(default)"; other applications
-registered for it. Files also offer the built-in editor. The `..` entry is
-excluded.
+registered for it. Files the built-in editor can open (UTF-8 text up to 8 MiB)
+also offer it; binary and PDF files do not. This check runs in the background.
+The `..` entry is excluded.
 A system entry that runs the same command as a configured opener is dropped,
 and the opener takes the "(default)" mark. Entries whose program is missing
 are greyed out with the reason. On Linux, desktop entries obey `OnlyShowIn`

@@ -33,9 +33,6 @@
 - [ ] Open With for directories: detect JetBrains IDE project metadata and
       offer the associated installed IDE explicitly. Decide which project
       markers identify each IDE and how to handle shared or ambiguous markers.
-- [ ] Hide the built-in editor from Open With for binary formats. Base this on
-      file content as well as the format, so text with an unknown extension
-      remains editable and misleading extensions do not offer the editor.
 - [ ] Classify directory kinds with a shared model so Open With choices,
       Properties and available Tools reflect the directory's contents and
       project metadata. Keep detection bounded and decide how to represent
@@ -118,6 +115,10 @@
 - [ ] macOS support (later): CI job, app menu, Cmd shortcuts, app bundle.
 
 ## Done
+
+- [x] Hide the built-in editor from Open With for binary, non-UTF-8 and
+      oversized files; check file content in the background so extensionless
+      text stays editable and misleading text extensions do not offer it.
 
 - [x] Workspace layouts: View offers two panels, two panels plus a Preview
       inspector, and one panel plus Preview. F3 toggles the inspector without

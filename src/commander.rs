@@ -78,6 +78,8 @@ pub struct Commander {
     catalog_cache: Option<open_with::CatalogCache>,
     open_with_catalog_loading: bool,
     _open_with_task: Task<()>,
+    editor_check: Option<open_with::EditorCheck>,
+    _editor_check_task: Task<()>,
     open_with_menu: Option<Entity<PopupMenu>>,
     _open_with_dismiss: Option<Subscription>,
     /// Entries waiting to be pasted.
@@ -235,6 +237,7 @@ impl Commander {
         for folder in &folders {
             subscriptions.push(cx.observe_in(folder, window, |this, folder, window, cx| {
                 this.update_preview(window, cx);
+                this.warm_editor_check(window, cx);
                 this.record_visit(&folder, cx);
             }));
         }
@@ -327,6 +330,8 @@ impl Commander {
             catalog_cache: None,
             open_with_catalog_loading: false,
             _open_with_task: Task::ready(()),
+            editor_check: None,
+            _editor_check_task: Task::ready(()),
             open_with_menu: None,
             _open_with_dismiss: None,
             _tool_task: Task::ready(()),
@@ -521,6 +526,7 @@ impl Commander {
 impl Render for Commander {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.warm_open_with_catalog(window, cx);
+        self.warm_editor_check(window, cx);
         self.update_menu_bar(cx);
         self.sync_bookmark_stars(cx);
         let theme = cx.theme();

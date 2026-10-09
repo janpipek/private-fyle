@@ -2,7 +2,7 @@
 //! saving. The editor view (`editor_view.rs`) owns the text buffer.
 
 use std::fs;
-use std::io::Write as _;
+use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -10,6 +10,24 @@ use crate::preview::text::language_for;
 
 /// Larger files are refused; the editor handles about 50K lines well.
 pub const MAX_EDIT_SIZE: u64 = 8 * 1024 * 1024;
+
+/// Whether the built-in editor can open this file without converting its text.
+/// Call off the UI thread because it reads up to [`MAX_EDIT_SIZE`] bytes.
+pub fn can_open(path: &Path) -> std::io::Result<bool> {
+    let mut file = fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.len() > MAX_EDIT_SIZE {
+        return Ok(false);
+    }
+    let mut bytes = Vec::new();
+    (&mut file)
+        .take(MAX_EDIT_SIZE + 1)
+        .read_to_end(&mut bytes)?;
+    Ok(bytes.len() as u64 <= MAX_EDIT_SIZE
+        && !bytes.starts_with(b"%PDF-")
+        && !bytes.contains(&0)
+        && std::str::from_utf8(&bytes).is_ok())
+}
 
 pub struct Document {
     path: PathBuf,
@@ -136,6 +154,13 @@ mod tests {
         fs::write(dir.join("a.rs"), "fn main() {}\n").unwrap();
         fs::write(dir.join("bin"), [b'a', 0, b'b']).unwrap();
         fs::write(dir.join("latin1.txt"), [b'c', 0xe9]).unwrap();
+        fs::write(dir.join("unknown.data"), "editable text").unwrap();
+        fs::write(dir.join("fake.txt"), [b'a', 0, b'b']).unwrap();
+        fs::write(dir.join("document.pdf"), b"%PDF-1.7\nASCII body").unwrap();
+        fs::File::create(dir.join("large.txt"))
+            .unwrap()
+            .set_len(MAX_EDIT_SIZE + 1)
+            .unwrap();
 
         let doc = Document::open(&dir.join("a.rs")).unwrap();
         assert_eq!(doc.text(), "fn main() {}\n");
@@ -148,6 +173,14 @@ mod tests {
         assert!(err("latin1.txt").ends_with("not UTF-8 text"));
         assert!(err("missing").contains("missing"));
         assert!(Document::open(dir).is_err()); // a directory
+        assert!(can_open(&dir.join("a.rs")).unwrap());
+        assert!(!can_open(&dir.join("bin")).unwrap());
+        assert!(!can_open(&dir.join("latin1.txt")).unwrap());
+        assert!(can_open(&dir.join("unknown.data")).unwrap());
+        assert!(!can_open(&dir.join("fake.txt")).unwrap());
+        assert!(!can_open(&dir.join("document.pdf")).unwrap());
+        assert!(!can_open(&dir.join("large.txt")).unwrap());
+        assert!(!can_open(dir).unwrap());
     }
 
     #[test]

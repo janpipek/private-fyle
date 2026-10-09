@@ -336,6 +336,8 @@ impl Commander {
         self.open_with_catalog_loading = false;
         self.menu_state = None;
         self._open_with_task = Task::ready(());
+        self.editor_check = None;
+        self._editor_check_task = Task::ready(());
         self.warm_open_with_catalog(window, cx);
         for ix in 0..2 {
             self.stop_size_scan(ix);

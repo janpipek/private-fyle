@@ -318,11 +318,11 @@ fn base_name(program: &str) -> &str {
 }
 
 /// Orders the choices: matching configured openers, then the system's
-/// default and other applications, then the built-in editor for files. A system
-/// application running the same command as a configured opener is dropped,
-/// and the opener takes its "(default)" mark. `SystemDefault` is added only
-/// when no default application is known.
-pub fn merge(openers: Vec<Opener>, apps: Vec<Application>, is_dir: bool) -> Vec<Choice> {
+/// default and other applications, then the built-in editor when it can open
+/// the file. A system application running the same command as a configured
+/// opener is dropped, and the opener takes its "(default)" mark.
+/// `SystemDefault` is added only when no default application is known.
+pub fn merge(openers: Vec<Opener>, apps: Vec<Application>, include_editor: bool) -> Vec<Choice> {
     let mut apps = apps;
     let mut choices = Vec::new();
     let mut default_known = false;
@@ -351,7 +351,7 @@ pub fn merge(openers: Vec<Opener>, apps: Vec<Application>, is_dir: bool) -> Vec<
     if !default_known {
         choices.push(Choice::SystemDefault);
     }
-    if !is_dir {
+    if include_editor {
         choices.push(Choice::BuiltInEditor);
     }
     choices
@@ -738,7 +738,7 @@ mod tests {
                 app("vim", "vim %f", false),
                 app("code", "code --new-window %F", false),
             ],
-            false,
+            true,
         );
         assert_eq!(
             labels(&choices),
@@ -759,12 +759,12 @@ mod tests {
 
     #[test]
     fn merge_marks_the_app_default_and_offers_system_default_only_without_one() {
-        let with = merge(vec![], vec![app("kate", "kate %f", true)], false);
+        let with = merge(vec![], vec![app("kate", "kate %f", true)], true);
         assert_eq!(labels(&with), ["kate (default)", "Built-in editor (F4)"]);
         let without = merge(
             vec![opener("Mine", "x")],
             vec![app("kate", "kate %f", false)],
-            false,
+            true,
         );
         assert_eq!(
             labels(&without),
@@ -774,7 +774,13 @@ mod tests {
 
     #[test]
     fn directory_choices_have_no_editor() {
-        let choices = merge(vec![], vec![app("Files", "files %f", true)], true);
+        let choices = merge(vec![], vec![app("Files", "files %f", true)], false);
         assert_eq!(labels(&choices), ["Files (default)"]);
+    }
+
+    #[test]
+    fn binary_file_choices_have_no_editor() {
+        let choices = merge(vec![], vec![app("Viewer", "viewer %f", true)], false);
+        assert_eq!(labels(&choices), ["Viewer (default)"]);
     }
 }

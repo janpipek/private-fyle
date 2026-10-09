@@ -6,6 +6,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
+use std::time::SystemTime;
 use std::time::{Duration, Instant};
 
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
@@ -17,6 +18,19 @@ use crate::apps::{self, Application, Catalog, Choice};
 use crate::editor::Document;
 use crate::tools::{self, Programs};
 use crate::xdg::Env;
+
+#[derive(Clone, PartialEq, Eq)]
+struct EditorKey {
+    path: PathBuf,
+    size: Option<u64>,
+    modified: Option<SystemTime>,
+}
+
+/// Eligibility cached for the selected local file while menus are built.
+pub struct EditorCheck {
+    key: EditorKey,
+    allowed: Option<bool>,
+}
 
 /// How long the discovered application database is reused; F5 drops it
 /// earlier. Short enough to notice a newly installed application.
@@ -117,6 +131,53 @@ impl CatalogCache {
 }
 
 impl Commander {
+    fn selected_editor_key(&self, cx: &App) -> Option<EditorKey> {
+        let folder = self.folders[self.active].read(cx);
+        if folder.archive().is_some() || folder.is_remote() {
+            return None;
+        }
+        let entry = folder.current()?;
+        if entry.is_parent || entry.is_dir {
+            return None;
+        }
+        Some(EditorKey {
+            path: entry.location.as_local_path()?.to_path_buf(),
+            size: entry.size,
+            modified: entry.modified,
+        })
+    }
+
+    /// Checks the selected file off the UI thread before offering the editor.
+    pub fn warm_editor_check(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let key = self.selected_editor_key(cx);
+        if self.editor_check.as_ref().map(|check| &check.key) == key.as_ref() {
+            return;
+        }
+        self.editor_check = key.clone().map(|key| EditorCheck { key, allowed: None });
+        self.menu_state = None;
+        self._editor_check_task = Task::ready(());
+        cx.notify();
+        if let Some(key) = key {
+            let path = key.path.clone();
+            self._editor_check_task = cx.spawn_in(window, async move |this, cx| {
+                let allowed = cx
+                    .background_spawn(
+                        async move { crate::editor::can_open(&path).unwrap_or(false) },
+                    )
+                    .await;
+                let _ = this.update(cx, |this, cx| {
+                    if let Some(check) = &mut this.editor_check
+                        && check.key == key
+                    {
+                        check.allowed = Some(allowed);
+                        this.menu_state = None;
+                        cx.notify();
+                    }
+                });
+            });
+        }
+    }
+
     /// Current local entry and the Open With choices available in cached catalog data.
     pub fn open_with_menu_data(&self, cx: &App) -> Option<(std::path::PathBuf, Vec<Choice>)> {
         let folder = self.folders[self.active].read(cx);
@@ -128,6 +189,18 @@ impl Commander {
             return None;
         }
         let path = entry.location.as_local_path()?.to_path_buf();
+        let include_editor = if entry.is_dir {
+            false
+        } else {
+            self.editor_check
+                .as_ref()
+                .filter(|check| {
+                    check.key.path == path
+                        && check.key.size == entry.size
+                        && check.key.modified == entry.modified
+                })?
+                .allowed?
+        };
         let openers = crate::openers::matching_entry(&self.openers, &path, entry.is_dir)
             .into_iter()
             .cloned()
@@ -135,7 +208,7 @@ impl Commander {
         let apps = self.catalog_cache.as_ref().map_or_else(Vec::new, |cache| {
             cache.application_list(&entry.name, entry.is_dir)
         });
-        Some((path, apps::merge(openers, apps, entry.is_dir)))
+        Some((path, apps::merge(openers, apps, include_editor)))
     }
 
     /// Loads the desktop application catalog before menus need its choices.
@@ -269,10 +342,11 @@ impl Commander {
         let name = entry.name.clone();
         let file_name = name.clone();
         let is_dir = entry.is_dir;
+        let editor_path = path.clone();
         self.status = "Looking up applications…".into();
         cx.notify();
         self._open_with_task = cx.spawn_in(window, async move |this, cx| {
-            let (cache, apps) = cx
+            let (cache, apps, include_editor) = cx
                 .background_spawn(async move {
                     let reloaded = cached.is_none();
                     let cache = cached.map_or_else(
@@ -284,7 +358,9 @@ impl Commander {
                         },
                     );
                     let apps = cache.application_list(&name, is_dir);
-                    (reloaded.then_some(cache), apps)
+                    let include_editor =
+                        !is_dir && crate::editor::can_open(&editor_path).unwrap_or(false);
+                    (reloaded.then_some(cache), apps, include_editor)
                 })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
@@ -297,7 +373,7 @@ impl Commander {
                 this.show_open_with(
                     path,
                     file_name,
-                    apps::merge(openers, apps, is_dir),
+                    apps::merge(openers, apps, include_editor),
                     window,
                     cx,
                 );
