@@ -163,7 +163,9 @@ return {
 - **Confirmation:** every action that runs something is confirmed with the
   exact command lines; opening a URL and pick lists are not.
 - **Long-running commands:** `exec` currently waits and captures output.
-  Streaming output into the log view, progress and cancellation are next.
+  Streaming output into a bounded, appendable text view shared with a possible
+  F3 follow mode for growing logs is an idea. Progress and cancellation are
+  also open.
 - **Windows:** `.cmd`/`.bat` programs found via `PATHEXT` are started directly;
   argument quoting for batch files is a known Rust/Windows caveat. `zip` is
   usually missing on Windows, so a native zip job may be worth adding.

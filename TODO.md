@@ -2,6 +2,9 @@
 
 - [ ] Menus and selection, remaining parts: output/history in Tools.
       Implement missing actions as separate features.
+- [ ] Add Copy Name and Copy Full Path for the selected file or directory to
+      its right-click menu. Define the copied address for remote and archive
+      entries, and disable Full Path where no useful address exists.
 - [ ] Add an image tool to set the selected image as the desktop wallpaper.
       Choose the Linux desktop integration and handle unsupported sessions.
 - [ ] Keymap presets: selectable fyle, Krusader, Midnight Commander and
@@ -25,6 +28,12 @@
       signatures where useful: SQLite databases, XMP sidecars, YAML and GPU
       shader sources are examples. Decide how to handle ambiguous text formats
       and remote files before implementation.
+- [ ] Idea: grouped files for related assets, such as RAW/JPEG/XMP photos,
+      video/subtitle pairs, audio/lyrics pairs and split archives. Decide
+      format-aware pairing rules and an optional panel presentation independent
+      of tree/list/icon modes. Decide whether actions target one member or
+      the group, including copy, move, rename and delete, before using sidecar
+      metadata such as XMP colour labels or star ratings.
 - [ ] Open With application icons: show each installed app's desktop icon in
       the chooser where available, with a GPUI Kit fallback. Decide how to
       load external app icons under the current default-bundle icon policy.
@@ -49,6 +58,12 @@
       pages as they enter view.
 - [ ] Show spreadsheet sheet names as tabs in F3, replacing Previous/Next
       sheet navigation while preserving the bounded per-sheet sample.
+- [ ] Idea: follow a growing local text file in F3, with an appendable,
+      bounded view that pauses auto-scroll when the user scrolls up and handles
+      truncation or rotation. Reuse the view for live tool output if suitable.
+- [ ] Idea: let tabular previews scroll beyond the 500-row sample without
+      loading a full large file. Virtualize visible rows and design bounded,
+      incremental fetching separately for CSV, Parquet and spreadsheets.
 - [ ] Headless key input: under bare Xvfb (no window manager) keys sent with
       `xdotool --window` are ignored, and plain `xdotool key` after a click
       reaches the app but F-keys misbehave: F1 opened Locations (Alt-F1's
