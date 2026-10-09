@@ -2,8 +2,6 @@
 
 - [ ] Menus and selection, remaining parts: output/history in Tools.
       Implement missing actions as separate features.
-- [ ] Put selection tools and other relevant Tools actions directly in nested
-      right-click submenus instead of opening a separate chooser dialog.
 - [ ] Add an image tool to set the selected image as the desktop wallpaper.
       Choose the Linux desktop integration and handle unsupported sessions.
 - [ ] Keymap presets: selectable fyle, Krusader, Midnight Commander and
@@ -115,6 +113,10 @@
 - [ ] macOS support (later): CI job, app menu, Cmd shortcuts, app bundle.
 
 ## Done
+
+- [x] Add Selection and Tools for Selection submenus to the file right-click
+      menu. Tools load asynchronously and open their parameter or confirmation
+      steps directly; F2 remains the searchable tools dialog.
 
 - [x] Hide the built-in editor from Open With for binary, non-UTF-8 and
       oversized files; check file content in the background so extensionless

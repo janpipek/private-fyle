@@ -150,7 +150,7 @@ impl Commander {
                     Rc::new(move |menu, window, cx| {
                         let popup = cx.entity().downgrade();
                         let _ = commander.update(cx, |this, cx| {
-                            this.discover_tools_for_menu(popup, window, cx)
+                            this.discover_tools_for_menu(popup, true, window, cx)
                         });
                         tool_menu_footer(menu.label("Loading tools…"), &state)
                     })
@@ -176,6 +176,16 @@ impl Commander {
     ) -> PopupMenu {
         for item in menus::context_menu() {
             menu = match item {
+                menus::Item::Cmd(Cmd::ToolsMenu) => {
+                    let submenu = PopupMenu::build(window, cx, |submenu, _, _| {
+                        submenu.label("Loading tools…")
+                    });
+                    let popup = submenu.downgrade();
+                    let _ = commander.update(cx, |this, cx| {
+                        this.discover_tools_for_menu(popup, false, window, cx)
+                    });
+                    menu.item(PopupMenuItem::submenu("Tools for Selection", submenu))
+                }
                 menus::Item::Cmd(cmd) => menu.menu_with_disabled(
                     cmd.label(),
                     action_for(cmd),
@@ -193,7 +203,14 @@ impl Commander {
                     None => menu.menu_with_disabled("Open With…", action_for(Cmd::OpenWith), true),
                 },
                 menus::Item::Separator => menu.separator(),
-                menus::Item::Submenu(..) => unreachable!("file context menu has no submenus"),
+                menus::Item::Submenu(label, commands) => {
+                    let submenu = PopupMenu::build(window, cx, |submenu, _, _| {
+                        commands.iter().fold(submenu, |submenu, cmd| {
+                            submenu.item(command_item(*cmd, &state))
+                        })
+                    });
+                    menu.item(PopupMenuItem::submenu(label, submenu))
+                }
             };
         }
         menu

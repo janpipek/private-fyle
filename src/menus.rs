@@ -502,6 +502,18 @@ pub fn context_menu() -> Vec<Item> {
         Command(CutFiles),
         Command(YankFiles),
         Command(PasteFiles),
+        Item::Submenu(
+            "Selection",
+            &[
+                ToggleMark,
+                SelectAll,
+                InvertSelection,
+                SelectPattern,
+                ClearSelection,
+                Unmark,
+                Filter,
+            ],
+        ),
         Separator,
         Command(Copy),
         Command(Move),
@@ -700,12 +712,20 @@ mod tests {
 
     #[test]
     fn context_actions_share_definitions_and_availability() {
+        assert!(context_menu().iter().any(|item| matches!(
+            item,
+            Item::Submenu("Selection", commands)
+                if commands.contains(&Cmd::SelectAll)
+                    && commands.contains(&Cmd::InvertSelection)
+                    && commands.contains(&Cmd::SelectPattern)
+        )));
         let commands: Vec<_> = context_menu()
             .into_iter()
-            .filter_map(|item| match item {
-                Item::Cmd(cmd) => Some(cmd),
-                Item::OpenWith => Some(Cmd::OpenWith),
-                _ => None,
+            .flat_map(|item| match item {
+                Item::Cmd(cmd) => vec![cmd],
+                Item::OpenWith => vec![Cmd::OpenWith],
+                Item::Submenu(_, commands) => commands.to_vec(),
+                Item::Separator => Vec::new(),
             })
             .collect();
         let mut seen = std::collections::HashSet::new();

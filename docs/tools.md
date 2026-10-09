@@ -8,8 +8,9 @@ CSV, build a web gallery from images, run `ruff`, run justfile recipes, …
 Code: `src/tools/` (model, tested) and `src/tools_view.rs` + `commander.rs`
 (UI). Opening the top-level Tools menu asynchronously discovers applicable
 tools from a frozen snapshot of the active folder and marked entries. It shows
-them directly, grouped by purpose; disabled rows name missing programs. F2
-opens a searchable dialog over the same tools. Choosing either route enters a
+them directly, grouped by purpose; disabled rows name missing programs. The
+file right-click menu has a Tools for Selection submenu with the same offers.
+F2 opens a searchable dialog over the same tools. Choosing an offer enters a
 parameter form if needed, then a pick list for
 `Action::Pick`, a confirmation listing the exact commands (URLs open without
 asking), and the result in the status line or, for `output = "log"`, an

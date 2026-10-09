@@ -17,7 +17,8 @@ their shortcuts; unavailable ones are greyed out with an explanation, and
 toggles show a check. Opening Tools discovers actions for the active folder
 and marked entries; actions are grouped by purpose and missing programs are
 shown on disabled rows. F2 opens the searchable version of the same tools.
-Right-click an entry in either panel for file actions. Clicking a marked
+Right-click an entry in either panel for file actions, a Selection submenu and
+contextual Tools for Selection. Clicking a marked
 entry keeps the marked group; clicking another entry clears the marks and
 targets that entry. Escape closes the menu and returns focus to that panel.
 Keyboard shortcuts are available in the menus, F1 help and the Ctrl-P command

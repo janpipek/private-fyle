@@ -390,6 +390,7 @@ impl Commander {
     pub fn discover_tools_for_menu(
         &mut self,
         popup: WeakEntity<PopupMenu>,
+        with_footer: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -479,7 +480,11 @@ impl Commander {
                                     }
                                 }
                             }
-                            tool_menu_footer(menu, &state)
+                            if with_footer {
+                                tool_menu_footer(menu, &state)
+                            } else {
+                                menu
+                            }
                         });
                     });
                 });
