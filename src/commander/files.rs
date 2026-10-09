@@ -12,8 +12,8 @@ use gpui_kit::*;
 use super::Commander;
 use super::jobs::Transfer;
 use super::keys::{
-    Copy, CopyName, CutFiles, Delete, DeletePermanently, EditFile, ExtractArchive, MakeDir, Move,
-    NewFile, PasteFiles, Rename, YankFiles,
+    Copy, CopyFullPath, CopyName, CutFiles, Delete, DeletePermanently, EditFile, ExtractArchive,
+    MakeDir, Move, NewFile, PasteFiles, Rename, YankFiles,
 };
 use crate::editor::Document;
 use crate::editor_view::{EditorEvent, EditorPane};
@@ -46,6 +46,23 @@ pub fn summarize(verb: &str, unit: &str, done: usize, errors: &[String]) -> Stri
 }
 
 impl Commander {
+    /// Copies the selected entry's native path or standard remote URL.
+    pub fn copy_full_path(&mut self, _: &CopyFullPath, _: &mut Window, cx: &mut Context<Self>) {
+        let folder = self.folders[self.active].read(cx);
+        let Some(row) = folder.current().filter(|row| !row.is_parent) else {
+            return;
+        };
+        let address = crate::copy_path::selected_path(&row.location, |remote| {
+            self.remotes
+                .get(remote.remote())
+                .and_then(|provider| provider.standard_url(remote))
+        });
+        let Some(address) = address else { return };
+        cx.write_to_clipboard(ClipboardItem::new_string(address.clone()));
+        self.status = format!("Copied path: {address}").into();
+        cx.notify();
+    }
+
     /// Copies the name of the entry under the cursor to the system clipboard.
     pub fn copy_name(&mut self, _: &CopyName, _: &mut Window, cx: &mut Context<Self>) {
         let Some(name) = self.folders[self.active]

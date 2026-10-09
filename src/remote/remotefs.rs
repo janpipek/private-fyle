@@ -50,6 +50,66 @@ impl RemoteFsProvider {
         }
     }
 
+    fn standard_url(&self, location: &Location) -> Option<String> {
+        let path = remote_path(&self.config.root, location);
+        let path = path.to_str()?;
+        let encoded_path = encode_url_path(path);
+        match self.config.protocol {
+            Protocol::Sftp | Protocol::Ftp | Protocol::Ftps => {
+                let scheme = match self.config.protocol {
+                    Protocol::Sftp => "sftp",
+                    Protocol::Ftp => "ftp",
+                    Protocol::Ftps => "ftps",
+                    _ => unreachable!(),
+                };
+                let host = self.config.host.as_deref()?;
+                if !safe_url_host(host) {
+                    return None;
+                }
+                let user = self
+                    .config
+                    .user
+                    .as_deref()
+                    .map(|u| format!("{}@", encode_url_component(u)))
+                    .unwrap_or_default();
+                let port = self
+                    .config
+                    .port
+                    .map(|p| format!(":{p}"))
+                    .unwrap_or_default();
+                Some(format!("{scheme}://{user}{host}{port}{encoded_path}"))
+            }
+            Protocol::Webdav => {
+                let base = self.config.url.as_deref()?;
+                let (scheme, rest) = base.split_once("://")?;
+                let (authority, base_path) = rest.split_once('/').unwrap_or((rest, ""));
+                if rest.contains(['?', '#']) {
+                    return None;
+                }
+                let authority = authority
+                    .rsplit_once('@')
+                    .map_or(authority, |(_, host)| host);
+                if !safe_url_authority(authority) {
+                    return None;
+                }
+                if !safe_uri_path(base_path) {
+                    return None;
+                }
+                let base_path = base_path.trim_matches('/');
+                let base = if base_path.is_empty() {
+                    String::new()
+                } else {
+                    format!("/{base_path}")
+                };
+                Some(format!("{scheme}://{authority}{base}{encoded_path}"))
+            }
+            Protocol::S3 => {
+                let bucket = self.config.bucket.as_deref()?;
+                safe_s3_bucket(bucket).then(|| format!("s3://{bucket}{encoded_path}"))
+            }
+        }
+    }
+
     /// Runs `op` on the connection, connecting first when needed. With
     /// `retry`, a connection error drops the connection and runs `op` once
     /// more on a fresh one.
@@ -124,6 +184,91 @@ impl RemoteFsProvider {
     fn err(&self, error: RemoteError) -> io::Error {
         remote_error(&self.label, error)
     }
+}
+
+fn safe_url_host(host: &str) -> bool {
+    !host.is_empty()
+        && host.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b':' | b'[' | b']')
+        })
+}
+
+fn safe_url_authority(authority: &str) -> bool {
+    !authority.is_empty()
+        && authority.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b':' | b'[' | b']')
+        })
+}
+
+fn safe_s3_bucket(bucket: &str) -> bool {
+    !bucket.is_empty()
+        && bucket.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'-')
+        })
+}
+
+fn safe_uri_path(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if byte == b'%' {
+            if index + 2 >= bytes.len()
+                || !bytes[index + 1].is_ascii_hexdigit()
+                || !bytes[index + 2].is_ascii_hexdigit()
+            {
+                return false;
+            }
+            index += 3;
+            continue;
+        }
+        if !(byte.is_ascii_alphanumeric()
+            || matches!(
+                byte,
+                b'/' | b':'
+                    | b'@'
+                    | b'!'
+                    | b'$'
+                    | b'&'
+                    | b'\''
+                    | b'('
+                    | b')'
+                    | b'*'
+                    | b'+'
+                    | b','
+                    | b';'
+                    | b'='
+                    | b'-'
+                    | b'.'
+                    | b'_'
+                    | b'~'
+            ))
+        {
+            return false;
+        }
+        index += 1;
+    }
+    true
+}
+
+fn encode_url_path(path: &str) -> String {
+    path.split('/')
+        .map(encode_url_component)
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn encode_url_component(component: &str) -> String {
+    let mut encoded = String::new();
+    for byte in component.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+            encoded.push(char::from(byte));
+        } else {
+            use std::fmt::Write as _;
+            let _ = write!(encoded, "%{byte:02X}");
+        }
+    }
+    encoded
 }
 
 /// The server path for a panel location: the configured root plus the
@@ -440,6 +585,10 @@ impl Provider for RemoteFsProvider {
         }
     }
 
+    fn standard_url(&self, target: &Location) -> Option<String> {
+        self.standard_url(target)
+    }
+
     fn list(&self, dir: &Location, control: &Control) -> io::Result<Listing> {
         let path = self.path(dir);
         let files = self.with_client(control, true, |fs| {
@@ -593,6 +742,63 @@ mod tests {
             Path::new("/srv/data/a/b c")
         );
         assert_eq!(remote_path("/", &deep), Path::new("/a/b c"));
+    }
+
+    #[test]
+    fn standard_urls_escape_path_components_and_omit_passwords() {
+        let (mut remotes, errors) = parse(
+            "[[remote]]\nname = \"files\"\nprotocol = \"ftp\"\nhost = \"example.test\"\nuser = \"a@b\"\nport = 2121\nroot = \"/srv/data\"\n",
+        )
+        .unwrap();
+        assert!(errors.is_empty());
+        let provider = RemoteFsProvider::new(remotes.remove(0));
+        let location = Location::root("files").unwrap().child("a b#c").unwrap();
+        assert_eq!(
+            provider.standard_url(&location).as_deref(),
+            Some("ftp://a%40b@example.test:2121/srv/data/a%20b%23c")
+        );
+    }
+
+    #[test]
+    fn webdav_urls_reject_malformed_base_paths() {
+        let parse_provider = |url: &str| {
+            let text =
+                format!("[[remote]]\nname = \"dav\"\nprotocol = \"webdav\"\nurl = \"{url}\"\n");
+            let (mut remotes, errors) = parse(&text).unwrap();
+            assert!(errors.is_empty());
+            RemoteFsProvider::new(remotes.remove(0))
+        };
+        let location = Location::root("dav").unwrap().child("file name").unwrap();
+        let valid = parse_provider("https://user:secret@example.test/base%20path");
+        assert_eq!(
+            valid.standard_url(&location).as_deref(),
+            Some("https://example.test/base%20path/file%20name")
+        );
+        let invalid = parse_provider("https://example.test/base path");
+        assert_eq!(invalid.standard_url(&location), None);
+        let malformed_escape = parse_provider("https://example.test/base%2");
+        assert_eq!(malformed_escape.standard_url(&location), None);
+    }
+
+    #[test]
+    fn s3_urls_require_a_safe_bucket_authority() {
+        let make_provider = |bucket: &str| {
+            let text =
+                format!("[[remote]]\nname = \"store\"\nprotocol = \"s3\"\nbucket = \"{bucket}\"\n");
+            let (mut remotes, errors) = parse(&text).unwrap();
+            assert!(errors.is_empty());
+            RemoteFsProvider::new(remotes.remove(0))
+        };
+        let location = Location::root("store").unwrap().child("a b").unwrap();
+        assert_eq!(
+            make_provider("my-bucket.example")
+                .standard_url(&location)
+                .as_deref(),
+            Some("s3://my-bucket.example/a%20b")
+        );
+        assert_eq!(make_provider("bucket/other").standard_url(&location), None);
+        assert_eq!(make_provider("bucket@host").standard_url(&location), None);
+        assert_eq!(make_provider("bucket name").standard_url(&location), None);
     }
 
     #[test]

@@ -91,6 +91,17 @@ impl Commander {
             has_marks: folder.marked_count() > 0,
             has_targets: folder.marked_count() > 0 || current.is_some_and(|e| !e.is_parent),
             cursor_on_entry: current.is_some_and(|e| !e.is_parent),
+            selected_path_available: current.is_some_and(|entry| {
+                if entry.is_parent {
+                    return false;
+                }
+                crate::copy_path::selected_path(&entry.location, |remote| {
+                    self.remotes
+                        .get(remote.remote())
+                        .and_then(|provider| provider.standard_url(remote))
+                })
+                .is_some()
+            }),
             cursor_on_file: current.is_some_and(|e| !e.is_dir),
             open_with_path: current.filter(|entry| !entry.is_parent).and_then(|entry| {
                 entry

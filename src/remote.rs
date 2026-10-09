@@ -135,6 +135,11 @@ pub trait Provider: Send + Sync {
             format!("{} has no web view", self.label()),
         ))
     }
+    /// A standard URL for copying without connecting; absent when the
+    /// provider cannot form one from its cached configuration.
+    fn standard_url(&self, _target: &Location) -> Option<String> {
+        None
+    }
 }
 
 /// A folder or item on a remote, kept distinct from local paths. Shown in

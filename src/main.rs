@@ -9,6 +9,7 @@ mod columns;
 mod commander;
 mod conflict_view;
 mod context_menu;
+mod copy_path;
 mod desktop;
 mod dirsize;
 mod editor;

@@ -64,6 +64,7 @@ pub enum Cmd {
     SwitchPanel,
     EditLocation,
     CopyLocation,
+    CopyFullPath,
     CopyName,
     GoTo,
     GoToOtherFolder,
@@ -90,6 +91,8 @@ pub struct State {
     pub has_targets: bool,
     /// Cursor points to a file or directory rather than the parent row.
     pub cursor_on_entry: bool,
+    /// The selected entry has a native path or a standard remote URL.
+    pub selected_path_available: bool,
     /// At least one entry of the active panel is marked.
     pub has_marks: bool,
     /// Why the active panel cannot follow the other panel's folder.
@@ -136,7 +139,7 @@ pub struct State {
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 69] = [
+    pub const ALL: [Cmd; 70] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::OpenInBrowser,
@@ -148,6 +151,7 @@ impl Cmd {
         Cmd::SwitchPanel,
         Cmd::EditLocation,
         Cmd::CopyLocation,
+        Cmd::CopyFullPath,
         Cmd::CopyName,
         Cmd::ToggleMark,
         Cmd::SelectAll,
@@ -262,7 +266,8 @@ impl Cmd {
             Cmd::GoLast => "Last Entry",
             Cmd::SwitchPanel => "Other Panel",
             Cmd::EditLocation => "Edit Location…",
-            Cmd::CopyLocation => "Copy Full Path",
+            Cmd::CopyLocation => "Copy Panel Location",
+            Cmd::CopyFullPath => "Copy Full Path",
             Cmd::CopyName => "Copy Name",
             Cmd::GoTo => "Go To… (Bookmarks, Places, Frequent)",
             Cmd::GoToOtherFolder => "Go to Other Panel's Folder",
@@ -323,6 +328,7 @@ impl Cmd {
             Cmd::ToggleBookmark => "Add or remove the bookmark for this folder",
             Cmd::EditLocation => "Edit or paste the active panel location",
             Cmd::CopyLocation => "Copy the active panel's full path",
+            Cmd::CopyFullPath => "Copy the selected entry's full path",
             Cmd::CopyName => "Copy the name of the entry under the cursor",
             Cmd::Help => "Help: commands and keys",
             Cmd::OpenConfig => "Edit configuration (config.toml)",
@@ -445,6 +451,9 @@ impl Cmd {
             Cmd::OpenWith if state.open_with_path.is_none() => Some("Select a file or directory"),
             Cmd::EditFile if !state.cursor_on_file => Some("Select a file"),
             Cmd::CopyName if !state.cursor_on_entry => Some("Select a file or directory"),
+            Cmd::CopyFullPath if state.selected_path_available => None,
+            Cmd::CopyFullPath if !state.cursor_on_entry => Some("Select a file or directory"),
+            Cmd::CopyFullPath => Some("No standard address is available for this entry"),
             Cmd::Rename
             | Cmd::Copy
             | Cmd::Move
@@ -509,6 +518,7 @@ pub fn context_menu() -> Vec<Item> {
         Command(CutFiles),
         Command(YankFiles),
         Command(CopyName),
+        Command(CopyFullPath),
         Command(PasteFiles),
         Item::Submenu(
             "Selection",

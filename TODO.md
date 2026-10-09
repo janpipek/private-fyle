@@ -2,9 +2,6 @@
 
 - [ ] Menus and selection, remaining parts: output/history in Tools.
       Implement missing actions as separate features.
-- [ ] Add Copy Full Path for the selected file or directory to its right-click
-      menu. Define the copied address for remote and archive entries, and
-      disable it where no useful address exists.
 - [ ] Add an image tool to set the selected image as the desktop wallpaper.
       Choose the Linux desktop integration and handle unsupported sessions.
 - [ ] Keymap presets: selectable fyle, Krusader, Midnight Commander and
@@ -128,6 +125,10 @@
 - [ ] macOS support (later): CI job, app menu, Cmd shortcuts, app bundle.
 
 ## Done
+
+- [x] Copy Full Path for the selected entry: native absolute paths locally,
+      standard URLs for configured remotes, unavailable for archives and
+      providers without a standard URL.
 
 - [x] Copy Name for the entry under the cursor in the right-click menu,
       Edit menu, palette and F1 help. Works for local, remote and archive

@@ -18,8 +18,10 @@ toggles show a check. Opening Tools discovers actions for the active folder
 and marked entries; actions are grouped by purpose and missing programs are
 shown on disabled rows. F2 opens the searchable version of the same tools.
 Right-click an entry in either panel for file actions, a Selection submenu and
-contextual Tools for Selection. Copy Name copies the entry under the cursor
-from local, remote or archive listings. Clicking a marked
+contextual Tools for Selection. Copy Name copies the entry under the cursor;
+Copy Full Path copies a local absolute path or a standard URL for supported
+configured remotes. It is unavailable for archive members and providers
+without a standard URL. Clicking a marked
 entry keeps the marked group; clicking another entry clears the marks and
 targets that entry. Escape closes the menu and returns focus to that panel.
 Keyboard shortcuts are available in the menus, F1 help and the Ctrl-P command
@@ -495,6 +497,7 @@ Where things live (`src/`):
 | `commander.rs`, `commander/` | Main window: the two panels, actions, dialogs, jobs bar, tools orchestration. Split by area into `commander/` (keys, navigation, search, files, jobs, view, archives, remotes, tools, menus, appearance); new logic goes into its own module, only wiring here. |
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
 | `model.rs`, `location.rs`, `location_codec.rs` | `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; `Location` native, remote and archive addresses; versioned lossless location persistence |
+| `copy_path.rs` | UI-independent selection path policy: local native paths, provider supplied standard URLs and no archive pseudo-paths |
 | `listing.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; typed snapshots and bounded per-panel remote listing cache |
 | `panel.rs`, `panel/metadata.rs` | `FolderView` and table wiring; bounded metadata request/cache model shared by list and icon views, with local metadata reads in background workers |
 | `thumbnails.rs`, `thumb_queue.rs`, `raw_preview.rs` | Icon view thumbnails: the freedesktop cache (URI and MD5 names, validity by `Thumb::MTime`, atomic writes, failure records), bounded JPEG preview extraction for common RAW extensions, and the load scheduler with its LRU, all UI-independent and tested |
