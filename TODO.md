@@ -123,6 +123,10 @@
         Unclear to the owner; only "open terminal here" (F9, done) was
         wanted. Ask before starting.
 - [ ] macOS support (later): CI job, app menu, Cmd shortcuts, app bundle.
+- [ ] Packaging, the proper way: `just rpm` only repackages a binary built
+      on the host. Wanted: a source RPM that builds offline from vendored
+      crates (`cargo vendor`) in mock or Copr, an own icon and metainfo,
+      and packages for Windows (installer) and later macOS.
 
 ## Done
 

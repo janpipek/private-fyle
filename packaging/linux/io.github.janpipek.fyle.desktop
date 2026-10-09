@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Fyle
+GenericName=File Manager
+Comment=Two-panel file manager
+Exec=fyle %F
+Icon=system-file-manager
+Terminal=false
+Categories=System;FileTools;FileManager;Utility;
+Keywords=files;folders;commander;

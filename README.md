@@ -295,6 +295,13 @@ one replaces it.
 
 CI builds and tests on Linux (Windows job disabled for now) (`.github/workflows/ci.yml`).
 
+## Packages
+
+`just rpm` builds a release binary on the host and packages it, with a
+desktop entry, as a Fedora RPM in `dist/fedora` (needs `rpm-build` and
+`desktop-file-utils`). It is an interim setup: no source RPM yet, and no
+packages for other platforms.
+
 ## Remote locations
 
 Remote folders have paths like `proton:/Reports`, `gdrive:/Docs` or

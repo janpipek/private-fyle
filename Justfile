@@ -13,3 +13,8 @@ sandbox-build:
 # Run the dev sandbox (bash shell); pass --claude or --codex, plus --gui, --mount DIR
 sandbox *args:
     uv run tools/sandbox.py run {{args}}
+
+# Build a release binary and package it as a Fedora RPM in dist/fedora
+[linux]
+rpm:
+    bash tools/package_fedora.sh
