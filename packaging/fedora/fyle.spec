@@ -17,7 +17,6 @@ Source3:        README.md
 
 ExclusiveArch:  x86_64
 BuildRequires:  desktop-file-utils
-Requires:       hicolor-icon-theme
 # Optional programs fyle runs for previews; without them it says what to
 # install. File paths, so either ffmpeg-free or RPM Fusion's ffmpeg will do.
 Recommends:     /usr/bin/pdftoppm
