@@ -12,8 +12,8 @@ use gpui_kit::*;
 use super::Commander;
 use super::jobs::Transfer;
 use super::keys::{
-    Copy, CutFiles, Delete, DeletePermanently, EditFile, ExtractArchive, MakeDir, Move, NewFile,
-    PasteFiles, Rename, YankFiles,
+    Copy, CopyName, CutFiles, Delete, DeletePermanently, EditFile, ExtractArchive, MakeDir, Move,
+    NewFile, PasteFiles, Rename, YankFiles,
 };
 use crate::editor::Document;
 use crate::editor_view::{EditorEvent, EditorPane};
@@ -46,6 +46,20 @@ pub fn summarize(verb: &str, unit: &str, done: usize, errors: &[String]) -> Stri
 }
 
 impl Commander {
+    /// Copies the name of the entry under the cursor to the system clipboard.
+    pub fn copy_name(&mut self, _: &CopyName, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(name) = self.folders[self.active]
+            .read(cx)
+            .current_copy_name()
+            .map(str::to_owned)
+        else {
+            return;
+        };
+        cx.write_to_clipboard(ClipboardItem::new_string(name.clone()));
+        self.status = format!("Copied name: {name}").into();
+        cx.notify();
+    }
+
     fn local_targets(&mut self, cx: &mut Context<Self>) -> Option<Vec<PathBuf>> {
         match self.folders[self.active].read(cx).local_targets() {
             Ok(targets) => Some(targets),

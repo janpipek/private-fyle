@@ -260,6 +260,7 @@ fn action_id(cmd: Cmd) -> &'static str {
         Cmd::SwitchPanel => "SwitchPanel",
         Cmd::EditLocation => "EditLocation",
         Cmd::CopyLocation => "CopyLocation",
+        Cmd::CopyName => "CopyName",
         Cmd::GoTo => "GoTo",
         Cmd::GoToOtherFolder => "GoToOtherFolder",
         Cmd::SwapPanels => "SwapPanels",

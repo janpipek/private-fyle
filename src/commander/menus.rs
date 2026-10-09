@@ -90,6 +90,7 @@ impl Commander {
             other_folder_blocked: self.other_panel_target(cx).err(),
             has_marks: folder.marked_count() > 0,
             has_targets: folder.marked_count() > 0 || current.is_some_and(|e| !e.is_parent),
+            cursor_on_entry: current.is_some_and(|e| !e.is_parent),
             cursor_on_file: current.is_some_and(|e| !e.is_dir),
             open_with_path: current.filter(|entry| !entry.is_parent).and_then(|entry| {
                 entry

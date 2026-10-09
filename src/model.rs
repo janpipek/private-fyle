@@ -471,6 +471,13 @@ impl Folder {
         self.entries.get(self.cursor)
     }
 
+    /// Name of the entry under the cursor, excluding the parent navigation row.
+    pub fn current_copy_name(&self) -> Option<&str> {
+        self.current()
+            .filter(|entry| !entry.is_parent)
+            .map(|entry| entry.name.as_str())
+    }
+
     pub fn sort(&self) -> Sort {
         self.sort
     }
@@ -815,6 +822,17 @@ mod tests {
     use crate::listing::ListingService;
     use crate::model::test_support::{fixture, loaded, names};
     use std::sync::atomic::AtomicBool;
+
+    #[test]
+    fn copy_name_uses_cursor_and_skips_parent() {
+        let dir = fixture();
+        let mut folder = loaded(&dir);
+        assert_eq!(folder.current_copy_name(), None);
+        folder.set_cursor(1);
+        assert_eq!(folder.current_copy_name(), Some("sub"));
+        folder.set_cursor(2);
+        assert_eq!(folder.current_copy_name(), Some("a.txt"));
+    }
 
     #[test]
     fn service_refresh_preserves_search_but_navigation_exits_it() {

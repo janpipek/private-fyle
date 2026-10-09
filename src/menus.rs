@@ -64,6 +64,7 @@ pub enum Cmd {
     SwitchPanel,
     EditLocation,
     CopyLocation,
+    CopyName,
     GoTo,
     GoToOtherFolder,
     SwapPanels,
@@ -87,6 +88,8 @@ pub enum Cmd {
 pub struct State {
     /// Something to act on: marked entries, or a cursor entry other than "..".
     pub has_targets: bool,
+    /// Cursor points to a file or directory rather than the parent row.
+    pub cursor_on_entry: bool,
     /// At least one entry of the active panel is marked.
     pub has_marks: bool,
     /// Why the active panel cannot follow the other panel's folder.
@@ -133,7 +136,7 @@ pub struct State {
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 68] = [
+    pub const ALL: [Cmd; 69] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::OpenInBrowser,
@@ -145,6 +148,7 @@ impl Cmd {
         Cmd::SwitchPanel,
         Cmd::EditLocation,
         Cmd::CopyLocation,
+        Cmd::CopyName,
         Cmd::ToggleMark,
         Cmd::SelectAll,
         Cmd::InvertSelection,
@@ -259,6 +263,7 @@ impl Cmd {
             Cmd::SwitchPanel => "Other Panel",
             Cmd::EditLocation => "Edit Location…",
             Cmd::CopyLocation => "Copy Full Path",
+            Cmd::CopyName => "Copy Name",
             Cmd::GoTo => "Go To… (Bookmarks, Places, Frequent)",
             Cmd::GoToOtherFolder => "Go to Other Panel's Folder",
             Cmd::SwapPanels => "Swap Panels",
@@ -318,6 +323,7 @@ impl Cmd {
             Cmd::ToggleBookmark => "Add or remove the bookmark for this folder",
             Cmd::EditLocation => "Edit or paste the active panel location",
             Cmd::CopyLocation => "Copy the active panel's full path",
+            Cmd::CopyName => "Copy the name of the entry under the cursor",
             Cmd::Help => "Help: commands and keys",
             Cmd::OpenConfig => "Edit configuration (config.toml)",
             Cmd::EditShortcuts => "Edit keyboard shortcuts",
@@ -438,6 +444,7 @@ impl Cmd {
             Cmd::ExtractArchive if !state.cursor_on_archive => Some("Select an archive file"),
             Cmd::OpenWith if state.open_with_path.is_none() => Some("Select a file or directory"),
             Cmd::EditFile if !state.cursor_on_file => Some("Select a file"),
+            Cmd::CopyName if !state.cursor_on_entry => Some("Select a file or directory"),
             Cmd::Rename
             | Cmd::Copy
             | Cmd::Move
@@ -501,6 +508,7 @@ pub fn context_menu() -> Vec<Item> {
         Separator,
         Command(CutFiles),
         Command(YankFiles),
+        Command(CopyName),
         Command(PasteFiles),
         Item::Submenu(
             "Selection",
@@ -558,7 +566,7 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
         (
             "Edit",
             items(&[
-                &[CutFiles, YankFiles, PasteFiles],
+                &[CutFiles, YankFiles, CopyName, PasteFiles],
                 &[ToggleMark, SelectAll, InvertSelection, SelectPattern],
                 &[ClearSelection, Unmark, Filter],
             ]),
@@ -745,6 +753,7 @@ mod tests {
             Cmd::DeletePermanently,
             Cmd::CutFiles,
             Cmd::YankFiles,
+            Cmd::CopyName,
             Cmd::OpenWith,
             Cmd::EditFile,
             Cmd::PasteFiles,
@@ -828,6 +837,25 @@ mod tests {
             ..none
         };
         assert_eq!(Cmd::ClearSelection.unavailable(&marked), None);
+    }
+
+    #[test]
+    fn copy_name_needs_a_cursor_entry_even_with_marks() {
+        assert_eq!(
+            Cmd::CopyName.unavailable(&State {
+                has_targets: true,
+                has_marks: true,
+                ..State::default()
+            }),
+            Some("Select a file or directory")
+        );
+        assert_eq!(
+            Cmd::CopyName.unavailable(&State {
+                cursor_on_entry: true,
+                ..State::default()
+            }),
+            None
+        );
     }
 
     #[test]

@@ -587,6 +587,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::go_to))
             .on_action(cx.listener(Self::edit_location))
             .on_action(cx.listener(Self::copy_location))
+            .on_action(cx.listener(Self::copy_name))
             .on_action(cx.listener(Self::toggle_bookmark))
             .on_action(cx.listener(Self::go_to_other_folder))
             .on_action(cx.listener(Self::swap_panels))
