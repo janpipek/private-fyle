@@ -1,6 +1,8 @@
+//! Image previews and EXIF values for image and camera RAW files.
+
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{self, BufReader};
+use std::io::{self, BufReader, Read};
 use std::path::Path;
 
 use super::{Content, Previewer, Probe};
@@ -49,10 +51,36 @@ const TAGS: &[(exif::Tag, &str)] = &[
 
 /// Label and value of the image's EXIF fields; empty without EXIF data.
 pub fn exif_info(path: &Path) -> Vec<(String, String)> {
+    if crate::raw_preview::supported(path) {
+        let info = read_exif_info(path, Some(crate::raw_preview::SCAN_LIMIT));
+        if !info.is_empty() {
+            return info;
+        }
+        return crate::raw_preview::extract(path)
+            .map(|preview| read_exif_info(&preview, None))
+            .unwrap_or_default();
+    }
+    read_exif_info(path, None)
+}
+
+fn read_exif_info(path: &Path, limit: Option<u64>) -> Vec<(String, String)> {
     let Ok(file) = File::open(path) else {
         return Vec::new();
     };
-    let Ok(exif) = exif::Reader::new().read_from_container(&mut BufReader::new(file)) else {
+    let parsed = if let Some(limit) = limit {
+        let mut bytes = Vec::new();
+        if file.take(limit).read_to_end(&mut bytes).is_err() {
+            return Vec::new();
+        }
+        if bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*") {
+            exif::Reader::new().read_raw(bytes)
+        } else {
+            exif::Reader::new().read_from_container(&mut std::io::Cursor::new(bytes))
+        }
+    } else {
+        exif::Reader::new().read_from_container(&mut BufReader::new(file))
+    };
+    let Ok(exif) = parsed else {
         return Vec::new();
     };
     TAGS.iter()
@@ -74,10 +102,12 @@ pub fn exif_fields(path: &Path) -> HashMap<&'static str, String> {
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
     // Only formats that carry EXIF; saves opening every file.
-    if !matches!(
-        ext.as_str(),
-        "jpg" | "jpeg" | "tif" | "tiff" | "png" | "webp" | "heic" | "heif" | "avif"
-    ) {
+    if !crate::raw_preview::supported(path)
+        && !matches!(
+            ext.as_str(),
+            "jpg" | "jpeg" | "tif" | "tiff" | "png" | "webp" | "heic" | "heif" | "avif"
+        )
+    {
         return HashMap::new();
     }
     let info: HashMap<String, String> = exif_info(path).into_iter().collect();
@@ -129,6 +159,7 @@ pub fn exif_fields(path: &Path) -> HashMap<&'static str, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::ImageEncoder;
 
     /// A minimal JPEG: SOI, an APP1 EXIF segment (little-endian TIFF with
     /// Make and Model), EOI.
@@ -180,5 +211,50 @@ mod tests {
         std::fs::write(&path, b"\x89PNG\r\n\x1a\n").unwrap();
         assert!(exif_info(&path).is_empty());
         assert!(exif_fields(&path).is_empty());
+    }
+
+    #[test]
+    fn reads_exif_from_tiff_based_raw_file() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let path = tmp.path().join("photo.DNG");
+        let jpeg = jpeg_with_exif();
+        std::fs::write(&path, &jpeg[12..jpeg.len() - 2]).expect("write TIFF metadata");
+
+        let fields = exif_fields(&path);
+        assert_eq!(
+            fields.get("camera").map(String::as_str),
+            Some("Acme Snap 1")
+        );
+    }
+
+    #[test]
+    fn reads_exif_from_raw_embedded_jpeg() {
+        let tmp = tempfile::tempdir().expect("temp dir");
+        let path = tmp.path().join("photo.CR3");
+        let mut encoded = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut encoded)
+            .write_image(&[128, 128, 128], 1, 1, image::ExtendedColorType::Rgb8)
+            .expect("encode JPEG preview");
+        let exif_jpeg = jpeg_with_exif();
+        encoded.splice(2..2, exif_jpeg[2..exif_jpeg.len() - 2].iter().copied());
+        let mut raw = b"RAW wrapper".to_vec();
+        raw.extend(encoded);
+        std::fs::write(&path, raw).expect("write RAW fixture");
+
+        let fields = exif_fields(&path);
+        assert_eq!(
+            fields.get("camera").map(String::as_str),
+            Some("Acme Snap 1")
+        );
+        let preview = crate::preview::Registry::with_defaults()
+            .preview(&path)
+            .expect("RAW preview");
+        let crate::preview::Content::Image { info, .. } = preview.content else {
+            panic!("expected image preview");
+        };
+        assert!(
+            info.iter()
+                .any(|(label, value)| label == "Camera" && value == "Snap 1")
+        );
     }
 }

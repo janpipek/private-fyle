@@ -134,7 +134,8 @@ files with only bitmap/JPEG XL previews or no embedded JPEG show the file icon
 or a preview error. Extraction scans at most 64 MiB and limits JPEG dimensions,
 decode memory and candidate count; it does not decode RAW sensor data. RAW
 thumbnails use the original file's URI and modification time in the shared
-thumbnail cache.
+thumbnail cache. F3 shows available EXIF details from the RAW file or its
+embedded JPEG.
 
 In tree mode, clicking a folder's chevron also expands/collapses it; Enter
 still makes the folder the panel's root.
@@ -173,9 +174,11 @@ Click a column's sort icon to sort (directories always stay on top); drag
 header borders to resize. Unknown file sizes show as `—`. Columns… (in the
 command palette) picks the columns from a grouped catalog: file, owner and permissions, Git status,
 extended attributes, and EXIF fields of photos (date taken, camera, lens,
-exposure, aperture, ISO, focal length, dimensions, GPS). With the Ext column
-shown, names leave out their extension (`.gitignore` and other dotfiles stay
-whole). EXIF, owner, extended-attribute and SELinux values load for visible
+exposure, aperture, ISO, focal length, dimensions, GPS). These fields also load
+from supported camera RAW files when their metadata or embedded JPEG carries
+EXIF data. With the Ext column shown, names leave out their extension
+(`.gitignore` and other dotfiles stay whole). EXIF, owner, extended-attribute
+and SELinux values load for visible
 local rows in the background; remote and archive locations are never treated
 as native paths for these fields.
 
