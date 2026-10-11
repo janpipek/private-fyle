@@ -328,6 +328,10 @@ mod tests {
     use crate::location::Location;
     use std::path::PathBuf;
 
+    fn test_path(name: impl AsRef<std::path::Path>) -> PathBuf {
+        std::env::temp_dir().join(name)
+    }
+
     #[test]
     fn fields_follow_visible_columns_and_file_kind() {
         let fields = fields_for_row(
@@ -353,7 +357,7 @@ mod tests {
     #[test]
     fn queue_coalesces_duplicate_requests_and_limits_active_jobs() {
         let mut queue = MetadataQueue::default();
-        let path = Location::local(PathBuf::from("/tmp/a.jpg")).unwrap();
+        let path = Location::local(test_path("a.jpg")).unwrap();
         queue.request(&path, 7, &[Field::Xattrs], None, LinkState::NotLink);
         queue.request(
             &path,
@@ -367,7 +371,7 @@ mod tests {
 
         for index in 0..QUEUE_CAPACITY + 3 {
             queue.request(
-                &Location::local(PathBuf::from(format!("/tmp/{index}"))).unwrap(),
+                &Location::local(test_path(index.to_string())).unwrap(),
                 7,
                 &[Field::Xattrs],
                 None,
@@ -384,7 +388,7 @@ mod tests {
     fn listing_generation_rejects_stale_completions_and_clears_old_cache() {
         let mut queue = MetadataQueue::default();
         queue.request(
-            &Location::local(PathBuf::from("/tmp/a")).unwrap(),
+            &Location::local(test_path("a")).unwrap(),
             1,
             &[Field::Xattrs],
             None,
@@ -392,17 +396,17 @@ mod tests {
         );
         let old = queue.take_next().unwrap();
         queue.request(
-            &Location::local(PathBuf::from("/tmp/b")).unwrap(),
+            &Location::local(test_path("b")).unwrap(),
             2,
             &[Field::Selinux],
             None,
             LinkState::NotLink,
         );
         assert!(!queue.complete(old, Values::default()));
-        assert!(queue.get(std::path::Path::new("/tmp/a"), 2).is_none());
+        assert!(queue.get(&test_path("a"), 2).is_none());
         let current = queue.take_next().unwrap();
         assert!(queue.complete(current, Values::default()));
-        assert!(queue.get(std::path::Path::new("/tmp/b"), 2).is_some());
+        assert!(queue.get(&test_path("b"), 2).is_some());
     }
 
     #[test]
@@ -410,7 +414,7 @@ mod tests {
         let mut queue = MetadataQueue::default();
         for index in 0..CACHE_CAPACITY {
             queue.request(
-                &Location::local(PathBuf::from(format!("/tmp/{index}"))).unwrap(),
+                &Location::local(test_path(index.to_string())).unwrap(),
                 1,
                 &[Field::Xattrs],
                 None,
@@ -420,14 +424,14 @@ mod tests {
             assert!(queue.complete(request, Values::default()));
         }
         queue.request(
-            &Location::local(PathBuf::from("/tmp/0")).unwrap(),
+            &Location::local(test_path("0")).unwrap(),
             1,
             &[Field::Xattrs],
             None,
             LinkState::NotLink,
         );
         queue.request(
-            &Location::local(PathBuf::from(format!("/tmp/{CACHE_CAPACITY}"))).unwrap(),
+            &Location::local(test_path(CACHE_CAPACITY.to_string())).unwrap(),
             1,
             &[Field::Xattrs],
             None,
@@ -436,8 +440,12 @@ mod tests {
         let request = queue.take_next().unwrap();
         assert!(queue.complete(request, Values::default()));
         assert_eq!(queue.cached.len(), CACHE_CAPACITY);
-        assert!(queue.get(std::path::Path::new("/tmp/0"), 1).is_some());
-        assert!(queue.get(std::path::Path::new("/tmp/1"), 1).is_none());
-        assert!(queue.get(std::path::Path::new("/tmp/256"), 1).is_some());
+        assert!(queue.get(&test_path("0"), 1).is_some());
+        assert!(queue.get(&test_path("1"), 1).is_none());
+        assert!(
+            queue
+                .get(&test_path(CACHE_CAPACITY.to_string()), 1)
+                .is_some()
+        );
     }
 }

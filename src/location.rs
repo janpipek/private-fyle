@@ -184,7 +184,10 @@ mod tests {
             assert_eq!(location.as_local_path(), Some(path.as_path()));
             assert_eq!(location.panel_path(), path);
         }
+        #[cfg(unix)]
         let spelled = PathBuf::from("/link/../file");
+        #[cfg(windows)]
+        let spelled = PathBuf::from(r"C:\link\..\file");
         assert_eq!(
             Location::local(spelled.clone()).unwrap().panel_path(),
             spelled
@@ -196,16 +199,17 @@ mod tests {
     fn remote_and_archive_addresses_never_expose_native_paths() {
         let remote = Location::from_panel_path(PathBuf::from("nas:/docs").as_path(), None).unwrap();
         assert!(remote.as_local_path().is_none());
+        let archive_file = std::env::current_dir().unwrap().join("x.zip");
         let archive =
-            Location::archive(Location::local("/tmp/x.zip".into()).unwrap(), "a/b").unwrap();
+            Location::archive(Location::local(archive_file.clone()).unwrap(), "a/b").unwrap();
         assert!(archive.as_local_path().is_none());
-        assert_eq!(archive.panel_path(), PathBuf::from("/tmp/x.zip/a/b"));
+        assert_eq!(archive.panel_path(), archive_file.join("a").join("b"));
         assert_eq!(ArchiveMember::new("").unwrap().as_str(), "");
         assert_eq!(
-            Location::archive(Location::local("/tmp/x.zip".into()).unwrap(), "")
+            Location::archive(Location::local(archive_file.clone()).unwrap(), "")
                 .unwrap()
                 .panel_path(),
-            PathBuf::from("/tmp/x.zip")
+            archive_file
         );
         assert!(Location::from_panel_path(std::path::Path::new(""), None).is_err());
         for bad in ["../x", "/x", "a//b", "a/./b", "a\\b", "a/../b"] {
@@ -220,8 +224,9 @@ mod tests {
         assert!(target.location().is_none());
         assert!(target.into_location().is_none());
 
-        let local = PanelTarget::from_panel_path(std::path::Path::new("/tmp"), None).unwrap();
-        assert_eq!(local.panel_path(), PathBuf::from("/tmp"));
+        let root = std::env::current_dir().unwrap();
+        let local = PanelTarget::from_panel_path(&root, None).unwrap();
+        assert_eq!(local.panel_path(), root);
         assert!(matches!(local, PanelTarget::Location(Location::Local(_))));
     }
 }

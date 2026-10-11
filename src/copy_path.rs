@@ -21,8 +21,13 @@ mod tests {
 
     #[test]
     fn local_path_is_native_and_archive_has_no_address() {
-        let local = Location::local("/tmp/a b".into()).unwrap();
-        assert_eq!(selected_path(&local, |_| None).as_deref(), Some("/tmp/a b"));
+        let local_path = std::env::current_dir().unwrap().join("a b");
+        let expected = local_path.to_str().unwrap().to_owned();
+        let local = Location::local(local_path).unwrap();
+        assert_eq!(
+            selected_path(&local, |_| None).as_deref(),
+            Some(expected.as_str())
+        );
         let archive = Location::archive(local, "inside.txt").unwrap();
         assert_eq!(selected_path(&archive, |_| None), None);
     }

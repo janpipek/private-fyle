@@ -608,6 +608,7 @@ mod tests {
         assert_eq!(Settings::parse("").unwrap(), Settings::default());
     }
 
+    #[cfg(unix)]
     #[test]
     fn parses_all_keys() {
         let settings = Settings::parse(
@@ -850,14 +851,15 @@ mod tests {
         let path = dir.join("config.toml");
         std::fs::create_dir_all(dir).unwrap();
         std::fs::write(&path, "# mine\ntheme = \"dark\"\n").unwrap();
-        let loc = |p: &str| Location::local(p.into()).unwrap();
-        crate::bookmarks::add_bookmark_to(&path, &loc("/srv/a")).unwrap();
-        crate::bookmarks::add_bookmark_to(&path, &loc("/srv/b")).unwrap();
-        crate::bookmarks::add_bookmark_to(&path, &loc("/srv/a")).unwrap();
+        let a = Location::local(dir.join("a")).unwrap();
+        let b = Location::local(dir.join("b")).unwrap();
+        crate::bookmarks::add_bookmark_to(&path, &a).unwrap();
+        crate::bookmarks::add_bookmark_to(&path, &b).unwrap();
+        crate::bookmarks::add_bookmark_to(&path, &a).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("# mine"));
         let settings = Settings::parse(&text).unwrap();
-        assert_eq!(settings.bookmarks, [loc("/srv/a"), loc("/srv/b")]);
+        assert_eq!(settings.bookmarks, [a, b]);
         assert_eq!(settings.theme, "dark");
     }
 
@@ -865,7 +867,13 @@ mod tests {
     fn encoded_bookmarks_preserve_native_bytes_and_legacy_entries() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("config.toml");
-        std::fs::write(&path, "# keep this comment\nbookmarks = [\"/legacy\"]\n").unwrap();
+        let legacy = Location::local(tmp.path().join("legacy")).unwrap();
+        let legacy_value = toml_edit::value(legacy.panel_path().to_string_lossy().as_ref());
+        std::fs::write(
+            &path,
+            format!("# keep this comment\nbookmarks = [{legacy_value}]\n"),
+        )
+        .unwrap();
         #[cfg(unix)]
         let unusual = {
             use std::ffi::OsString;
@@ -881,10 +889,7 @@ mod tests {
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("# keep this comment"));
         assert!(text.contains(crate::location_codec::PREFIX));
-        assert_eq!(
-            Settings::parse(&text).unwrap().bookmarks,
-            [Location::local("/legacy".into()).unwrap(), unusual]
-        );
+        assert_eq!(Settings::parse(&text).unwrap().bookmarks, [legacy, unusual]);
     }
 
     #[test]
@@ -893,7 +898,9 @@ mod tests {
         let value = toml_edit::value(crate::location_codec::encode(&remote).unwrap());
         let settings = Settings::parse(&format!("bookmarks = [{value}]")).unwrap();
         assert_eq!(settings.bookmarks, std::slice::from_ref(&remote));
-        let member = Location::archive(Location::local("/a.zip".into()).unwrap(), "x").unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let member =
+            Location::archive(Location::local(tmp.path().join("a.zip")).unwrap(), "x").unwrap();
         let value = toml_edit::value(crate::location_codec::encode(&member).unwrap());
         assert!(Settings::parse(&format!("bookmarks = [{value}]")).is_err());
         assert!(Settings::parse("bookmarks = [\"fyle-location:v1:{\"]").is_err());

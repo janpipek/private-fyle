@@ -239,11 +239,15 @@ fn expand_home(text: &str, home: Option<&Path>) -> io::Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use crate::location::PanelTarget;
     use std::path::Path;
 
-    use super::{Kind, NavigationGuard, editable_path, parse_location, segments};
+    use super::segments;
+    #[cfg(unix)]
+    use super::{Kind, NavigationGuard, editable_path, parse_location};
+    #[cfg(unix)]
+    use crate::location::PanelTarget;
 
+    #[cfg(unix)]
     #[test]
     fn ordinary_path_has_clickable_ancestors() {
         let crumbs = segments(Path::new("/home/u/work"), None, None, None);
@@ -266,6 +270,7 @@ mod tests {
         assert_eq!(crumbs[0].path, Path::new(r"C:\"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn archive_and_internal_path_are_distinct() {
         let file = Path::new("/tmp/photos.zip");
@@ -284,6 +289,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn typed_locations_support_home_relative_and_archive_paths() {
         let home = Path::new("/home/u");
@@ -305,6 +311,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn normalizes_parent_components_only_inside_current_archive() {
         let file = Path::new("/tmp/a.zip");
@@ -319,6 +326,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn remote_paths_parse_and_show_without_the_disk() {
         let current = Path::new("/tmp");
@@ -356,6 +364,7 @@ mod tests {
         assert_eq!(unknown[0].label, "other");
     }
 
+    #[cfg(unix)]
     #[test]
     fn navigation_guard_rejects_stale_results() {
         let one = PanelTarget::from_panel_path(Path::new("/one"), None).unwrap();

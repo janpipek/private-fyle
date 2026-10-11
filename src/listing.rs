@@ -533,6 +533,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn local_snapshot_keeps_typed_rows_and_symlink_spelling() {
         let temp = TempDir::new().unwrap();
@@ -857,7 +858,8 @@ mod tests {
                 .unwrap(),
         );
         let mut child_request = request(child);
-        child_request.remote_origin = Some(Location::local("/tmp/from".into()).unwrap());
+        child_request.remote_origin =
+            Some(Location::local(std::env::temp_dir().join("from")).unwrap());
         let child_snapshot = service
             .list(&child_request, &AtomicBool::new(false))
             .unwrap();

@@ -105,12 +105,18 @@ fn matches(item: &toml_edit::Value, location: &Location) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::{add_bookmark_to, contains, remove_bookmark_from, toggle};
     use crate::location::Location;
     use crate::settings::Settings;
 
     fn local(path: &str) -> Location {
-        Location::local(path.into()).unwrap()
+        #[cfg(unix)]
+        let path = PathBuf::from(path);
+        #[cfg(windows)]
+        let path = PathBuf::from(format!("C:{}", path.replace('/', "\\")));
+        Location::local(path).unwrap()
     }
 
     fn remote(path: &str) -> Location {
@@ -140,6 +146,7 @@ mod tests {
         assert_eq!(list, [local("/a"), remote("proton:/")]);
     }
 
+    #[cfg(unix)]
     #[test]
     fn removing_from_the_file_keeps_comments_and_other_entries() {
         let dir = tempfile::TempDir::new().unwrap();

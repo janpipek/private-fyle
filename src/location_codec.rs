@@ -180,8 +180,11 @@ fn invalid_data(error: impl std::fmt::Display) -> io::Error {
 
 #[cfg(test)]
 mod tests {
-    use super::{PREFIX, decode, encode};
+    #[cfg(unix)]
+    use super::PREFIX;
+    use super::{decode, encode};
     use crate::location::Location;
+    #[cfg(unix)]
     use std::path::PathBuf;
 
     fn roundtrip(location: Location) {
@@ -190,6 +193,7 @@ mod tests {
 
     #[test]
     fn roundtrips_distinct_local_remote_and_recursive_archive_addresses() {
+        #[cfg(unix)]
         let colon_path = Location::local(PathBuf::from("/mnt/nas:/x")).unwrap();
         let remote = Location::Remote(
             crate::remote::Location::root("nas")
@@ -197,13 +201,18 @@ mod tests {
                 .child("x\tline\nnext")
                 .unwrap(),
         );
+        #[cfg(unix)]
         assert_ne!(colon_path, remote);
+        #[cfg(unix)]
         roundtrip(colon_path);
         roundtrip(remote);
         roundtrip(
             Location::archive(
-                Location::archive(Location::local("/tmp/a.zip".into()).unwrap(), "inner.zip")
-                    .unwrap(),
+                Location::archive(
+                    Location::local(std::env::temp_dir().join("a.zip")).unwrap(),
+                    "inner.zip",
+                )
+                .unwrap(),
                 "folder/file\tname\nline",
             )
             .unwrap(),
@@ -219,6 +228,7 @@ mod tests {
         roundtrip(Location::local(path).unwrap());
     }
 
+    #[cfg(unix)]
     #[test]
     fn rejects_unknown_versions_malformed_documents_and_invalid_addresses() {
         assert_eq!(

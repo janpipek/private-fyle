@@ -606,9 +606,9 @@ mod tests {
 
     #[test]
     fn bad_local_paths_and_names_are_rejected_before_running() {
-        assert!(absolute(Path::new("/tmp/a")).is_ok());
+        assert!(absolute(&std::env::temp_dir().join("a")).is_ok());
         assert!(absolute(Path::new("--evil")).is_err());
-        assert!(absolute(Path::new("/")).is_err());
+        assert!(absolute(Path::new(std::path::MAIN_SEPARATOR_STR)).is_err());
         let cancel = AtomicBool::new(false);
         let control = Control::new(&cancel);
         let proton = Proton::default();

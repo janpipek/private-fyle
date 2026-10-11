@@ -619,6 +619,7 @@ mod tests {
         assert!(none.iter().all(|g| g.kind != GroupKind::Remotes));
     }
 
+    #[cfg(unix)]
     #[test]
     fn parses_gtk_bookmarks() {
         let places = parse_gtk_bookmarks(
@@ -633,6 +634,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn parses_kde_places() {
         let xml = r#"<?xml version="1.0"?><xbel>
@@ -709,6 +711,7 @@ mod tests {
         assert!(group(INLINE_LIMIT + 1).as_submenu());
     }
 
+    #[cfg(unix)]
     #[test]
     fn file_urls() {
         assert_eq!(
@@ -725,18 +728,22 @@ mod tests {
 
     #[test]
     fn frecency_ranking_and_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = dir.path().join("old");
+        let recent = dir.path().join("recent");
+        let today = dir.path().join("today");
         let now = 10_000_000;
         let mut history = History::default();
         for _ in 0..3 {
-            history.visit(Path::new("/old"), now - 30 * 86_400); // 3 × ¼
+            history.visit(&old, now - 30 * 86_400); // 3 × ¼
         }
-        history.visit(Path::new("/recent"), now - 60); // 1 × 4
-        history.visit(Path::new("/today"), now - 7200);
-        history.visit(Path::new("/today"), now - 7200); // 2 × 2
+        history.visit(&recent, now - 60); // 1 × 4
+        history.visit(&today, now - 7200);
+        history.visit(&today, now - 7200); // 2 × 2
         let ranked = history.ranked(now);
         assert_eq!(
             ranked.iter().map(Location::panel_path).collect::<Vec<_>>(),
-            [PathBuf::from("/recent"), "/today".into(), "/old".into()]
+            [recent, today, old]
         );
 
         let restored = History::parse(&history.serialize());
@@ -744,6 +751,7 @@ mod tests {
         assert_eq!(History::parse("garbage\n1\tx\t/p\n"), History::default());
     }
 
+    #[cfg(unix)]
     #[test]
     fn history_migrates_legacy_paths_and_keeps_literal_local_colons_distinct() {
         let legacy = History::parse("2\t100\t/mnt/nas:/x\n3\t200\tgdrive:/Docs\n");

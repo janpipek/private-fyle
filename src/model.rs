@@ -929,7 +929,7 @@ mod tests {
 
     #[test]
     fn empty_parent_row_targets_places_without_a_fake_local_path() {
-        let root = Location::local(PathBuf::from("/")).unwrap();
+        let root = Location::local(std::env::temp_dir()).unwrap();
         assert_eq!(
             Folder::parent_row_target(Path::new(""), &root),
             PanelTarget::Places

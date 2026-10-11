@@ -289,7 +289,7 @@ mod tests {
         let locations = [
             PanelLocation::Remote(root().child("d").unwrap()),
             PanelLocation::Remote(root().child("f").unwrap()),
-            PanelLocation::local("/local".into()).unwrap(),
+            PanelLocation::local(std::env::temp_dir().join("local")).unwrap(),
         ];
         let found = folder.remote_items(&locations);
         assert_eq!(found.len(), 2);

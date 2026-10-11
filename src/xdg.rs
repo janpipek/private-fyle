@@ -133,6 +133,7 @@ mod tests {
         Env::from_vars(|k| map.get(k).cloned(), Some(PathBuf::from("/home/u")))
     }
 
+    #[cfg(unix)]
     #[test]
     fn defaults_follow_the_spec() {
         let e = env(&[]);
@@ -143,6 +144,7 @@ mod tests {
         assert!(e.desktops.is_empty() && e.locales.is_empty());
     }
 
+    #[cfg(unix)]
     #[test]
     fn ignores_relative_and_empty_values() {
         let e = env(&[
@@ -155,6 +157,7 @@ mod tests {
         assert_eq!(e.config_dirs, [PathBuf::from("/etc/xdg")]);
     }
 
+    #[cfg(unix)]
     #[test]
     fn mimeapps_order_and_desktops() {
         let e = env(&[

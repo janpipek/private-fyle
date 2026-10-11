@@ -90,7 +90,15 @@ mod tests {
     use crate::remote;
 
     fn local(path: &str) -> PanelTarget {
-        PanelTarget::Location(Location::local(PathBuf::from(path)).unwrap())
+        #[cfg(unix)]
+        let path = PathBuf::from(path);
+        #[cfg(windows)]
+        let path = if PathBuf::from(path).is_absolute() {
+            PathBuf::from(path)
+        } else {
+            PathBuf::from(format!("C:{}", path.replace('/', "\\")))
+        };
+        PanelTarget::Location(Location::local(path).unwrap())
     }
 
     #[test]
@@ -135,8 +143,11 @@ mod tests {
 
     #[test]
     fn keeps_an_archive_location_typed() {
-        let archive =
-            Location::archive(Location::local("/data/a.zip".into()).unwrap(), "docs").unwrap();
+        #[cfg(unix)]
+        let source = PathBuf::from("/data/a.zip");
+        #[cfg(windows)]
+        let source = PathBuf::from(r"C:\data\a.zip");
+        let archive = Location::archive(Location::local(source).unwrap(), "docs").unwrap();
         let shown = PanelTarget::Location(archive.clone());
         assert_eq!(
             other_panel_target(&shown, None),

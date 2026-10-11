@@ -342,13 +342,19 @@ pub fn fit(mode: LayoutMode, viewport: Viewport, minimum: MinSizes) -> Option<Fi
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::{
         Fit, InspectorLoad, LayoutMode, MinSizes, PanelSide, Perspective, Viewport, Workspace, fit,
     };
     use crate::location::Location;
 
     fn local(path: &str) -> Location {
-        Location::local(path.into()).expect("test paths are absolute")
+        #[cfg(unix)]
+        let path = PathBuf::from(path);
+        #[cfg(windows)]
+        let path = PathBuf::from(format!("C:{}", path.replace('/', "\\")));
+        Location::local(path).expect("test paths are absolute")
     }
 
     fn pending(workspace: &Workspace) -> super::Request {
