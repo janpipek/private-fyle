@@ -21,6 +21,8 @@
       account; the cursor-placement part is fixed.
 - [ ] Open With on macOS: read Launch Services file-type associations behind
       `apps::Catalog` when macOS support begins.
+- [ ] Open With: exclude fyle itself from discovered system applications on
+      Linux and Windows, including its registered folder handler.
 - [ ] Open With on Linux, follow-ups: MIME magic sniffing (now by file name
       only, so unmatched files are `application/octet-stream`); offer it on
       downloaded copies of remote files (still refused on remote folders);
@@ -38,9 +40,11 @@
       of tree/list/icon modes. Decide whether actions target one member or
       the group, including copy, move, rename and delete, before using sidecar
       metadata such as XMP colour labels or star ratings.
-- [ ] Open With application icons: show each installed app's desktop icon in
-      the chooser where available, with a GPUI Kit fallback. Decide how to
-      load external app icons under the current default-bundle icon policy.
+- [ ] Open With icons on Linux and Windows: show icons for discovered apps and
+      configured `[[opener]]` entries, with a GPUI Kit fallback. Linux desktop
+      entries name icons or icon files; Windows registrations and executables
+      can supply icons. Decide how configured commands name their icon, and
+      load external icons in the background under the default-bundle policy.
 - [ ] Open With for directories: detect JetBrains IDE project metadata and
       offer the associated installed IDE explicitly. Decide which project
       markers identify each IDE and how to handle shared or ambiguous markers.
