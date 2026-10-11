@@ -766,7 +766,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("history.tsv");
         std::fs::write(&path, "old data").unwrap();
+        #[cfg(unix)]
         let mut history = History::default();
+        #[cfg(not(unix))]
+        let history = History::default();
         #[cfg(unix)]
         {
             use std::ffi::OsString;

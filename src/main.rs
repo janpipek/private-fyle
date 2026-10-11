@@ -1,6 +1,8 @@
 // Release builds on Windows should not open a console window.
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+// The Linux association modules stay compiled on Windows for their model tests.
+#[cfg_attr(windows, allow(dead_code))]
 mod apps;
 mod archive;
 mod bookmarks;
@@ -10,6 +12,7 @@ mod commander;
 mod conflict_view;
 mod context_menu;
 mod copy_path;
+#[cfg_attr(windows, allow(dead_code))]
 mod desktop;
 mod dirsize;
 mod editor;
@@ -20,6 +23,7 @@ mod glyphs;
 mod grid;
 mod icon_view;
 mod icons;
+#[cfg_attr(windows, allow(dead_code))]
 mod ini;
 mod jobs;
 mod keymap;
@@ -31,7 +35,9 @@ mod location_codec;
 mod location_view;
 mod menu_bar;
 mod menus;
+#[cfg_attr(windows, allow(dead_code))]
 mod mime;
+#[cfg_attr(windows, allow(dead_code))]
 mod mimeapps;
 mod model;
 mod notebook_view;
@@ -57,8 +63,11 @@ mod thumbnails;
 mod tools;
 mod tools_view;
 mod transfer;
+#[cfg(windows)]
+mod windows_apps;
 pub mod workspace;
 mod xattr;
+#[cfg_attr(windows, allow(dead_code))]
 mod xdg;
 mod zoom;
 

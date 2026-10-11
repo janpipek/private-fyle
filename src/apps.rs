@@ -1,7 +1,7 @@
 //! Applications that can open a file or directory: desktop associations
 //! (Linux: shared-mime-info, desktop entries, `mimeapps.list`) merged with
-//! fyle's configured openers; UI-independent. Windows and macOS discovery
-//! will come with those platforms: [`Catalog`] is the seam.
+//! fyle's configured openers; UI-independent. Linux and Windows associations
+//! are discovered behind [`Catalog`].
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -33,6 +33,19 @@ impl Application {
     /// Program (by file name) and fixed arguments, without file codes: what
     /// makes two entries "the same command".
     fn command_key(&self) -> Option<(String, Vec<String>)> {
+        #[cfg(windows)]
+        if self.id.starts_with("win:") {
+            let placeholder = Path::new(r"C:\fyle-open-with-placeholder");
+            let tokens = crate::windows_apps::expand_command(&self.exec, placeholder).ok()?;
+            let mut tokens = tokens.into_iter();
+            let program = base_name(&tokens.next()?).to_ascii_lowercase();
+            return Some((
+                program,
+                tokens
+                    .filter(|arg| arg != &placeholder.to_string_lossy())
+                    .collect(),
+            ));
+        }
         let mut tokens = desktop::split_exec(&self.exec).ok()?.into_iter();
         let program = base_name(&tokens.next()?).to_string();
         Some((program, tokens.filter(|t| !t.contains('%')).collect()))
@@ -40,6 +53,11 @@ impl Application {
 
     /// The command line opening `file`.
     pub fn command_line(&self, file: &Path) -> Result<Vec<String>, String> {
+        #[cfg(windows)]
+        if self.id.starts_with("win:") {
+            return crate::windows_apps::expand_command(&self.exec, file)
+                .map_err(|e| format!("{}: {e}", self.name));
+        }
         desktop::expand_exec(&self.exec, &[file]).map_err(|e| format!("{}: {e}", self.name))
     }
 }
@@ -53,12 +71,27 @@ pub struct Catalog {
     /// MIME type to desktop file IDs declaring it in `MimeType=`.
     declared: HashMap<String, Vec<String>>,
     mimeapps: MimeApps,
+    #[cfg(windows)]
+    windows: Option<crate::windows_apps::Catalog>,
 }
 
 /// Directories scanned below `applications/`, as a guard against loops.
 const MAX_DEPTH: usize = 6;
 
 impl Catalog {
+    /// Loads associations for the current platform off the UI thread.
+    pub fn load_platform() -> Self {
+        #[cfg(windows)]
+        {
+            Self {
+                windows: Some(crate::windows_apps::Catalog::load()),
+                ..Self::default()
+            }
+        }
+        #[cfg(not(windows))]
+        Self::load(&Env::from_env())
+    }
+
     /// Reads the databases in `env`; slow, so call it off the UI thread.
     pub fn load(env: &Env) -> Self {
         let data_dirs = env.all_data_dirs();
@@ -97,6 +130,10 @@ impl Catalog {
 
     /// Program names used by loaded desktop entries' `Exec` and `TryExec` fields.
     pub fn program_names(&self) -> HashSet<String> {
+        #[cfg(windows)]
+        if self.windows.is_some() {
+            return HashSet::new();
+        }
         self.entries
             .values()
             .flat_map(|entry| {
@@ -129,6 +166,10 @@ impl Catalog {
         is_dir: bool,
         exists: &dyn Fn(&str) -> bool,
     ) -> Vec<Application> {
+        #[cfg(windows)]
+        if let Some(windows) = &self.windows {
+            return windows.applications_for(file_name, is_dir);
+        }
         let types = self
             .mime
             .with_ancestors(&self.mime.detect(file_name, is_dir));
@@ -333,7 +374,10 @@ pub fn merge(openers: Vec<Opener>, apps: Vec<Application>, include_editor: bool)
                 .filter(|a| !a.contains("{path}"))
                 .cloned()
                 .collect();
-            (base_name(program).to_string(), args)
+            let program = base_name(program).to_string();
+            #[cfg(windows)]
+            let program = program.to_ascii_lowercase();
+            (program, args)
         });
         let mut is_default = false;
         if let Some(key) = key {

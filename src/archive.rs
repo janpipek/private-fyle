@@ -655,6 +655,7 @@ pub(super) mod tests {
     pub(super) enum Item<'a> {
         File(&'a str, &'a str),
         Dir(&'a str),
+        #[cfg(unix)]
         Link(&'a str, &'a str),
     }
 
@@ -668,6 +669,7 @@ pub(super) mod tests {
                     zip.write_all(text.as_bytes()).unwrap();
                 }
                 Item::Dir(name) => zip.add_directory(*name, opts).unwrap(),
+                #[cfg(unix)]
                 Item::Link(name, target) => zip.add_symlink(*name, *target, opts).unwrap(),
             }
         }
@@ -680,9 +682,10 @@ pub(super) mod tests {
         let mut out = Vec::new();
         for item in items {
             let mut header = tar::Header::new_gnu();
-            let (name, kind, link, body) = match item {
+            let (name, kind, link, body): (&str, tar::EntryType, Option<&str>, &[u8]) = match item {
                 Item::File(name, text) => (*name, tar::EntryType::Regular, None, text.as_bytes()),
                 Item::Dir(name) => (*name, tar::EntryType::Directory, None, &b""[..]),
+                #[cfg(unix)]
                 Item::Link(name, target) => {
                     (*name, tar::EntryType::Symlink, Some(*target), &b""[..])
                 }

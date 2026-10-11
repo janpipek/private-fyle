@@ -32,7 +32,7 @@ palette. The bottom area shows status messages and running jobs.
 | Up / Down, PgUp/Dn  | Move cursor (icon view: one row / a page of rows) |
 | Home / End          | First / last entry                        |
 | Enter / dbl-click   | Enter directory or archive (zip, tar, tar.gz/tgz: browsed like a folder, read-only), or open the file (first matching `[[opener]]`, else the system default) |
-| Shift-Enter         | Open with… for a file or directory: matching `[[opener]]`s, then the desktop's default application (marked "(default)") and other applications registered for its type (Linux); files also offer the built-in editor |
+| Shift-Enter         | Open with… for a file or directory: matching `[[opener]]`s, then the system's default application (marked "(default)" when launchable) and other applications registered for its type (Linux and Windows); files also offer the built-in editor |
 | Backspace           | Parent directory                          |
 | Alt-Left / Alt-Right | Back / forward through visited directories (per panel) |
 | Tab                 | Switch active panel                       |
@@ -236,8 +236,12 @@ names); `mimeapps.list` in the order of the spec, including the
 `$XDG_CURRENT_DESKTOP` variants, Default, Added and Removed. Without an
 explicit default the first associated application is marked. `Terminal=true`
 applications start in the configured terminal. The lookup runs in the
-background and is kept for 60 seconds (F5 drops it). Windows and macOS
-associations are not read yet.
+background and is kept for 60 seconds (F5 drops it). On Windows the same
+chooser reads extension defaults and registered applications from the registry
+(including the current user's OpenWith list). For directories it offers Explorer
+and registered folder open handlers. The System default choice uses
+Windows itself for associations without a launchable command, including some
+Store apps. macOS associations are not read yet.
 
 ## Settings
 
@@ -519,7 +523,7 @@ Where things live (`src/`):
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and the editor pane |
 | `tools/`, `tools_view.rs` | Tool, Action and Registry model; `defaults.toml`; built-ins; Lua plugins; `exec.rs` runs them |
 | `search.rs`, `places.rs`, `breadcrumbs.rs`, `remote_labels.rs`, `rename.rs`, `openers.rs`, `terminal.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs`, `zoom.rs` | Further UI-independent models, each with tests |
-| `apps.rs`, `mime.rs`, `desktop.rs`, `mimeapps.rs`, `xdg.rs`, `ini.rs` | Open With model: `apps::Catalog` (Linux discovery) and `merge` with the openers; MIME type from shared-mime-info `globs2`/`subclasses`/`aliases`; `.desktop` parsing and `Exec` expansion; `mimeapps.list`; XDG directories |
+| `apps.rs`, `windows_apps.rs`, `mime.rs`, `desktop.rs`, `mimeapps.rs`, `xdg.rs`, `ini.rs` | Open With model: `apps::Catalog` (Linux and Windows discovery) and `merge` with the openers; Windows registry associations; MIME type from shared-mime-info `globs2`/`subclasses`/`aliases`; `.desktop` parsing and `Exec` expansion; `mimeapps.list`; XDG directories |
 | `*_view.rs`, `menu_bar.rs`, `link_badge.rs`, `theme_picker.rs` | Thin views |
 
 Previews follow the same split. `src/preview/` is the model: a `Registry`

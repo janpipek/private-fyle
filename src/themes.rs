@@ -211,7 +211,9 @@ fn find(name: &str, cx: &App) -> Option<Rc<ThemeConfig>> {
 #[cfg(test)]
 mod tests {
     // Not `super::*`: gpui's glob export would shadow `#[test]`.
-    use super::{BUNDLED, ThemeChoice, ThemePicker, rich_text_font};
+    #[cfg(target_os = "linux")]
+    use super::rich_text_font;
+    use super::{BUNDLED, ThemeChoice, ThemePicker};
     #[cfg(target_os = "linux")]
     use gpui_kit::SharedString;
     use gpui_kit::component::ThemeSet;

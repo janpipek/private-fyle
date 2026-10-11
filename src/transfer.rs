@@ -38,7 +38,7 @@ pub struct Conflict {
 }
 
 impl Conflict {
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub fn from_paths(source: &Path, destination: &Path) -> io::Result<Self> {
         let source = EntryInfo::from_path(source)?;
         let destination = EntryInfo::from_path(destination)?;

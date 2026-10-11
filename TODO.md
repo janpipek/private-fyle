@@ -12,8 +12,8 @@
       every remote subfolder, and at a remote root only when the panel came
       from a local folder (none for `fyle proton:/`). Reproduce with a real
       account; the cursor-placement part is fixed.
-- [ ] Open With on Windows and macOS: read the platform's file-type
-      associations behind `apps::Catalog` when those platforms resume.
+- [ ] Open With on macOS: read Launch Services file-type associations behind
+      `apps::Catalog` when macOS support begins.
 - [ ] Open With on Linux, follow-ups: MIME magic sniffing (now by file name
       only, so unmatched files are `application/octet-stream`); offer it on
       downloaded copies of remote files (still refused on remote folders);
@@ -145,6 +145,8 @@
 - [x] Hide the built-in editor from Open With for binary, non-UTF-8 and
       oversized files; check file content in the background so extensionless
       text stays editable and misleading text extensions do not offer it.
+- [x] Windows Open With reads registered file-type defaults and OpenWithProgids/
+      OpenWithList applications from the registry, with a system-default fallback.
 
 - [x] Workspace layouts: View offers two panels, two panels plus a Preview
       inspector, and one panel plus Preview. F3 toggles the inspector without

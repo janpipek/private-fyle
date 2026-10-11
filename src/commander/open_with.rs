@@ -17,7 +17,6 @@ use super::keys::OpenWith;
 use crate::apps::{self, Application, Catalog, Choice};
 use crate::editor::Document;
 use crate::tools::{self, Programs};
-use crate::xdg::Env;
 
 #[derive(Clone, PartialEq, Eq)]
 struct EditorKey {
@@ -45,7 +44,7 @@ pub struct CatalogCache {
 
 impl CatalogCache {
     fn load() -> Self {
-        let catalog = Arc::new(Catalog::load(&Env::from_env()));
+        let catalog = Arc::new(Catalog::load_platform());
         let programs = Programs::from_env();
         let availability = catalog
             .program_names()

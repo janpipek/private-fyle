@@ -41,6 +41,7 @@ fn ctx(dir: &Path, targets: &[(&str, bool)]) -> ToolContext {
     }
 }
 
+#[cfg(unix)]
 fn args(action: &Action) -> Vec<String> {
     match action {
         Action::Run(spec) => spec.args.clone(),
@@ -469,6 +470,7 @@ fn describes_actions_for_confirmation() {
 
 // --- Lua plugins -------------------------------------------------------------------
 
+#[cfg(unix)]
 const PLUGIN: &str = r#"
 return {
   {
