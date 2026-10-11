@@ -18,3 +18,8 @@ sandbox *args:
 [linux]
 rpm:
     bash tools/package_fedora.sh
+
+# Build a Windows release binary and Inno Setup installer in dist/windows
+[windows]
+installer:
+    powershell -NoProfile -ExecutionPolicy Bypass -File tools/package_windows.ps1

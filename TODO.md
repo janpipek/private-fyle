@@ -130,9 +130,12 @@
 - [ ] Packaging, the proper way: `just rpm` only repackages a binary built
       on the host. Wanted: a source RPM that builds offline from vendored
       crates (`cargo vendor`) in mock or Copr, an own icon and metainfo,
-      and packages for Windows (installer) and later macOS.
+      and later a macOS package.
 
 ## Done
+
+- [x] Windows Inno Setup installer with current-user/all-users modes, Explorer
+      folder commands, and an opt-in default folder opener.
 
 - [x] Copy Full Path for the selected entry: native absolute paths locally,
       standard URLs for configured remotes, unavailable for archives and

@@ -305,7 +305,16 @@ the workflow with zizmor (`.github/workflows/ci.yml`).
 `just rpm` builds a release binary on the host and packages it as a Fedora
 RPM in `dist/fedora` (needs `rpm-build` and `desktop-file-utils`). Its
 desktop entry offers fyle for opening folders. It is an interim setup: no
-source RPM yet, and no packages for other platforms.
+source RPM yet.
+
+On Windows, `just installer` builds an x64 release binary and an Inno Setup
+installer in `dist/windows` (requires `iscc.exe`). Setup defaults to a
+current-user install and also offers an all-users install. It creates a Start
+menu shortcut and adds **Open in fyle** for folders, drive roots, and folder
+backgrounds in Explorer. An unchecked setup option lets the user make fyle the
+default folder opener; uninstall restores the previous folder verb if fyle is
+still the default. No desktop shortcut is created. The installer is unsigned
+and uses the current executable icon until an app icon is supplied.
 
 ## Remote locations
 
