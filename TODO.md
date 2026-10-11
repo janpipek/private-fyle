@@ -2,6 +2,10 @@
 
 - [ ] Menus and selection, remaining parts: output/history in Tools.
       Implement missing actions as separate features.
+- [ ] Idea: replace the Git status column's `git` subprocess with a Rust
+      library (`git2` or `gix`) if dropping the Git executable dependency is
+      useful. Preserve ignored, renamed and nested-directory marks and check
+      performance before switching.
 - [ ] Add an image tool to set the selected image as the desktop wallpaper.
       Choose the Linux desktop integration and handle unsupported sessions.
 - [ ] Keymap presets: selectable fyle, Krusader, Midnight Commander and

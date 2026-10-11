@@ -96,7 +96,14 @@ impl Status {
 /// Runs git for `dir`; `None` outside a repository or without git.
 pub fn status(dir: &Path) -> Option<Status> {
     let git = |args: &[&str]| {
-        Command::new("git")
+        let mut command = Command::new("git");
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // CREATE_NO_WINDOW: Git is a console program, but this is a background query.
+            command.creation_flags(0x0800_0000);
+        }
+        command
             .arg("-C")
             .arg(dir)
             .args(args)
