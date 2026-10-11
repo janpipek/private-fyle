@@ -274,9 +274,14 @@ fn encode_url_component(component: &str) -> String {
 /// The server path for a panel location: the configured root plus the
 /// location's parts.
 pub fn remote_path(root: &str, location: &Location) -> PathBuf {
-    let mut path = PathBuf::from(root);
-    path.extend(location.parts());
-    path
+    let relative = location.relative();
+    if relative.is_empty() {
+        PathBuf::from(root)
+    } else if root == "/" {
+        PathBuf::from(format!("/{relative}"))
+    } else {
+        PathBuf::from(format!("{root}/{relative}"))
+    }
 }
 
 /// Whether an error from [`remote_error`] says the connection is gone.
