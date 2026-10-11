@@ -14,6 +14,9 @@ pub const MAX_EDIT_SIZE: u64 = 8 * 1024 * 1024;
 /// Whether the built-in editor can open this file without converting its text.
 /// Call off the UI thread because it reads up to [`MAX_EDIT_SIZE`] bytes.
 pub fn can_open(path: &Path) -> std::io::Result<bool> {
+    if !fs::metadata(path)?.is_file() {
+        return Ok(false);
+    }
     let mut file = fs::File::open(path)?;
     let metadata = file.metadata()?;
     if !metadata.is_file() || metadata.len() > MAX_EDIT_SIZE {

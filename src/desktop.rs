@@ -24,9 +24,17 @@ pub struct DesktopEntry {
 
 /// The ID of `file` inside the `applications` directory `root`.
 pub fn desktop_id(root: &Path, file: &Path) -> Option<String> {
-    let relative = file.strip_prefix(root).ok()?.to_str()?;
-    let stem = relative.strip_suffix(".desktop")?;
-    (!stem.is_empty()).then(|| format!("{}.desktop", stem.replace('/', "-")))
+    let relative = file.strip_prefix(root).ok()?;
+    let mut parts = relative
+        .components()
+        .map(|part| part.as_os_str().to_str())
+        .collect::<Option<Vec<_>>>()?;
+    let stem = parts.pop()?.strip_suffix(".desktop")?;
+    if stem.is_empty() {
+        return None;
+    }
+    parts.push(stem);
+    Some(format!("{}.desktop", parts.join("-")))
 }
 
 /// Parses an entry; `None` unless it is a `Type=Application` with a name
