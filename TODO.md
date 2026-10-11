@@ -6,6 +6,9 @@
       library (`git2` or `gix`) if dropping the Git executable dependency is
       useful. Preserve ignored, renamed and nested-directory marks and check
       performance before switching.
+- [ ] Idea: move the built-in editor from the panel into a separate window.
+      Decide whether F4 reuses an open editor window, and how focus and
+      unsaved-change prompts work across windows.
 - [ ] Add an image tool to set the selected image as the desktop wallpaper.
       Choose the Linux desktop integration and handle unsupported sessions.
 - [ ] Keymap presets: selectable fyle, Krusader, Midnight Commander and
