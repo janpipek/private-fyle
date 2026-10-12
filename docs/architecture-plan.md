@@ -1,6 +1,6 @@
 # Architecture refactoring plan
 
-Status: in progress; migration steps 1, 2a and 2b are complete.
+Status: in progress; migration steps 1, 2a, 2b and 3a are complete.
 
 This document records the architecture decision and an incremental migration
 plan. [README.md](../README.md#architecture) describes the current architecture;
@@ -104,15 +104,15 @@ bytes, symlink spelling, typed identities and persisted encodings are covered.
 
 ### Shared format knowledge owned by preview
 
-[`panel/metadata.rs`](../src/panel/metadata.rs) obtains EXIF through
-`preview::exif_fields`. Both columns and preview should consume a shared EXIF
-reader. That reader owns semantic fields; consumers own their labels and
-presentation.
+[`formats/exif.rs`](../src/formats/exif.rs) owns ordered semantic EXIF values
+and bounded RAW fallback. Preview maps tags to its existing labels;
+[`panel/metadata/exif.rs`](../src/panel/metadata/exif.rs) maps tags to column
+keys and compositions. The shared reader has no preview or panel dependency.
 
-RAW extraction already serves thumbnails and preview, but
-[`raw_preview.rs`](../src/raw_preview.rs) combines scanning with cache writes.
-Keep scanning, materialization and cache policy distinct when extracting the
-shared reader.
+[`formats/raw.rs`](../src/formats/raw.rs) owns extension policy, scan limits and
+largest-decodable-JPEG selection. [`raw_preview.rs`](../src/raw_preview.rs)
+retains source freshness checks, cache identity and atomic materialization;
+EXIF fallback parses selected JPEG bytes without writing to that cache.
 
 ### Feature decisions embedded in GUI code
 
@@ -236,13 +236,13 @@ new features or dependency changes.
    caches remain in the listing service. The panel model imports those values
    directly. Slice 2b is complete: pure remote addresses and archive members
    live under `location/`; providers retain their address compatibility alias.
-3. **Establish reader and classification boundaries.** Start
-   with `formats.rs` and `formats/exif.rs`, consumed by previews and panel
-   metadata. Preserve RAW fallback, existing limits and display behavior.
-   Separate RAW scanning from materialization/cache policy where required by
-   the extraction. Do not implement the open generalized-detection TODO in this
-   step; document its multi-facet contract for when that decision is taken.
-   Move other readers individually as their contracts become clear.
+3. **Establish reader and classification boundaries.** Slice 3a is complete:
+   `formats/exif.rs` owns semantic EXIF values and read-only RAW fallback;
+   `formats/raw.rs` selects a bounded embedded JPEG, while `raw_preview.rs`
+   owns cache identity and atomic materialization. Preview labels and panel
+   column composition remain at their consumers. Generalized file detection
+   remains an open TODO; move other readers individually as contracts become
+   clear.
 4. **Separate feature state from GUI execution.** Extract `preview/session.rs`
    for target identity, reloads, page/sheet selection and result acceptance.
    Keep debounce, task cancellation, editor/notebook resources and focus in GUI

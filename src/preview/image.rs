@@ -1,8 +1,6 @@
 //! Image previews and EXIF values for image and camera RAW files.
 
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::{self, BufReader, Read};
+use std::io;
 use std::path::Path;
 
 use super::{Content, Previewer, Probe};
@@ -32,137 +30,39 @@ impl Previewer for ImagePreviewer {
     }
 }
 
-/// EXIF fields worth showing, in this order.
-const TAGS: &[(exif::Tag, &str)] = &[
-    (exif::Tag::Make, "Make"),
-    (exif::Tag::Model, "Camera"),
-    (exif::Tag::LensModel, "Lens"),
-    (exif::Tag::DateTimeOriginal, "Taken"),
-    (exif::Tag::ExposureTime, "Exposure"),
-    (exif::Tag::FNumber, "Aperture"),
-    (exif::Tag::PhotographicSensitivity, "ISO"),
-    (exif::Tag::FocalLength, "Focal length"),
-    (exif::Tag::PixelXDimension, "Width"),
-    (exif::Tag::PixelYDimension, "Height"),
-    (exif::Tag::GPSLatitude, "Latitude"),
-    (exif::Tag::GPSLongitude, "Longitude"),
-    (exif::Tag::Software, "Software"),
-];
-
 /// Label and value of the image's EXIF fields; empty without EXIF data.
 pub fn exif_info(path: &Path) -> Vec<(String, String)> {
-    if crate::raw_preview::supported(path) {
-        let info = read_exif_info(path, Some(crate::raw_preview::SCAN_LIMIT));
-        if !info.is_empty() {
-            return info;
-        }
-        return crate::raw_preview::extract(path)
-            .map(|preview| read_exif_info(&preview, None))
-            .unwrap_or_default();
-    }
-    read_exif_info(path, None)
-}
-
-fn read_exif_info(path: &Path, limit: Option<u64>) -> Vec<(String, String)> {
-    let Ok(file) = File::open(path) else {
-        return Vec::new();
-    };
-    let parsed = if let Some(limit) = limit {
-        let mut bytes = Vec::new();
-        if file.take(limit).read_to_end(&mut bytes).is_err() {
-            return Vec::new();
-        }
-        if bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*") {
-            exif::Reader::new().read_raw(bytes)
-        } else {
-            exif::Reader::new().read_from_container(&mut std::io::Cursor::new(bytes))
-        }
-    } else {
-        exif::Reader::new().read_from_container(&mut BufReader::new(file))
-    };
-    let Ok(exif) = parsed else {
-        return Vec::new();
-    };
-    TAGS.iter()
-        .filter_map(|&(tag, label)| {
-            let field = exif.get_field(tag, exif::In::PRIMARY)?;
-            let value = field.display_value().with_unit(&exif).to_string();
-            let value = value.trim_matches('"').trim().to_string();
-            (!value.is_empty()).then(|| (label.to_string(), value))
-        })
+    crate::formats::exif::read(path)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|field| (label(field.tag).to_owned(), field.value))
         .collect()
 }
 
-/// Values for the EXIF columns, by [`crate::columns::ExifField::key`]:
-/// `taken`, `camera`, `lens`, `exposure`, `aperture`, `iso`,
-/// `focal_length`, `dimensions`, `gps`. Empty for files without EXIF data.
-pub fn exif_fields(path: &Path) -> HashMap<&'static str, String> {
-    let ext = path
-        .extension()
-        .map(|e| e.to_string_lossy().to_lowercase())
-        .unwrap_or_default();
-    // Only formats that carry EXIF; saves opening every file.
-    if !crate::raw_preview::supported(path)
-        && !matches!(
-            ext.as_str(),
-            "jpg" | "jpeg" | "tif" | "tiff" | "png" | "webp" | "heic" | "heif" | "avif"
-        )
-    {
-        return HashMap::new();
+fn label(tag: crate::formats::exif::Tag) -> &'static str {
+    use crate::formats::exif::Tag;
+    match tag {
+        Tag::Make => "Make",
+        Tag::Model => "Camera",
+        Tag::LensModel => "Lens",
+        Tag::DateTimeOriginal => "Taken",
+        Tag::ExposureTime => "Exposure",
+        Tag::FNumber => "Aperture",
+        Tag::PhotographicSensitivity => "ISO",
+        Tag::FocalLength => "Focal length",
+        Tag::PixelXDimension => "Width",
+        Tag::PixelYDimension => "Height",
+        Tag::GPSLatitude => "Latitude",
+        Tag::GPSLongitude => "Longitude",
+        Tag::Software => "Software",
     }
-    let info: HashMap<String, String> = exif_info(path).into_iter().collect();
-    let get = |label: &str| info.get(label).cloned();
-    let mut fields = HashMap::new();
-    let mut put = |key, value: Option<String>| {
-        if let Some(value) = value {
-            fields.insert(key, value);
-        }
-    };
-    // EXIF dates read "2024-05-01 12:30:45"; minutes are enough here.
-    put(
-        "taken",
-        get("Taken").map(|t| t.get(..16).unwrap_or(&t).to_string()),
-    );
-    // Models usually repeat the make ("Canon EOS R6"); some don't ("Pixel 7").
-    put(
-        "camera",
-        match (get("Make"), get("Camera")) {
-            // "Camera" is the Model tag
-            (Some(make), Some(model))
-                if !model.to_lowercase().starts_with(&make.to_lowercase()) =>
-            {
-                Some(format!("{make} {model}"))
-            }
-            (make, model) => model.or(make),
-        },
-    );
-    put("lens", get("Lens"));
-    put("exposure", get("Exposure"));
-    put("aperture", get("Aperture"));
-    put("iso", get("ISO"));
-    put("focal_length", get("Focal length"));
-    put(
-        "dimensions",
-        get("Width")
-            .zip(get("Height"))
-            .map(|(w, h)| format!("{w}×{h}")),
-    );
-    put(
-        "gps",
-        get("Latitude")
-            .zip(get("Longitude"))
-            .map(|(lat, lon)| format!("{lat}, {lon}")),
-    );
-    fields
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::exif_info;
     use image::ImageEncoder;
 
-    /// A minimal JPEG: SOI, an APP1 EXIF segment (little-endian TIFF with
-    /// Make and Model), EOI.
     fn jpeg_with_exif() -> Vec<u8> {
         let mut tiff = b"II*\0\x08\0\0\0".to_vec();
         let entries: u16 = 2;
@@ -171,16 +71,15 @@ mod tests {
         let (make, model) = (b"Acme\0".as_slice(), b"Snap 1\0".as_slice());
         let mut entry = |tag: u16, value: &[u8], offset: u32| {
             tiff.extend(tag.to_le_bytes());
-            tiff.extend(2u16.to_le_bytes()); // ASCII
+            tiff.extend(2u16.to_le_bytes());
             tiff.extend((value.len() as u32).to_le_bytes());
             tiff.extend(offset.to_le_bytes());
         };
         entry(0x010f, make, data_start);
         entry(0x0110, model, data_start + make.len() as u32);
-        tiff.extend(0u32.to_le_bytes()); // no next IFD
+        tiff.extend(0u32.to_le_bytes());
         tiff.extend(make);
         tiff.extend(model);
-
         let mut app1 = b"Exif\0\0".to_vec();
         app1.extend(tiff);
         let mut jpeg = vec![0xff, 0xd8, 0xff, 0xe1];
@@ -190,62 +89,38 @@ mod tests {
         jpeg
     }
 
+    fn decodable_jpeg_with_exif() -> Vec<u8> {
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut jpeg)
+            .write_image(&[128, 128, 128], 1, 1, image::ExtendedColorType::Rgb8)
+            .expect("encode JPEG preview");
+        let exif = jpeg_with_exif();
+        jpeg.splice(2..2, exif[2..exif.len() - 2].iter().copied());
+        jpeg
+    }
+
     #[test]
-    fn reads_exif_fields() {
-        let tmp = tempfile::tempdir().unwrap();
-        let path = tmp.path().join("photo.jpg");
-        std::fs::write(&path, jpeg_with_exif()).unwrap();
+    fn preview_exif_adapter_keeps_existing_labels_and_field_order() {
+        let temp = tempfile::TempDir::new().expect("temp dir");
+        let path = temp.path().join("photo.jpg");
+        std::fs::write(&path, jpeg_with_exif()).expect("write JPEG fixture");
         assert_eq!(
             exif_info(&path),
             [
                 ("Make".to_string(), "Acme".to_string()),
-                ("Camera".to_string(), "Snap 1".to_string())
+                ("Camera".to_string(), "Snap 1".to_string()),
             ]
         );
-        let fields = exif_fields(&path);
-        assert_eq!(
-            fields.get("camera").map(String::as_str),
-            Some("Acme Snap 1")
-        );
-        assert_eq!(fields.len(), 1);
-        std::fs::write(&path, b"\x89PNG\r\n\x1a\n").unwrap();
-        assert!(exif_info(&path).is_empty());
-        assert!(exif_fields(&path).is_empty());
     }
 
     #[test]
-    fn reads_exif_from_tiff_based_raw_file() {
-        let tmp = tempfile::tempdir().expect("temp dir");
-        let path = tmp.path().join("photo.DNG");
-        let jpeg = jpeg_with_exif();
-        std::fs::write(&path, &jpeg[12..jpeg.len() - 2]).expect("write TIFF metadata");
-
-        let fields = exif_fields(&path);
-        assert_eq!(
-            fields.get("camera").map(String::as_str),
-            Some("Acme Snap 1")
-        );
-    }
-
-    #[test]
-    fn reads_exif_from_raw_embedded_jpeg() {
-        let tmp = tempfile::tempdir().expect("temp dir");
-        let path = tmp.path().join("photo.CR3");
-        let mut encoded = Vec::new();
-        image::codecs::jpeg::JpegEncoder::new(&mut encoded)
-            .write_image(&[128, 128, 128], 1, 1, image::ExtendedColorType::Rgb8)
-            .expect("encode JPEG preview");
-        let exif_jpeg = jpeg_with_exif();
-        encoded.splice(2..2, exif_jpeg[2..exif_jpeg.len() - 2].iter().copied());
+    fn raw_registry_preview_keeps_labeled_embedded_exif() {
+        let temp = tempfile::TempDir::new().expect("temp dir");
+        let path = temp.path().join("photo.CR3");
         let mut raw = b"RAW wrapper".to_vec();
-        raw.extend(encoded);
+        raw.extend(decodable_jpeg_with_exif());
         std::fs::write(&path, raw).expect("write RAW fixture");
 
-        let fields = exif_fields(&path);
-        assert_eq!(
-            fields.get("camera").map(String::as_str),
-            Some("Acme Snap 1")
-        );
         let preview = crate::preview::Registry::with_defaults()
             .preview(&path)
             .expect("RAW preview");

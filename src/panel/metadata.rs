@@ -1,5 +1,8 @@
 //! Bounded metadata cache and background reader for visible local panel rows.
 
+/// EXIF projection from semantic tags to stable metadata-column values.
+pub mod exif;
+
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
@@ -301,7 +304,7 @@ fn read_metadata(request: &Request) -> Values {
         values.selinux = Some(crate::xattr::selinux_context(path).unwrap_or_default());
     }
     if request.fields.contains(&Field::Exif) {
-        values.exif = Some(crate::preview::exif_fields(path));
+        values.exif = Some(exif::exif_fields(path));
     }
     if request.fields.contains(&Field::Owner) {
         values.owner = Some(fs_ops::owner_name(request.uid));

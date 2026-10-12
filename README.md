@@ -480,6 +480,11 @@ activation and remote transfer
 selections carry typed identities. `Folder::path()` and `Entry::path` remain
 compatibility spellings for panel and native-operation boundaries; virtual
 spellings must not be passed to native filesystem calls.
+
+`src/formats/exif.rs` reads ordered semantic EXIF values; preview maps them to
+labels, and panel metadata composes them into column values. `src/formats/raw.rs`
+owns the bounded embedded-JPEG selector; `src/raw_preview.rs` owns its cache
+identity and atomic materialization.
 `src/tools/` is the model for context-dependent tools (run ruff on Python
 files, uv commands in uv projects, convert images, …); see
 [`docs/tools.md`](docs/tools.md). F2 opens them; your own go in
@@ -527,10 +532,11 @@ Where things live (`src/`):
 | `commander.rs`, `commander/` | Main window: the two panels, actions, dialogs, jobs bar, tools orchestration. Split by area into `commander/` (keys, navigation, search, files, jobs, view, archives, remotes, tools, menus, appearance); new logic goes into its own module, only wiring here. |
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
 | `entry.rs`, `model.rs`, `location.rs`, `location/`, `location_codec.rs` | Shared `Entry`/`Attrs` and pure sort rules; `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; pure local, remote and archive address semantics; versioned lossless location persistence |
+| `formats.rs`, `formats/` | Semantic EXIF fields and bounded RAW embedded-JPEG selection, shared by panel metadata and previews |
 | `copy_path.rs` | UI-independent selection path policy: local native paths, provider supplied standard URLs and no archive pseudo-paths |
 | `listing.rs`, `listing/contracts.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; shared request/result values and bounded per-panel remote listing cache |
-| `panel.rs`, `panel/metadata.rs` | `FolderView` and table wiring; bounded metadata request/cache model shared by list and icon views, with local metadata reads in background workers |
-| `thumbnails.rs`, `thumb_queue.rs`, `raw_preview.rs` | Icon view thumbnails: the freedesktop cache (URI and MD5 names, validity by `Thumb::MTime`, atomic writes, failure records), bounded JPEG preview extraction for common RAW extensions, and the load scheduler with its LRU, all UI-independent and tested |
+| `panel.rs`, `panel/metadata.rs` | `FolderView` and table wiring; bounded metadata request/cache model shared by list and icon views; `panel/metadata/exif.rs` composes semantic EXIF values into stable column keys |
+| `thumbnails.rs`, `thumb_queue.rs`, `raw_preview.rs` | Icon view thumbnails: the freedesktop cache (URI and MD5 names, validity by `Thumb::MTime`, atomic writes, failure records), RAW preview cache identity and atomic JPEG materialization, and the load scheduler with its LRU, all UI-independent and tested |
 | `grid.rs`, `icon_view.rs`, `glyphs.rs`, `context_menu.rs` | Icon view: `ViewMode`, icon sizes, `Layout` (columns for a width) and cursor moves (UI-independent, tested); the lazy `IconGrid` view; the `FileIcon` → glyph table and the right-click menu shared with the list |
 | `workspace.rs` | UI-independent workspace state for two panels, two panels plus Preview, or one panel plus Preview; tracks source/destination, selection-following requests and feasible dock positions. |
 | `columns.rs` | `ColumnKind` catalog, grouped, ids like `exif.iso`. A new column is a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |

@@ -36,7 +36,7 @@ pub use archive::ArchivePreviewer;
 pub use binary::BinaryPreviewer;
 pub use directory::DirectoryPreviewer;
 pub use document::DocumentPreviewer;
-pub use image::{ImagePreviewer, exif_fields};
+pub use image::ImagePreviewer;
 pub use markdown::MarkdownPreviewer;
 pub use media::MediaPreviewer;
 pub use notebook::{Cell as NotebookCell, Notebook, NotebookPreviewer, Output as NotebookOutput};

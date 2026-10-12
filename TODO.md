@@ -138,6 +138,17 @@
 
 ## Done
 
+- [x] Architecture refactor, step 2a: move listing request and result values
+      into `listing/contracts.rs`.
+
+- [x] Architecture refactor, step 2b: move remote address parsing and archive
+      member validation into pure `location` modules; preserve the typed
+      `Location` API and versioned address encodings.
+
+- [x] Architecture refactor, step 3a: move semantic EXIF reading and bounded
+      RAW JPEG selection into `formats/`; keep preview labels, panel column
+      composition and RAW cache/materialization at their consumers.
+
 - [x] Architecture refactor, step 1: move shared `Entry`, `Attrs`, `Sort`,
       and ordering into `entry.rs`; retain metadata and owner lookup as
       `fs_ops` adapters.

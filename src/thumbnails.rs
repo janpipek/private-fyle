@@ -15,7 +15,7 @@ use md5::{Digest, Md5};
 /// Formats the thumbnailer decodes (the image previewer's, without svg and
 /// ico, which the `image` features here do not cover).
 pub const EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff"];
-const RAW_EXTENSIONS: &[&str] = crate::raw_preview::EXTENSIONS;
+const RAW_EXTENSIONS: &[&str] = crate::formats::raw::EXTENSIONS;
 
 /// Larger files are not decoded for a thumbnail.
 pub const MAX_FILE_SIZE: u64 = 64 * 1024 * 1024;
@@ -182,7 +182,7 @@ fn mtime_secs(meta: &fs::Metadata) -> Option<i64> {
 
 /// Decodes `path` and scales it to fit `class`, never enlarging.
 fn generate(path: &Path, class: SizeClass) -> Result<RgbaImage, Skip> {
-    let raw = crate::raw_preview::supported(path);
+    let raw = crate::formats::raw::supported(path);
     let source = if raw {
         crate::raw_preview::extract(path).map_err(|error| {
             if error.kind() == io::ErrorKind::InvalidData {

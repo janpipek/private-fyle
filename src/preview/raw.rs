@@ -13,7 +13,7 @@ impl Previewer for RawPreviewer {
     }
 
     fn matches(&self, probe: &Probe) -> bool {
-        !probe.is_dir && crate::raw_preview::supported(&probe.path)
+        !probe.is_dir && crate::formats::raw::supported(&probe.path)
     }
 
     fn load(&self, probe: &Probe) -> io::Result<Content> {

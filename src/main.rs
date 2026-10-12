@@ -18,6 +18,7 @@ mod dirsize;
 mod editor;
 mod editor_view;
 mod entry;
+mod formats;
 mod fs_ops;
 mod git_status;
 mod glyphs;

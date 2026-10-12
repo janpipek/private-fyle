@@ -48,7 +48,7 @@ pub enum ExifField {
 }
 
 impl ExifField {
-    /// Key in [`crate::preview::exif_fields`]'s map, and the id suffix.
+    /// Stable metadata key and column id suffix.
     pub fn key(self) -> &'static str {
         match self {
             Self::Taken => "taken",
