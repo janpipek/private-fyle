@@ -135,6 +135,8 @@
       on the host. Wanted: a source RPM that builds offline from vendored
       crates (`cargo vendor`) in mock or Copr, an own icon and metainfo,
       and later a macOS package.
+- [ ] The column header should be editable, such as + icon to add a column,
+      right-click to show a menu etc.
 
 ## Done
 
