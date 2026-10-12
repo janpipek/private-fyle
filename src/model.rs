@@ -29,7 +29,7 @@ use crate::dirsize::DirSize;
 use crate::entry::sort_entries;
 use crate::entry::{Entry, Sort, compare_entries};
 use crate::fs_ops;
-use crate::listing::{ListingRequest, ListingSnapshot};
+use crate::listing::contracts::{ListingRequest, ListingRow, ListingSnapshot};
 use crate::location::{Location, PanelTarget};
 
 /// Result of activating (Enter / double-click) the entry under the cursor.
@@ -297,7 +297,7 @@ impl Folder {
         .then(|| {
             self.all
                 .iter()
-                .map(|row| crate::listing::ListingRow {
+                .map(|row| ListingRow {
                     entry: row.entry.clone(),
                     location: row.location.clone(),
                     depth: row.depth,

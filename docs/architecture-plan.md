@@ -1,6 +1,6 @@
 # Architecture refactoring plan
 
-Status: in progress; migration step 1 is complete.
+Status: in progress; migration steps 1 and 2a are complete.
 
 This document records the architecture decision and an incremental migration
 plan. [README.md](../README.md#architecture) describes the current architecture;
@@ -35,7 +35,7 @@ and a challenge of the proposed boundaries, and Astra for the overall decision.
 
 | Area | Owns | Existing code affected |
 | --- | --- | --- |
-| File identities and contracts | Locations, entry metadata, sorting, listing requests and results; no disk or provider access | Shared parts of `fs_ops`, `location`, `listing`, `model` |
+| File identities and contracts | Entry metadata, sorting, listing requests and results; address semantics are still being isolated | Shared parts of `fs_ops`, `location`, `listing`, `model` |
 | Formats | Format-specific data, parsing, metadata extraction and enforced decoding limits | Reusable parts of `preview/*`, EXIF, RAW and archive readers |
 | System integration | Local filesystem operations, remote providers, desktop applications, accounts, xattrs and external programs | `fs_ops`, `remote/*`, desktop/MIME modules and specialized process adapters |
 | Application features | Browsing, preview, editing, search, transfers, tools and settings, with explicit state and execution responsibilities | Existing model and service modules |
@@ -67,10 +67,13 @@ to GUI integration; request generations, selection rules and queue policies
 belong to independent models.
 
 Shared contracts and pure state models must not import GPUI or concrete provider
-implementations. Format readers return plain data and do not depend on preview
-presentation. Readers and services may perform bounded I/O using Rust and
-third-party library APIs; they run off the UI thread. A universal wrapper around
-all filesystem access is not required.
+implementations. Listing contracts now import only standard types plus entry
+and location values. The `Location` model still contains remote-address and
+archive-validation dependencies, so the full address boundary remains pending.
+Format readers return plain data and do not depend on preview presentation.
+Readers and services may perform bounded I/O using Rust and third-party library
+APIs; they run off the UI thread. A universal wrapper around all filesystem
+access is not required.
 
 ## Current boundaries to repair
 
@@ -84,13 +87,13 @@ Owner lookup remains in the existing background metadata worker.
 Consumers import shared values directly from `entry.rs`; the shared types do
 not expose hidden filesystem or account lookups. `LinkState` is unchanged.
 
-### Listing contracts coupled to the panel model
+### Listing execution and address semantics
 
-[`model.rs`](../src/model.rs) consumes listing requests and snapshots. `Sort`
-now comes from `entry.rs`, removing the reverse dependency from listing to the
-panel model. Listing contracts remain coupled to execution; the next step will
-separate them so Folder consumes snapshots without depending on the service
-that obtains them.
+[`listing/contracts.rs`](../src/listing/contracts.rs) owns listing requests,
+rows, snapshots and outcomes; [`model.rs`](../src/model.rs) imports those values
+directly. `Sort` comes from `entry.rs`. The remaining address work is a separate
+slice: isolate remote-address and archive-member validation while preserving
+the typed `Location` API.
 
 ### Addresses coupled to execution modules
 
@@ -228,11 +231,12 @@ new features or dependency changes.
    metadata conversion and account lookup in adapters. Update consumers and
    move existing ordering tests with their code. This step has landed; metadata
    and account adapters remain in `fs_ops.rs`.
-2. **Separate listing contracts and address semantics.** Introduce
-   `listing/contracts.rs`, keeping execution and caches in the listing service.
-   Complete the listing-contract extraction. The dependency through sorting
-   was removed in step 1. In a separate commit, isolate pure remote-address and
-   archive-member validation before regrouping their execution modules.
+2. **Separate listing contracts and address semantics.** Slice 2a is complete:
+   `listing/contracts.rs` owns request and result values, while execution and
+   caches remain in the listing service. The panel model imports those values
+   directly. Slice 2b remains: isolate pure remote-address and archive-member
+   validation before regrouping their execution modules. `Location` still
+   carries those address dependencies, so the full boundary is not provider-free.
 3. **Establish reader and classification boundaries.** Start
    with `formats.rs` and `formats/exif.rs`, consumed by previews and panel
    metadata. Preserve RAW fallback, existing limits and display behavior.

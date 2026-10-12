@@ -458,8 +458,9 @@ which keeps the places overview separate from file addresses.
 `src/panel.rs` is a `DataTable` view on top of a `Folder`; it only renders the
 model and forwards cursor moves, sorting and double-clicks to it. The
 UI-independent `src/listing.rs` service owns local, archive and remote listing
-I/O. Commander runs requests in cancellable background tasks and applies only
-the current result; `Folder` sorts and filters the cached rows without I/O.
+I/O; `src/listing/contracts.rs` owns the request and result values shared with
+`Folder`. Commander runs requests in cancellable background tasks and applies
+only the current result; `Folder` sorts and filters the cached rows without I/O.
 Each panel keeps a bounded cache of its last 32 remote listings, while explicit
 refreshes bypass that cache.
 `src/commander.rs` owns the two models and their views and implements the
@@ -523,7 +524,7 @@ Where things live (`src/`):
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
 | `entry.rs`, `model.rs`, `location.rs`, `location_codec.rs` | Shared `Entry`/`Attrs` and pure sort rules; `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; `Location` native, remote and archive addresses; versioned lossless location persistence |
 | `copy_path.rs` | UI-independent selection path policy: local native paths, provider supplied standard URLs and no archive pseudo-paths |
-| `listing.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; typed snapshots and bounded per-panel remote listing cache |
+| `listing.rs`, `listing/contracts.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; shared request/result values and bounded per-panel remote listing cache |
 | `panel.rs`, `panel/metadata.rs` | `FolderView` and table wiring; bounded metadata request/cache model shared by list and icon views, with local metadata reads in background workers |
 | `thumbnails.rs`, `thumb_queue.rs`, `raw_preview.rs` | Icon view thumbnails: the freedesktop cache (URI and MD5 names, validity by `Thumb::MTime`, atomic writes, failure records), bounded JPEG preview extraction for common RAW extensions, and the load scheduler with its LRU, all UI-independent and tested |
 | `grid.rs`, `icon_view.rs`, `glyphs.rs`, `context_menu.rs` | Icon view: `ViewMode`, icon sizes, `Layout` (columns for a width) and cursor moves (UI-independent, tested); the lazy `IconGrid` view; the `FileIcon` → glyph table and the right-click menu shared with the list |
