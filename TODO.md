@@ -140,6 +140,10 @@
 
 ## Done
 
+- [x] Architecture refactor, step 6a: extract settings file loading, creation
+      and comment-preserving saves into `settings/persistence.rs`; keep schema,
+      defaults and parsing in `settings.rs`, with explicit persistence callers.
+
 - [x] Architecture refactor, step 4b: separate panel metadata queue/cache
       policy and contracts from blocking readers and GPUI scheduling; preserve
       cache/queue/worker bounds and listing-generation rejection.

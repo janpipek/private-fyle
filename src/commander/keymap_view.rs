@@ -193,7 +193,9 @@ impl Commander {
         let saved_entries = entries.clone();
         self._keymap_save_task = cx.spawn(async move |this, cx| {
             let result = cx
-                .background_spawn(async move { crate::settings::save_keymap(&saved_entries) })
+                .background_spawn(async move {
+                    crate::settings::persistence::save_keymap(&saved_entries)
+                })
                 .await;
             let _ = this.update(cx, |this, cx| match result {
                 Ok(path) => {

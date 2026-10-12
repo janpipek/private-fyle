@@ -37,7 +37,8 @@ enum Edit {
 }
 
 fn edit_settings(dir: &Location, edit: Edit) -> Result<PathBuf, String> {
-    let path = crate::settings::Settings::path().ok_or("No config directory on this platform")?;
+    let path =
+        crate::settings::persistence::path().ok_or("No config directory on this platform")?;
     edit_file(&path, dir, edit)?;
     Ok(path)
 }

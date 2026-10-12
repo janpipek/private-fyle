@@ -78,11 +78,10 @@ use std::path::PathBuf;
 use gpui_kit::*;
 
 use commander::Commander;
-use settings::Settings;
 use themes::ThemeChoice;
 
 fn main() {
-    let (settings, settings_error) = Settings::load();
+    let (settings, settings_error) = settings::persistence::load();
 
     // Command-line directories override the configured ones.
     let mut args = std::env::args_os().skip(1).map(PathBuf::from);

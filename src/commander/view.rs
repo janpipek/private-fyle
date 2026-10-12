@@ -70,7 +70,9 @@ impl Commander {
     fn start_layout_save(&mut self, layout: LayoutMode, cx: &mut Context<Self>) {
         self._layout_save_task = cx.spawn(async move |this, cx| {
             let result = cx
-                .background_spawn(async move { settings::save_workspace_layout(layout) })
+                .background_spawn(
+                    async move { settings::persistence::save_workspace_layout(layout) },
+                )
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if let Err(error) = result {

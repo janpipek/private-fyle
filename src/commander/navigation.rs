@@ -197,7 +197,7 @@ impl Commander {
                 view.close_inputs(cx);
             });
             if modes[0] != modes[1]
-                && let Err(error) = crate::settings::save_panel_view(ix, modes[1 - ix])
+                && let Err(error) = crate::settings::persistence::save_panel_view(ix, modes[1 - ix])
             {
                 self.status = error.into();
             }

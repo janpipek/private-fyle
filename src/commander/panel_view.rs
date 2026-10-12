@@ -63,7 +63,7 @@ impl Commander {
             self.set_error(error.map_or(Ok(()), Err), cx);
         }
         self.views[ix].update(cx, |view, cx| view.set_view_mode(mode, cx));
-        self.save_setting(settings::save_panel_view(ix, mode), cx);
+        self.save_setting(settings::persistence::save_panel_view(ix, mode), cx);
     }
 
     /// Both panels share the icon size, so the setting stays one number.
@@ -76,7 +76,7 @@ impl Commander {
         for view in &self.views {
             view.update(cx, |view, cx| view.set_icon_size(size, cx));
         }
-        self.save_setting(settings::save_icon_size(size), cx);
+        self.save_setting(settings::persistence::save_icon_size(size), cx);
     }
 
     fn save_setting(&mut self, saved: Result<std::path::PathBuf, String>, cx: &mut Context<Self>) {

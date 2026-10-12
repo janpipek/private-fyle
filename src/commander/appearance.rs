@@ -83,7 +83,7 @@ impl Commander {
         for view in &self.views {
             view.update(cx, |view, cx| view.set_columns(columns.clone(), cx));
         }
-        if let Err(e) = settings::save_columns(&columns) {
+        if let Err(e) = settings::persistence::save_columns(&columns) {
             self.status = e.into();
         }
         cx.notify();
@@ -141,7 +141,7 @@ impl Commander {
     }
 
     pub fn theme_chosen(&mut self, name: String, cx: &mut Context<Self>) {
-        self.status = match settings::save_theme(&name) {
+        self.status = match settings::persistence::save_theme(&name) {
             Ok(path) => format!("Theme: {name} (saved to {})", path.display()).into(),
             Err(e) => format!("Theme: {name} (not saved: {e})").into(),
         };
@@ -169,7 +169,7 @@ impl Commander {
             cx.background_executor()
                 .timer(Duration::from_millis(500))
                 .await;
-            if let Err(e) = settings::save_font_size(size) {
+            if let Err(e) = settings::persistence::save_font_size(size) {
                 let _ = this.update(cx, |this, cx| {
                     this.status = e.into();
                     cx.notify();
@@ -181,7 +181,7 @@ impl Commander {
     /// Help › Configuration: edits `config.toml`, created from the example
     /// first if missing.
     pub fn open_config(&mut self, _: &OpenConfig, window: &mut Window, cx: &mut Context<Self>) {
-        match settings::ensure_file() {
+        match settings::persistence::ensure_file() {
             Ok(path) => {
                 self.open_in_editor(path.clone(), Document::open(&path), window, cx);
                 if self.editor_command.is_empty() {

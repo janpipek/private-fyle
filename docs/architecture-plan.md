@@ -1,6 +1,6 @@
 # Architecture refactoring plan
 
-Status: in progress; migration steps 1, 2a, 2b, 3a, 4a and 4b are complete.
+Status: in progress; migration steps 1, 2a, 2b, 3a, 4a, 4b and 6a are complete.
 
 This document records the architecture decision and an incremental migration
 plan. [README.md](../README.md#architecture) describes the current architecture;
@@ -264,10 +264,13 @@ new features or dependency changes.
    bounded incremental reader contracts before extending samples. If remote
    writeback or grouped assets are approved, settle freshness/capability and
    action-target rules before changing transfer execution.
-6. **Clarify remaining service ownership.** Extract `settings/persistence.rs`
-   while retaining comment-preserving saves. Keep tools' planning/execution
-   boundary explicit. Scope navigation lifecycle extraction separately because
-   cancellation, pending destinations and panel swapping cross several paths.
+6. **Clarify remaining service ownership.** Slice 6a is complete:
+   `settings/persistence.rs` owns config-path discovery, loading, example-file
+   creation and comment-preserving saves. `settings.rs` retains the schema,
+   defaults, parsing and home-path expansion; callers name persistence directly.
+   Tools retain their documented planning/execution boundary. Navigation lifecycle
+   extraction remains a separate slice because cancellation, pending destinations
+   and panel swapping cross several paths.
 7. **Finish GUI organization and documentation.** Separate `FileTable` from
    the shared panel shell, for example into `panel/table_view.rs`. Group feature
    panes and shared visuals where useful. Keep composition and command wiring
