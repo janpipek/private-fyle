@@ -269,8 +269,11 @@ new features or dependency changes.
    creation and comment-preserving saves. `settings.rs` retains the schema,
    defaults, parsing and home-path expansion; callers name persistence directly.
    Tools retain their documented planning/execution boundary. Navigation lifecycle
-   extraction remains a separate slice because cancellation, pending destinations
-   and panel swapping cross several paths.
+   extraction is now scoped as step 6b in
+   [navigation-lifecycle-plan.md](navigation-lifecycle-plan.md): extract request
+   generations, pending state and typed destinations into a per-panel model.
+   Keep task handles, cancellation signals and remote reload generations in
+   Commander. The audit excludes dormant archive-loading code.
 7. **Finish GUI organization and documentation.** Slice 7a is complete:
    `panel/table_view.rs` owns `FileTable` rendering and event forwarding.
    `panel.rs` retains header state, inputs, focus, subscriptions, Git scheduling

@@ -489,6 +489,9 @@ identity and atomic materialization.
 files, uv commands in uv projects, convert images, …); see
 [`docs/tools.md`](docs/tools.md). F2 opens them; your own go in
 `<config dir>/fyle/tools.toml`, or in Lua plugins in `<config dir>/fyle/plugins/*.lua`.
+The next navigation lifecycle extraction is scoped in
+[`docs/navigation-lifecycle-plan.md`](docs/navigation-lifecycle-plan.md);
+request bookkeeping still lives in Commander until that slice lands.
 `src/settings.rs` owns the config schema, defaults, validation and path expansion;
 `src/settings/persistence.rs` owns config-path discovery, file loading/creation
 and comment-preserving saves through `toml_edit`.
