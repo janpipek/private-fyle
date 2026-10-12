@@ -66,6 +66,8 @@ mod thumbnails;
 mod tools;
 mod tools_view;
 mod transfer;
+mod window_chrome_view;
+mod window_title;
 #[cfg(windows)]
 mod windows_apps;
 pub mod workspace;
@@ -131,11 +133,7 @@ fn main() {
             let bounds = Bounds::centered(None, size, cx);
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
-                titlebar: Some(TitlebarOptions {
-                    title: Some("Fyle".into()),
-                    ..Default::default()
-                }),
-                ..Default::default()
+                ..window_chrome_view::window_options("Fyle".into())
             };
             let mut errors: Vec<String> = settings_error.into_iter().collect();
             if let Err(keymap_errors) = commander::validate_user_keys(&settings.keymap, cx) {

@@ -306,6 +306,14 @@ cursor row, so it cannot reproduce MC's black cursor text through a theme alone.
 Marks share the danger colour in fyle, so danger indicators are yellow too;
 destructive buttons retain red backgrounds.
 
+### Window title bars
+
+On Windows, the main window combines its menus and themed title bar in one row.
+Drag the title or empty space to move the window; double-click it to maximize or
+restore. Minimize, maximize, close, and edge resizing use Windows window handling.
+Editor windows use a matching title bar, and closing a modified document still
+asks whether to save it. Other platforms retain their existing window decorations.
+
 ## Build dependencies
 
 - Linux (Debian/Ubuntu): `libxkbcommon-dev libxkbcommon-x11-dev libfontconfig1-dev libxcb1-dev libwayland-dev libssl-dev pkg-config`,

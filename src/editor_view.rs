@@ -6,6 +6,7 @@ use gpui_kit::component::input::{Editor, EditorState, InputEvent};
 use gpui_kit::component::{
     ActiveTheme as _, Disableable as _, Sizable as _, WindowExt as _, h_flex, v_flex,
 };
+#[cfg(not(windows))]
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -31,15 +32,11 @@ pub enum EditorEvent {
 
 /// Opens an editor in its own window and returns its window handle and pane.
 pub fn open_window(doc: Document, cx: &mut App) -> Result<(AnyWindowHandle, Entity<EditorPane>)> {
-    let title = format!("{} — Fyle", doc.name());
+    let title = crate::window_title::editor_title(&doc.name(), false);
     let bounds = Bounds::centered(None, size(px(900.), px(700.)), cx);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
-        titlebar: Some(TitlebarOptions {
-            title: Some(title.into()),
-            ..Default::default()
-        }),
-        ..Default::default()
+        ..crate::window_chrome_view::window_options(title)
     };
     gpui_kit::open_window(options, cx, move |window, cx| {
         let pane = cx.new(|cx| EditorPane::new(doc, window, cx));
@@ -206,47 +203,59 @@ impl EditorPane {
 impl Render for EditorPane {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
+        #[cfg(windows)]
+        let header = crate::window_chrome_view::editor_title_bar(
+            crate::window_title::editor_title(
+                &self.doc.path().display().to_string(),
+                self.modified,
+            ),
+            Button::new("save")
+                .label("Save")
+                .ghost()
+                .xsmall()
+                .disabled(!self.modified)
+                .on_click(cx.listener(|this, _, w, cx| this.save(&SaveFile, w, cx))),
+            cx,
+        );
+        #[cfg(not(windows))]
+        let header = h_flex()
+            .gap_2()
+            .px_2()
+            .py_0p5()
+            .rounded(theme.radius)
+            .bg(theme.muted)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .child(self.doc.path().display().to_string()),
+            )
+            .when(self.modified, |d| {
+                d.child(div().flex_none().child("● modified"))
+            })
+            .child(
+                Button::new("save")
+                    .label("Save")
+                    .ghost()
+                    .xsmall()
+                    .disabled(!self.modified)
+                    .on_click(cx.listener(|this, _, w, cx| this.save(&SaveFile, w, cx))),
+            )
+            .child(
+                Button::new("close")
+                    .label("Close")
+                    .ghost()
+                    .xsmall()
+                    .on_click(cx.listener(|this, _, w, cx| this.close(&CloseEditor, w, cx))),
+            );
         v_flex()
             .key_context(CONTEXT)
             .on_action(cx.listener(Self::save))
             .on_action(cx.listener(Self::close))
             .size_full()
             .gap_1()
-            .child(
-                h_flex()
-                    .gap_2()
-                    .px_2()
-                    .py_0p5()
-                    .rounded(theme.radius)
-                    .bg(theme.muted)
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .child(self.doc.path().display().to_string()),
-                    )
-                    .when(self.modified, |d| {
-                        d.child(div().flex_none().child("● modified"))
-                    })
-                    .child(
-                        Button::new("save")
-                            .label("Save")
-                            .ghost()
-                            .xsmall()
-                            .disabled(!self.modified)
-                            .on_click(cx.listener(|this, _, w, cx| this.save(&SaveFile, w, cx))),
-                    )
-                    .child(
-                        Button::new("close")
-                            .label("Close")
-                            .ghost()
-                            .xsmall()
-                            .on_click(
-                                cx.listener(|this, _, w, cx| this.close(&CloseEditor, w, cx)),
-                            ),
-                    ),
-            )
+            .child(header)
             .child(
                 div()
                     .flex_1()

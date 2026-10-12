@@ -134,7 +134,13 @@ impl Render for MenuBar {
             .on_action(cx.listener(Self::move_right))
             .on_action(cx.listener(Self::cancel))
             .h_flex()
-            .size_full()
+            .h_full()
+            .when(!cfg!(windows), |bar| bar.w_full())
+            .when(cfg!(windows), |bar| {
+                // Only the intrinsic menu bounds occlude the title bar's native drag hitbox.
+                bar.occlude()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            })
             .gap_x_1()
             .overflow_x_scroll()
             .children(self.menus.clone())

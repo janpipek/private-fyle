@@ -714,15 +714,24 @@ impl Render for Commander {
             .bg(bg)
             .text_color(fg)
             .text_sm()
-            // AppMenuBar fills its parent, so give it a single row rather
-            // than letting it claim the full window height.
-            .child(
-                div()
-                    .w_full()
-                    .h_8()
-                    .flex_none()
-                    .child(self.menu_bar.clone()),
-            )
+            .when(cfg!(windows), |root| {
+                #[cfg(windows)]
+                let root = root.child(crate::window_chrome_view::menu_title_bar(
+                    self.menu_bar.clone(),
+                    cx,
+                ));
+                root
+            })
+            // On other platforms the menu bar keeps its own row below native decorations.
+            .when(!cfg!(windows), |root| {
+                root.child(
+                    div()
+                        .w_full()
+                        .h_8()
+                        .flex_none()
+                        .child(self.menu_bar.clone()),
+                )
+            })
             .when_some(self.open_with_menu.clone(), |root, menu| {
                 root.child(deferred(
                     anchored()

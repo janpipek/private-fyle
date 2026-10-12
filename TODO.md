@@ -140,6 +140,10 @@
 
 ## Done
 
+- [x] Windows custom title bars: combine the main menus and themed window chrome
+      in one row; use a matching editor title bar, native window controls and
+      resizing, and preserve the editor's unsaved-change close prompt.
+
 - [x] Architecture refactor, step 6d: consolidate Folder test navigation and
       loading on `ListingService` and production commit methods; remove duplicated
       local/archive readers, remote cache policy and history/fallback algorithms.
