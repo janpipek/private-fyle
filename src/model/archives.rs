@@ -1,5 +1,4 @@
-//! Browsing archives like directories, including the two-step load of an
-//! archive that is not cached yet.
+//! Archive browsing addresses, selection targets and display headers.
 
 use std::path::{Path, PathBuf};
 #[cfg(test)]
@@ -7,7 +6,7 @@ use std::sync::Arc;
 
 use super::Folder;
 #[cfg(test)]
-use super::{Entry, PanelContent, Row};
+use super::{Entry, Row};
 use crate::archive;
 #[cfg(test)]
 use crate::entry::{Attrs, sort_entries};
@@ -71,18 +70,6 @@ impl Folder {
         Some((file, inner))
     }
 
-    /// The archive file that must be read before `path` can be shown, if
-    /// `path` is inside one that is not cached yet (see
-    /// [`archive::Index::cached`]). Showing it would block on that read.
-    #[cfg(test)]
-    pub fn archive_needed(&self, path: &Path) -> Option<PathBuf> {
-        if crate::location::is_remote(path) || path.as_os_str().is_empty() || path.is_dir() {
-            return None;
-        }
-        let (file, _) = archive::locate(path)?;
-        (!archive::Index::is_cached(&file)).then_some(file)
-    }
-
     /// Where [`Folder::activate`] would go: the cursor entry if it is a
     /// folder or an archive.
     pub fn activation_target(&self) -> Option<crate::location::PanelTarget> {
@@ -98,80 +85,6 @@ impl Folder {
                     .as_local_path()
                     .is_some_and(|path| archive::format_of(path).is_some())))
         .then(|| crate::location::PanelTarget::Location(entry.location.clone()))
-    }
-
-    /// Shows an empty listing of the archive location `target` while its
-    /// archive is read elsewhere (see [`Folder::archive_needed`]). The
-    /// previous state comes back with [`Folder::end_archive_load`].
-    #[cfg(test)]
-    pub fn begin_archive_load(&mut self, target: PathBuf) {
-        self.end_archive_load(false);
-        let Some(file) = self.archive_needed(&target) else {
-            return;
-        };
-        let saved = Box::new(self.clone());
-        self.entries.clear();
-        self.all.clear();
-        self.marked.clear();
-        self.filter.clear();
-        self.cursor = 0;
-        self.mount = Some(Mount {
-            file,
-            index: Arc::default(),
-        });
-        self.content = PanelContent::Directory(
-            Location::archive(
-                Location::local(
-                    self.mount
-                        .as_ref()
-                        .expect("loading has a mount")
-                        .file
-                        .clone(),
-                )
-                .expect("archive file has an absolute path"),
-                &crate::location::archive::inner_of(
-                    self.archive().expect("loading has an archive"),
-                    &target,
-                )
-                .expect("target is within the archive"),
-            )
-            .expect("archive target has a valid member path"),
-        );
-        self.generation += 1;
-        self.loading = Some(saved);
-    }
-
-    /// Whether an archive is being read for this folder.
-    pub fn is_loading(&self) -> bool {
-        #[cfg(test)]
-        {
-            self.loading.is_some()
-        }
-        #[cfg(not(test))]
-        {
-            false
-        }
-    }
-
-    /// Ends [`Folder::begin_archive_load`], restoring the previous state.
-    /// With `leave`, the cursor goes to the archive in its containing
-    /// directory (used when the read is cancelled).
-    #[cfg(test)]
-    pub fn end_archive_load(&mut self, leave: bool) {
-        let Some(saved) = self.loading.take() else {
-            return;
-        };
-        let file = self.archive().map(Path::to_path_buf);
-        *self = *saved;
-        if let (true, Some(file)) = (leave, file) {
-            let parent = fs_ops::parent_of(&file).unwrap_or_default();
-            if self.path() != parent || self.mount.is_some() {
-                // Best effort: the previous state stays if the directory is gone.
-                let _ = self.replace(parent, Some(file));
-            } else {
-                self.select_path(Some(&file));
-            }
-        }
     }
 
     /// A compact text form of the panel location, separating an archive file
@@ -264,11 +177,15 @@ mod tests {
     use super::*;
     use crate::entry::Sort;
     use crate::entry::SortKey;
+    use crate::listing::ListingService;
     use crate::location::Location;
     use crate::model::test_support::{fixture, loaded, names};
     use crate::model::{Activation, Folder};
+    use crate::navigation::PanelNavigation;
+    use crate::remote::Registry;
     use std::fs;
     use std::path::Path;
+    use std::sync::atomic::AtomicBool;
 
     fn zip_file(path: &Path) {
         use std::io::Write;
@@ -283,6 +200,71 @@ mod tests {
             zip.write_all(text.as_bytes()).unwrap();
         }
         zip.finish().unwrap();
+    }
+
+    #[test]
+    fn archive_listing_keeps_source_rows_until_navigation_commits() {
+        let dir = fixture();
+        let zip = dir.path().join("pending.zip");
+        zip_file(&zip);
+        let mut folder = loaded(&dir);
+        folder.select_path(Some(&zip));
+        let before: Vec<_> = names(&folder).into_iter().map(String::from).collect();
+        let source = folder.target();
+        let target = folder.activation_target().unwrap();
+        let mut navigation = PanelNavigation::default();
+        let token = navigation.begin(target.clone());
+        let request = folder.listing_request(target, false, false);
+        let service = ListingService::new(Arc::new(Registry::default()));
+        let snapshot = service.list(&request, &AtomicBool::new(false)).unwrap();
+        assert_eq!(folder.target(), source);
+        assert_eq!(
+            names(&folder),
+            before.iter().map(String::as_str).collect::<Vec<_>>()
+        );
+        assert_eq!(folder.current().unwrap().path, zip);
+        assert!(navigation.is_pending());
+        assert!(navigation.complete(token));
+        let selected = folder.selection_for_navigation(&snapshot.target);
+        folder.commit_navigation_listing(snapshot, selected);
+        assert_eq!(folder.archive(), Some(zip.as_path()));
+        assert_eq!(names(&folder), ["..", "docs", "top.txt"]);
+        assert!(folder.history_visit(true).is_some());
+    }
+
+    #[test]
+    fn cancelled_archive_navigation_preserves_rows_marks_and_filter() {
+        let dir = fixture();
+        let zip = dir.path().join("cancelled.zip");
+        zip_file(&zip);
+        let mut folder = loaded(&dir);
+        folder.select_path(Some(&zip));
+        folder.toggle_mark();
+        folder.set_filter("cancelled");
+        let source = folder.target();
+        let generation = folder.generation();
+        let before: Vec<_> = names(&folder).into_iter().map(String::from).collect();
+        let target = folder.activation_target().unwrap();
+        let request = folder.listing_request(target.clone(), false, false);
+        let mut navigation = PanelNavigation::default();
+        let token = navigation.begin(target);
+        assert!(navigation.cancel());
+        let service = ListingService::new(Arc::new(Registry::default()));
+        // Reading may finish after cancellation, but the current folder stays intact.
+        let snapshot = service.list(&request, &AtomicBool::new(false)).unwrap();
+        if navigation.complete(token) {
+            folder.commit_navigation_listing(snapshot, None);
+        }
+        assert_eq!(folder.target(), source);
+        assert_eq!(folder.generation(), generation);
+        assert_eq!(
+            names(&folder),
+            before.iter().map(String::as_str).collect::<Vec<_>>()
+        );
+        assert_eq!(folder.marked_count(), 1);
+        assert_eq!(folder.filter(), "cancelled");
+        assert_eq!(folder.current().unwrap().path, zip);
+        assert!(folder.history_visit(true).is_none());
     }
 
     #[test]
@@ -334,59 +316,6 @@ mod tests {
         assert!(matches!(folder.location(), Some(Location::Local(_))));
         assert_eq!(folder.path(), dir.path());
         assert_eq!(folder.current().unwrap().path, zip);
-    }
-
-    #[test]
-    fn uncached_archive_loads_in_two_steps() {
-        let dir = fixture();
-        let zip = dir.path().join("lazy.zip");
-        zip_file(&zip);
-        let mut folder = loaded(&dir);
-        let before: Vec<String> = names(&folder).into_iter().map(String::from).collect();
-        folder.select_path(Some(&zip));
-        assert_eq!(folder.activation_target().unwrap().panel_path(), zip);
-        assert_eq!(folder.archive_needed(dir.path()), None);
-        assert_eq!(folder.archive_needed(&zip), Some(zip.clone()));
-
-        // Loading shows the archive location with nothing in it.
-        folder.begin_archive_load(zip.clone());
-        assert!(folder.is_loading());
-        assert_eq!(folder.header(), format!("{} ›", zip.display()));
-        assert!(folder.entries().is_empty());
-
-        // Cancelling returns to the directory, cursor on the archive.
-        folder.end_archive_load(true);
-        assert!(!folder.is_loading());
-        assert_eq!(
-            names(&folder),
-            before.iter().map(String::as_str).collect::<Vec<_>>()
-        );
-        assert_eq!(folder.current().unwrap().path, zip);
-
-        // Reloading does nothing while loading; going up cancels the read.
-        folder.begin_archive_load(zip.clone());
-        folder.load().unwrap();
-        assert!(folder.is_loading());
-        folder.go_up().unwrap();
-        assert!(!folder.is_loading());
-        assert_eq!(folder.archive(), None);
-        assert_eq!(folder.current().unwrap().path, zip);
-
-        // The legacy test-only loading placeholder is independent of a pure
-        // hidden-file option change; cancel it explicitly as the view does.
-        folder.begin_archive_load(zip.clone());
-        assert_eq!(folder.set_show_hidden(true), None);
-        folder.end_archive_load(false);
-        assert!(!folder.is_loading());
-        assert_eq!(folder.archive(), None);
-
-        // Once read (elsewhere), entering is instant and needs no loading.
-        archive::Index::cached(&zip).unwrap();
-        assert_eq!(folder.archive_needed(&zip), None);
-        folder.begin_archive_load(zip.clone());
-        assert!(!folder.is_loading());
-        assert_eq!(folder.activate(), Ok(Activation::Entered));
-        assert_eq!(names(&folder), ["..", "docs", "top.txt"]);
     }
 
     #[test]

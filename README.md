@@ -493,7 +493,9 @@ files, uv commands in uv projects, convert images, …); see
 destinations. Commander keeps task scheduling and cancellation signals, with
 `breadcrumbs::NavigationGuard` separately checking the source folder. The boundary
 and regression coverage are recorded in
-[`docs/navigation-lifecycle-plan.md`](docs/navigation-lifecycle-plan.md).
+[`docs/navigation-lifecycle-plan.md`](docs/navigation-lifecycle-plan.md). Pending
+listings keep the current rows visible; obsolete archive/remote loading
+placeholders and the unused archive controller have been removed.
 `src/settings.rs` owns the config schema, defaults, validation and path expansion;
 `src/settings/persistence.rs` owns config-path discovery, file loading/creation
 and comment-preserving saves through `toml_edit`.

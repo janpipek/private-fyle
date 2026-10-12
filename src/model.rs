@@ -110,10 +110,6 @@ pub struct Folder {
     /// the cursor was on, most recent last.
     back: Vec<Visit>,
     forward: Vec<Visit>,
-    /// Set while an archive is being read in the background: the folder
-    /// as it was before, to return to when the read ends.
-    #[cfg(test)]
-    loading: Option<Box<Folder>>,
 }
 
 impl Folder {
@@ -145,8 +141,6 @@ impl Folder {
             generation: 0,
             back: Vec::new(),
             forward: Vec::new(),
-            #[cfg(test)]
-            loading: None,
         })
     }
 
@@ -512,12 +506,8 @@ impl Folder {
 
     /// Re-reads the current directory, keeping cursor entry and marks.
     /// Search results are not re-run; entries that disappeared are dropped.
-    /// While an archive is being read it does nothing (the placeholder stays).
     #[cfg(test)]
     pub fn load(&mut self) -> Result<(), String> {
-        if self.is_loading() {
-            return Ok(());
-        }
         if matches!(&self.content, PanelContent::Places) {
             let mut entries = Vec::new();
             self.list(&self.path(), 0, &mut entries)
@@ -619,13 +609,9 @@ impl Folder {
         }
     }
 
-    /// While an archive is being read, going up cancels the read instead.
+    /// Navigates to the parent directory using the synchronous test adapter.
     #[cfg(test)]
     pub fn go_up(&mut self) -> Result<(), String> {
-        if self.is_loading() {
-            self.end_archive_load(true);
-            return Ok(());
-        }
         if self.results().is_some() {
             return self.replace(self.path(), None);
         }

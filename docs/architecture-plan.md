@@ -1,6 +1,6 @@
 # Architecture refactoring plan
 
-Status: in progress; migration steps 1, 2a, 2b, 3a, 4a, 4b, 6a, 6b, 7a and 7b are complete.
+Status: in progress; migration steps 1, 2a, 2b, 3a, 4a, 4b, 6a, 6b, 6c, 7a and 7b are complete.
 
 This document records the architecture decision and an incremental migration
 plan. [README.md](../README.md#architecture) describes the current architecture;
@@ -274,7 +274,9 @@ new features or dependency changes.
    handles, cancellation signals and remote reload generations; the source-folder
    guard remains separate. See
    [navigation-lifecycle-plan.md](navigation-lifecycle-plan.md) for the boundary
-   and regressions. Dormant archive-loading code remains outside this slice.
+   and regressions. Step 6c removes the dormant archive controller and legacy
+   test-only loading placeholders. Archive regressions now cover source rows
+   retained until commit and cancelled results rejected by the active lifecycle.
 7. **Finish GUI organization and documentation.** Slice 7a is complete:
    `panel/table_view.rs` owns `FileTable` rendering and event forwarding.
    `panel.rs` retains header state, inputs, focus, subscriptions, Git scheduling

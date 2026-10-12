@@ -140,6 +140,10 @@
 
 ## Done
 
+- [x] Architecture refactor, step 6c: remove the dormant archive controller
+      and test-only loading placeholders; cover retained source rows and rejection
+      of cancelled archive results through the active listing/navigation path.
+
 - [x] Architecture refactor, step 6b: replace Commander's parallel navigation
       state arrays with the tested `PanelNavigation` model; keep task scheduling,
       cancellation signals and the source-folder guard in existing owners.

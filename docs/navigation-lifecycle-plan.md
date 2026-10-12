@@ -1,6 +1,6 @@
 # Navigation lifecycle extraction
 
-Status: step 6b is implemented. `navigation.rs` owns `PanelNavigation`; active
+Status: steps 6b and 6c are implemented. `navigation.rs` owns `PanelNavigation`; active
 Commander paths use it. The scope below records the preserved boundaries.
 Linux live validation remains unverified in the Windows development environment.
 
@@ -27,9 +27,11 @@ model, preserving the existing behavior and scheduling.
 | `commander/drag_drop.rs::handle_panel_drop` | Rejects drops involving a panel with navigation or reload work in flight; retains snapshot checks. |
 
 Local, remote, archive and Places navigation all use `load_panel_listing` and
-`ListingService`. `commander/archives.rs` is not declared in `commander.rs` and
-has no active callers. The old loading-placeholder helpers in `model/archives.rs`
-and `model/remote.rs` are test-only. They are not integration targets for 6b.
+`ListingService`. The audit found `commander/archives.rs` undeclared and without
+active callers, plus test-only loading placeholders in the folder model. Step 6c
+removes that obsolete path and its unused cache probe. The active-path archive
+regressions verify that source rows remain visible until commit and cancellation
+rejects late results without changing selection, marks, filter or history.
 
 ## Step 6b boundary
 
@@ -69,7 +71,8 @@ completion clears pending state before a mismatched folder guard rejects it.
   installation remain where they are.
 - Location discovery, remote discovery, preview materialization, transfer checks,
   search and size scans are outside this extraction.
-- Dormant archive code and legacy test-only placeholders are separate cleanup.
+- Dormant archive code and legacy test-only placeholders were excluded from 6b
+  and removed separately in step 6c.
 
 Do not change Escape's existing ordering or extend it to cancel standalone remote
 reloads. That behavior needs a separate decision. Do not rename `remote_cancel`

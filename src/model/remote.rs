@@ -5,13 +5,13 @@ use std::collections::HashMap;
 #[cfg(test)]
 use std::io;
 #[cfg(test)]
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 #[cfg(test)]
 use std::sync::Arc;
 
 use super::Folder;
 #[cfg(test)]
-use super::{PanelContent, Row};
+use super::Row;
 #[cfg(test)]
 use crate::entry::{Entry, sort_entries};
 #[cfg(test)]
@@ -86,36 +86,6 @@ impl Folder {
             _ => None,
         };
         self.remote_listings.insert(path, entries, keep.as_ref());
-    }
-
-    /// Whether showing `path` needs a background listing first: it is
-    /// remote and not cached.
-    #[cfg(test)]
-    pub fn remote_needed(&self, path: &Path) -> bool {
-        RemoteLocation::parse(path)
-            .ok()
-            .flatten()
-            .is_some_and(|location| !self.remote_listings.contains(&location))
-    }
-
-    /// Shows an empty listing of the remote folder `target` while it is
-    /// listed elsewhere (see [`Folder::remote_needed`]). The previous state
-    /// comes back with [`Folder::end_archive_load`], which also cancels.
-    #[cfg(test)]
-    pub fn begin_remote_load(&mut self, target: PathBuf) {
-        self.end_archive_load(false);
-        let saved = Box::new(self.clone());
-        self.entries.clear();
-        self.all.clear();
-        self.marked.clear();
-        self.filter.clear();
-        self.cursor = 0;
-        self.mount = None;
-        self.content = PanelContent::Directory(
-            Location::from_panel_path(&target, None).expect("remote load receives a valid address"),
-        );
-        self.generation += 1;
-        self.loading = Some(saved);
     }
 
     /// Parent of the current folder, including the return location at remote root.
@@ -299,23 +269,6 @@ mod tests {
         let found = folder.remote_items(&locations);
         assert_eq!(found.len(), 2);
         assert!(found[0].is_dir && !found[1].is_dir);
-    }
-
-    #[test]
-    fn remote_load_placeholder_restores_the_previous_folder() {
-        let dir = tempfile::TempDir::new().unwrap();
-        let mut folder = Folder::new(dir.path().into()).unwrap();
-        folder.load().unwrap();
-        assert!(!folder.remote_needed(dir.path()));
-        assert!(folder.remote_needed(&root().panel_path()));
-        folder.begin_remote_load(root().panel_path());
-        assert!(folder.is_loading() && folder.entries().is_empty());
-        assert_eq!(folder.path(), root().panel_path());
-        folder.end_archive_load(true);
-        assert!(!folder.is_loading());
-        assert_eq!(folder.path(), dir.path());
-        folder.cache_remote(root().panel_path(), listing());
-        assert!(!folder.remote_needed(&root().panel_path()));
     }
 
     #[test]

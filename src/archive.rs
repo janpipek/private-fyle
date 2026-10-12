@@ -217,18 +217,6 @@ impl Index {
         Ok(index)
     }
 
-    /// Whether [`Index::cached`] would return `file` without reading it.
-    #[cfg(test)]
-    pub fn is_cached(file: &Path) -> bool {
-        let Ok(meta) = fs::metadata(file) else {
-            return false;
-        };
-        let (len, modified) = (meta.len(), meta.modified().ok());
-        cache()
-            .iter()
-            .any(|(p, l, m, _)| p == file && *l == len && *m == modified)
-    }
-
     fn add(&mut self, raw: Raw) {
         let path = match clean(&raw.name) {
             Cleaned::Root => return,

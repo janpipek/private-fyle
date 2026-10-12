@@ -531,13 +531,6 @@ impl Render for FolderView {
         let theme = cx.theme();
         let folder = self.folder.read(cx);
         let mut footer = format!("{} dirs, {} files", folder.dir_count(), folder.file_count());
-        if folder.is_loading() {
-            footer = if folder.is_remote() {
-                "Loading… · Esc cancels".into()
-            } else {
-                "Reading archive… · Esc cancels".into()
-            };
-        }
         if let Some(title) = folder.results() {
             footer = format!(
                 "{title}: {} found · Enter shows a hit in its folder",

@@ -158,18 +158,14 @@ impl Commander {
     }
 
     /// Why the panels cannot be swapped now (see [`crate::panels::swap_blocked`]).
-    pub fn swap_blocked(&self, cx: &App) -> Option<&'static str> {
+    pub fn swap_blocked(&self, _: &App) -> Option<&'static str> {
         crate::panels::swap_blocked(&crate::panels::Activity {
             loading: self
                 .navigation
                 .iter()
                 .any(crate::navigation::PanelNavigation::is_pending)
                 || self.reload_cancel.iter().any(Option::is_some)
-                || self.remote_check.is_some()
-                || self
-                    .folders
-                    .iter()
-                    .any(|folder| folder.read(cx).is_loading()),
+                || self.remote_check.is_some(),
             scanning: self.search_cancel.is_some() || self.size_cancel.iter().any(Option::is_some),
         })
     }
@@ -239,11 +235,7 @@ impl Commander {
     /// Remembers directories the active panel shows, for frecency.
     pub fn record_visit(&mut self, folder: &Entity<Folder>, cx: &mut Context<Self>) {
         let folder = folder.read(cx);
-        if folder.results().is_some()
-            || folder.archive().is_some()
-            || folder.is_loading()
-            || folder.location().is_none()
-        {
+        if folder.results().is_some() || folder.archive().is_some() || folder.location().is_none() {
             return;
         }
         let location = folder
