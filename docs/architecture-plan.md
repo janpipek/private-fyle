@@ -1,6 +1,6 @@
 # Architecture refactoring plan
 
-Status: in progress; migration steps 1, 2a, 2b, 3a, 4a, 4b, 6a, 7a and 7b are complete.
+Status: in progress; migration steps 1, 2a, 2b, 3a, 4a, 4b, 6a, 6b, 7a and 7b are complete.
 
 This document records the architecture decision and an incremental migration
 plan. [README.md](../README.md#architecture) describes the current architecture;
@@ -269,11 +269,12 @@ new features or dependency changes.
    creation and comment-preserving saves. `settings.rs` retains the schema,
    defaults, parsing and home-path expansion; callers name persistence directly.
    Tools retain their documented planning/execution boundary. Navigation lifecycle
-   extraction is now scoped as step 6b in
-   [navigation-lifecycle-plan.md](navigation-lifecycle-plan.md): extract request
-   generations, pending state and typed destinations into a per-panel model.
-   Keep task handles, cancellation signals and remote reload generations in
-   Commander. The audit excludes dormant archive-loading code.
+   extraction is complete as step 6b: `navigation.rs` owns per-panel request
+   generations, pending state and typed destinations. Commander keeps task
+   handles, cancellation signals and remote reload generations; the source-folder
+   guard remains separate. See
+   [navigation-lifecycle-plan.md](navigation-lifecycle-plan.md) for the boundary
+   and regressions. Dormant archive-loading code remains outside this slice.
 7. **Finish GUI organization and documentation.** Slice 7a is complete:
    `panel/table_view.rs` owns `FileTable` rendering and event forwarding.
    `panel.rs` retains header state, inputs, focus, subscriptions, Git scheduling

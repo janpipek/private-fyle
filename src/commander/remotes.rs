@@ -177,7 +177,7 @@ impl Commander {
         // A navigation owns the panel until its listing completes. Applying a
         // remote reload in that interval would advance the folder generation
         // and make the newer navigation's guard reject its result.
-        if self.navigation_pending[panel] {
+        if self.navigation[panel].is_pending() {
             return;
         }
         let (path, listing, guard) = {

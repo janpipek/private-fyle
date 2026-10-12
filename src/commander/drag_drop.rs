@@ -54,7 +54,7 @@ impl Commander {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.navigation_pending[dest_ix] || self.reload_cancel[dest_ix].is_some() {
+        if self.navigation[dest_ix].is_pending() || self.reload_cancel[dest_ix].is_some() {
             self.drop_error("Destination folder is still loading", cx);
             return;
         }
@@ -77,7 +77,7 @@ impl Commander {
                 else {
                     return;
                 };
-                if self.navigation_pending[source_ix]
+                if self.navigation[source_ix].is_pending()
                     || self.reload_cancel[source_ix].is_some()
                     || !drag.snapshot.is_current(self.folders[source_ix].read(cx))
                 {

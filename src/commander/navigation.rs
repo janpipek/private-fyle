@@ -136,7 +136,7 @@ impl Commander {
         let other = 1 - self.active;
         crate::panels::other_panel_target(
             &self.folders[other].read(cx).target(),
-            self.pending_target[other].as_ref(),
+            self.navigation[other].pending_target(),
         )
     }
 
@@ -160,7 +160,10 @@ impl Commander {
     /// Why the panels cannot be swapped now (see [`crate::panels::swap_blocked`]).
     pub fn swap_blocked(&self, cx: &App) -> Option<&'static str> {
         crate::panels::swap_blocked(&crate::panels::Activity {
-            loading: self.navigation_pending.iter().any(|&pending| pending)
+            loading: self
+                .navigation
+                .iter()
+                .any(crate::navigation::PanelNavigation::is_pending)
                 || self.reload_cancel.iter().any(Option::is_some)
                 || self.remote_check.is_some()
                 || self

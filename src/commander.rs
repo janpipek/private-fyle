@@ -46,6 +46,7 @@ use crate::location::Location;
 use crate::menu_bar::MenuBar;
 use crate::menus::Cmd;
 use crate::model::Folder;
+use crate::navigation::PanelNavigation;
 use crate::panel::{Activate, FolderView, HeaderEvent, PanelDrop, TreeExpansionChanged};
 use crate::places::History;
 use crate::preview::Registry as PreviewRegistry;
@@ -100,10 +101,8 @@ pub struct Commander {
     _tools_menu_task: Task<()>,
     /// Newer requests replace and cancel older work for the same panel.
     navigation_tasks: [Task<()>; 2],
-    navigation_generation: [u64; 2],
-    navigation_pending: [bool; 2],
-    /// Per panel: the target of the listing in flight (not archive reads).
-    pending_target: [Option<crate::location::PanelTarget>; 2],
+    /// Request freshness and pending destination, bound to each panel position.
+    navigation: [PanelNavigation; 2],
     _locations_task: Task<()>,
     /// Configured remotes, discovered in the background.
     remotes: Arc<remote::Registry>,
@@ -344,9 +343,7 @@ impl Commander {
             tools_menu_generation: 0,
             _tools_menu_task: Task::ready(()),
             navigation_tasks: [Task::ready(()), Task::ready(())],
-            navigation_generation: [0, 0],
-            navigation_pending: [false, false],
-            pending_target: [None, None],
+            navigation: [PanelNavigation::default(), PanelNavigation::default()],
             _locations_task: Task::ready(()),
             remotes: Arc::default(),
             listing_caches: [Arc::default(), Arc::default()],

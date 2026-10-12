@@ -1,17 +1,19 @@
 # Navigation lifecycle extraction
 
-Status: scope ready for step 6b; implementation has not started.
+Status: step 6b is implemented. `navigation.rs` owns `PanelNavigation`; active
+Commander paths use it. The scope below records the preserved boundaries.
+Linux live validation remains unverified in the Windows development environment.
 
 ## Problem
 
-Commander holds parallel per-panel arrays for navigation request generations,
+Commander previously held parallel per-panel arrays for navigation request generations,
 pending flags and pending typed destinations. `commander/location.rs` changes
 all three when starting, completing or cancelling a listing. Other-folder
 navigation, panel swapping, remote reloads and drag/drop consult parts of that
-state. Those lifecycle decisions currently require the GUI controller to test.
+state. Those lifecycle decisions required the GUI controller to test.
 
-The first extraction should make those three values one coherent, independently
-tested model. It should preserve the existing behavior and scheduling.
+The extraction makes those three values one coherent, independently tested
+model, preserving the existing behavior and scheduling.
 
 ## Active paths
 

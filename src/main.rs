@@ -42,6 +42,7 @@ mod mime;
 #[cfg_attr(windows, allow(dead_code))]
 mod mimeapps;
 mod model;
+mod navigation;
 mod notebook_view;
 mod openers;
 mod palette;

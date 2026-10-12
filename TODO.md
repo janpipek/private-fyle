@@ -140,9 +140,13 @@
 
 ## Done
 
+- [x] Architecture refactor, step 6b: replace Commander's parallel navigation
+      state arrays with the tested `PanelNavigation` model; keep task scheduling,
+      cancellation signals and the source-folder guard in existing owners.
+
 - [x] Scope architecture refactor step 6b: audit active navigation lifecycle
       paths and define a per-panel request-state extraction with regression
-      coverage in `docs/navigation-lifecycle-plan.md`. Implementation remains next.
+      coverage in `docs/navigation-lifecycle-plan.md`.
 
 - [x] Architecture refactor, step 7b: move breadcrumbs, location-bar and
       header-button rendering into `panel/header_view.rs`; keep input/menu

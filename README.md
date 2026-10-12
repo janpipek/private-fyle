@@ -489,9 +489,11 @@ identity and atomic materialization.
 files, uv commands in uv projects, convert images, …); see
 [`docs/tools.md`](docs/tools.md). F2 opens them; your own go in
 `<config dir>/fyle/tools.toml`, or in Lua plugins in `<config dir>/fyle/plugins/*.lua`.
-The next navigation lifecycle extraction is scoped in
-[`docs/navigation-lifecycle-plan.md`](docs/navigation-lifecycle-plan.md);
-request bookkeeping still lives in Commander until that slice lands.
+`src/navigation.rs` owns per-panel navigation request freshness and pending typed
+destinations. Commander keeps task scheduling and cancellation signals, with
+`breadcrumbs::NavigationGuard` separately checking the source folder. The boundary
+and regression coverage are recorded in
+[`docs/navigation-lifecycle-plan.md`](docs/navigation-lifecycle-plan.md).
 `src/settings.rs` owns the config schema, defaults, validation and path expansion;
 `src/settings/persistence.rs` owns config-path discovery, file loading/creation
 and comment-preserving saves through `toml_edit`.
@@ -553,6 +555,7 @@ Where things live (`src/`):
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and separate editor windows |
 | `tools/`, `tools_view.rs` | Tool, Action and Registry model; `defaults.toml`; built-ins; Lua plugins; `exec.rs` runs them |
 | `search.rs`, `places.rs`, `breadcrumbs.rs`, `remote_labels.rs`, `rename.rs`, `openers.rs`, `terminal.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs`, `zoom.rs` | Further UI-independent models, each with tests |
+| `navigation.rs` | Per-panel request tokens, pending destinations and cancellation/completion decisions; no GUI tasks or listing I/O |
 | `settings/persistence.rs` | Config-path discovery, loading with defaults and path-qualified errors, example-file creation and comment-preserving setting saves |
 | `apps.rs`, `windows_apps.rs`, `mime.rs`, `desktop.rs`, `mimeapps.rs`, `xdg.rs`, `ini.rs` | Open With model: `apps::Catalog` (Linux and Windows discovery) and `merge` with the openers; Windows registry associations; MIME type from shared-mime-info `globs2`/`subclasses`/`aliases`; `.desktop` parsing and `Exec` expansion; `mimeapps.list`; XDG directories |
 | `*_view.rs`, `menu_bar.rs`, `link_badge.rs`, `theme_picker.rs` | Thin views |

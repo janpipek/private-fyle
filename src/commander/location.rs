@@ -60,8 +60,7 @@ impl Commander {
     ) {
         let path = target.panel_path();
         self.cancel_remote(panel);
-        self.navigation_generation[panel] = self.navigation_generation[panel].wrapping_add(1);
-        let request = self.navigation_generation[panel];
+        let request = self.navigation[panel].begin(target.clone());
         let (mut listing, guard) = {
             let folder = self.folders[panel].read(cx);
             let preserve_search = matches!(
@@ -81,8 +80,6 @@ impl Commander {
             ListingService::with_cache(self.remotes.clone(), self.listing_caches[panel].clone());
         let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         self.remote_cancel[panel] = Some(cancel.clone());
-        self.navigation_pending[panel] = true;
-        self.pending_target[panel] = Some(target.clone());
         let shown = path.display().to_string();
         self.status = format!("Opening {shown}").into();
         cx.notify();
@@ -93,11 +90,9 @@ impl Commander {
                 )
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
-                if this.navigation_generation[panel] != request {
+                if !this.navigation[panel].complete(request) {
                     return;
                 }
-                this.navigation_pending[panel] = false;
-                this.pending_target[panel] = None;
                 this.remote_cancel[panel] = None;
                 let current = {
                     let live = this.folders[panel].read(cx);
@@ -217,13 +212,9 @@ impl Commander {
     /// whether Escape was consumed.
     pub fn cancel_location_work(&mut self, cx: &mut Context<Self>) -> bool {
         let mut cancelled = false;
-        for panel in 0..self.navigation_pending.len() {
-            if self.navigation_pending[panel] {
+        for panel in 0..self.navigation.len() {
+            if self.navigation[panel].cancel() {
                 self.cancel_remote(panel);
-                self.navigation_generation[panel] =
-                    self.navigation_generation[panel].wrapping_add(1);
-                self.navigation_pending[panel] = false;
-                self.pending_target[panel] = None;
                 self.navigation_tasks[panel] = Task::ready(());
                 cancelled = true;
             }
