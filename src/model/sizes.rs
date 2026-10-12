@@ -2,8 +2,6 @@
 
 use std::path::{Path, PathBuf};
 
-#[cfg(test)]
-use super::Entry;
 use super::{Folder, Row};
 use crate::dirsize::DirSize;
 use crate::entry::SortKey;
@@ -137,20 +135,6 @@ impl Folder {
         }
     }
 
-    /// Replaces the size of listed directories by their computed size, so
-    /// that sorting by size uses it.
-    #[cfg(test)]
-    pub fn apply_sizes(&self, entries: &mut [Entry]) {
-        if self.sizes.is_empty() {
-            return;
-        }
-        for entry in entries.iter_mut().filter(|e| e.is_dir && !e.is_parent) {
-            if let Some(size) = self.sizes.get(&entry.path) {
-                entry.size = Some(size.bytes);
-            }
-        }
-    }
-
     /// Total size of the marked entries: files plus measured directories.
     pub fn marked_total(&self) -> MarkedTotal {
         let mut total = MarkedTotal::default();
@@ -259,7 +243,8 @@ mod tests {
         // A scan started before the refresh cannot bring sizes back.
         folder.set_dir_size_at(epoch, &sub, done(5));
         assert_eq!(folder.dir_size(&sub), None);
-        folder.set_dir_size_at(folder.size_epoch(), &sub, done(5));
+        let epoch = folder.size_epoch();
+        folder.set_dir_size_at(epoch, &sub, done(5));
         assert_eq!(folder.dir_size(&sub), Some(&done(5)));
         folder.set_dir_size(&sub, done(1));
         folder.navigate(sub.clone()).unwrap();

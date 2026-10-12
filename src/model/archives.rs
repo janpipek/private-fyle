@@ -1,39 +1,23 @@
 //! Archive browsing addresses, selection targets and display headers.
 
 use std::path::{Path, PathBuf};
-#[cfg(test)]
-use std::sync::Arc;
 
 use super::Folder;
-#[cfg(test)]
-use super::{Entry, Row};
 use crate::archive;
-#[cfg(test)]
-use crate::entry::{Attrs, sort_entries};
 use crate::fs_ops;
-#[cfg(test)]
-use crate::links::LinkState;
 use crate::location::Location;
-#[cfg(test)]
-use std::io;
 
 /// An archive shown as a directory tree.
 #[derive(Clone)]
 pub struct Mount {
     /// The local archive file whose index is mounted.
     pub file: PathBuf,
-    #[cfg(test)]
-    index: Arc<archive::Index>,
 }
 
 impl Mount {
-    /// Holds an index already read by the listing service.
+    /// Records the archive identity after the listing service has read its index.
     pub fn loaded(file: PathBuf) -> Self {
-        Self {
-            file,
-            #[cfg(test)]
-            index: Arc::default(),
-        }
+        Self { file }
     }
 }
 
@@ -70,7 +54,7 @@ impl Folder {
         Some((file, inner))
     }
 
-    /// Where [`Folder::activate`] would go: the cursor entry if it is a
+    /// Where activation would go: the cursor entry if it is a
     /// folder or an archive.
     pub fn activation_target(&self) -> Option<crate::location::PanelTarget> {
         let entry = self.current()?;
@@ -95,81 +79,6 @@ impl Folder {
             _ => fs_ops::display_path(&self.path()),
         }
     }
-
-    /// The archive (and the inner path in it) that `path` is in, if it is
-    /// not an ordinary directory. The archive is read again only when it
-    /// changed on disk ([`archive::Index::cached`]).
-    #[cfg(test)]
-    pub fn mount_for(&self, path: &Path) -> io::Result<Option<(Mount, String)>> {
-        if crate::location::is_remote(path) || path.as_os_str().is_empty() || path.is_dir() {
-            return Ok(None);
-        }
-        let Some((file, inner)) = archive::locate(path) else {
-            return Ok(None);
-        };
-        let index = archive::Index::cached(&file)?;
-        let mount = Mount { file, index };
-        Ok(Some((mount, inner)))
-    }
-
-    /// Appends the sorted listing of the archive directory `inner`, with
-    /// ".." leading to the parent (the containing directory at the root).
-    #[cfg(test)]
-    pub fn list_archive(&self, mount: &Mount, inner: &str, out: &mut Vec<Row>) -> io::Result<()> {
-        if !mount.index.is_dir(inner) {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                "not a folder in the archive",
-            ));
-        }
-        let parent = match inner.rsplit_once('/') {
-            Some((parent, _)) => Some(archive::virtual_path(&mount.file, parent)),
-            None if inner.is_empty() => fs_ops::parent_of(&mount.file),
-            None => Some(mount.file.clone()),
-        };
-        let mut entries: Vec<Entry> = parent
-            .into_iter()
-            .map(|path| Entry {
-                name: "..".into(),
-                path,
-                is_dir: true,
-                is_parent: true,
-                size: Some(0),
-                modified: None,
-                attrs: Default::default(),
-                link: Default::default(),
-            })
-            .collect();
-        entries.extend(mount.index.list(inner).map(|node| Entry {
-            name: node.name.clone(),
-            path: archive::virtual_path(&mount.file, &node.path),
-            is_dir: node.is_dir(),
-            is_parent: false,
-            size: Some(node.size),
-            modified: node.modified,
-            attrs: Attrs {
-                mode: node.mode,
-                ..Default::default()
-            },
-            link: match &node.kind {
-                archive::Kind::Symlink(target) => LinkState::Link {
-                    target: target.into(),
-                },
-                _ => LinkState::NotLink,
-            },
-        }));
-        sort_entries(&mut entries, self.sort.key, self.sort.descending);
-        out.extend(entries.into_iter().map(|entry| {
-            Row {
-                location: Location::from_panel_path(&entry.path, Some(&mount.file))
-                    .expect("archive listing contains validated paths"),
-                entry,
-                depth: 0,
-                hit_line: None,
-            }
-        }));
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -179,12 +88,14 @@ mod tests {
     use crate::entry::SortKey;
     use crate::listing::ListingService;
     use crate::location::Location;
+    use crate::model::test_support::Activation;
+    use crate::model::test_support::TestFolder;
     use crate::model::test_support::{fixture, loaded, names};
-    use crate::model::{Activation, Folder};
     use crate::navigation::PanelNavigation;
     use crate::remote::Registry;
     use std::fs;
     use std::path::Path;
+    use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
 
     fn zip_file(path: &Path) {
@@ -307,9 +218,9 @@ mod tests {
         assert_eq!(folder.inner_path().as_deref(), Some(""));
         assert_eq!(folder.current().unwrap().name, "docs");
         // Reloading an unchanged archive does not read it again.
-        let before = folder.mount.as_ref().unwrap().index.clone();
+        let before = archive::Index::cached(&zip).unwrap();
         folder.load().unwrap();
-        assert!(Arc::ptr_eq(&before, &folder.mount.as_ref().unwrap().index));
+        assert!(Arc::ptr_eq(&before, &archive::Index::cached(&zip).unwrap()));
         // Up again leaves the archive, cursor on it.
         folder.go_up().unwrap();
         assert_eq!(folder.archive(), None);
@@ -363,7 +274,7 @@ mod tests {
             }
             z.finish().unwrap();
         }
-        let mut folder = Folder::new(zip.clone()).unwrap();
+        let mut folder = TestFolder::new(zip.clone()).unwrap();
         assert_eq!(folder.load_or_ancestor(), None);
         assert_eq!(folder.archive(), Some(zip.as_path()));
         assert_eq!(names(&folder), ["..", "a.txt", "b.txt"]);

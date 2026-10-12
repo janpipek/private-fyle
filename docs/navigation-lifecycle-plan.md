@@ -1,6 +1,6 @@
 # Navigation lifecycle extraction
 
-Status: steps 6b and 6c are implemented. `navigation.rs` owns `PanelNavigation`; active
+Status: steps 6b, 6c and 6d are implemented. `navigation.rs` owns `PanelNavigation`; active
 Commander paths use it. The scope below records the preserved boundaries.
 Linux live validation remains unverified in the Windows development environment.
 
@@ -32,6 +32,10 @@ active callers, plus test-only loading placeholders in the folder model. Step 6c
 removes that obsolete path and its unused cache probe. The active-path archive
 regressions verify that source rows remain visible until commit and cancellation
 rejects late results without changing selection, marks, filter or history.
+Step 6d removes the remaining duplicate listing, fallback and history algorithms
+from Folder tests. `model/test_support.rs::TestFolder` drives the production
+service and commit methods; remote fixtures enter through an in-memory provider.
+Remote cache bounds and LRU regression coverage belong to `listing.rs`.
 
 ## Step 6b boundary
 

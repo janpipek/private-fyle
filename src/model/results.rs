@@ -66,7 +66,7 @@ mod tests {
     use super::*;
 
     use crate::entry::Sort;
-    use crate::model::Activation;
+    use crate::model::test_support::Activation;
     use crate::model::test_support::{fixture, loaded, names};
     use std::fs;
 

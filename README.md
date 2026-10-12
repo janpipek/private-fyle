@@ -489,6 +489,10 @@ identity and atomic materialization.
 files, uv commands in uv projects, convert images, …); see
 [`docs/tools.md`](docs/tools.md). F2 opens them; your own go in
 `<config dir>/fyle/tools.toml`, or in Lua plugins in `<config dir>/fyle/plugins/*.lua`.
+Folder tests use `model/test_support.rs::TestFolder`, a synchronous driver for
+`ListingService` and the production listing/history commits, with an in-memory
+provider for remote fixtures. The Folder model has no separate test-only listing
+implementation, remote cache or archive index.
 `src/navigation.rs` owns per-panel navigation request freshness and pending typed
 destinations. Commander keeps task scheduling and cancellation signals, with
 `breadcrumbs::NavigationGuard` separately checking the source folder. The boundary

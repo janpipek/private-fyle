@@ -747,6 +747,32 @@ mod tests {
     }
 
     #[test]
+    fn remote_cache_is_bounded_and_keeps_recently_requested_listings() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let service = counting_service(calls.clone(), false);
+        let root = remote::Location::root("counting").unwrap();
+        let read = |index: usize| {
+            service
+                .list(
+                    &request(Location::Remote(root.child(&index.to_string()).unwrap())),
+                    &AtomicBool::new(false),
+                )
+                .unwrap();
+        };
+        for index in 0..32 {
+            read(index);
+        }
+        assert_eq!(calls.load(Ordering::Relaxed), 32);
+        read(0);
+        read(32);
+        assert_eq!(calls.load(Ordering::Relaxed), 33);
+        read(0);
+        assert_eq!(calls.load(Ordering::Relaxed), 33);
+        read(1);
+        assert_eq!(calls.load(Ordering::Relaxed), 34);
+    }
+
+    #[test]
     fn cancelled_remote_listing_is_not_cached() {
         let calls = Arc::new(AtomicUsize::new(0));
         let service = counting_service(calls.clone(), true);

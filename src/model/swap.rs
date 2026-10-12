@@ -22,16 +22,17 @@ impl Folder {
 
 #[cfg(test)]
 mod tests {
+    use crate::model::test_support::TestFolder;
     use std::fs;
     use std::io::Write;
 
     use crate::entry::Sort;
     use crate::location::Location;
+    use crate::model::PanelContent;
     use crate::model::test_support::{fixture, loaded, names};
-    use crate::model::{Folder, PanelContent};
     use crate::remote::{self, Item};
 
-    fn two_folders() -> (tempfile::TempDir, tempfile::TempDir, Folder, Folder) {
+    fn two_folders() -> (tempfile::TempDir, tempfile::TempDir, TestFolder, TestFolder) {
         let (da, db) = (fixture(), fixture());
         fs::write(db.path().join("only-in-b.txt"), "x").unwrap();
         let (a, b) = (loaded(&da), loaded(&db));

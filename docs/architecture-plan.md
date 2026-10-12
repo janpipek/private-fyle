@@ -1,6 +1,6 @@
 # Architecture refactoring plan
 
-Status: in progress; migration steps 1, 2a, 2b, 3a, 4a, 4b, 6a, 6b, 6c, 7a and 7b are complete.
+Status: in progress; migration steps 1, 2a, 2b, 3a, 4a, 4b, 6a, 6b, 6c, 6d, 7a and 7b are complete.
 
 This document records the architecture decision and an incremental migration
 plan. [README.md](../README.md#architecture) describes the current architecture;
@@ -277,6 +277,11 @@ new features or dependency changes.
    and regressions. Step 6c removes the dormant archive controller and legacy
    test-only loading placeholders. Archive regressions now cover source rows
    retained until commit and cancelled results rejected by the active lifecycle.
+   Step 6d consolidates Folder tests on `model/test_support.rs::TestFolder`,
+   which drives `ListingService` and production listing/history commits using
+   isolated in-memory remote fixtures. The model no longer carries test-only
+   listing readers, remote cache policy, archive indexes or history/fallback
+   algorithms. Failed history listings retain visits for retry, matching the app.
 7. **Finish GUI organization and documentation.** Slice 7a is complete:
    `panel/table_view.rs` owns `FileTable` rendering and event forwarding.
    `panel.rs` retains header state, inputs, focus, subscriptions, Git scheduling

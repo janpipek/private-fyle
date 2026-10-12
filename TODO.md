@@ -140,6 +140,10 @@
 
 ## Done
 
+- [x] Architecture refactor, step 6d: consolidate Folder test navigation and
+      loading on `ListingService` and production commit methods; remove duplicated
+      local/archive readers, remote cache policy and history/fallback algorithms.
+
 - [x] Architecture refactor, step 6c: remove the dormant archive controller
       and test-only loading placeholders; cover retained source rows and rejection
       of cancelled archive results through the active listing/navigation path.
