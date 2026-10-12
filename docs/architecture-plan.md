@@ -1,6 +1,6 @@
 # Architecture refactoring plan
 
-Status: in progress; migration steps 1, 2a, 2b and 3a are complete.
+Status: in progress; migration steps 1, 2a, 2b, 3a and 4a are complete.
 
 This document records the architecture decision and an incremental migration
 plan. [README.md](../README.md#architecture) describes the current architecture;
@@ -116,10 +116,11 @@ EXIF fallback parses selected JPEG bytes without writing to that cache.
 
 ### Feature decisions embedded in GUI code
 
-[`preview_view.rs`](../src/preview_view.rs) owns target changes, reloads,
-page/sheet selection and stale-result checks alongside GPUI resources and
-rendering. A `PreviewSession` model can own those decisions. Similarly,
-`panel/metadata.rs` combines queue policy, metadata reading and GPUI scheduling.
+[`preview/session.rs`](../src/preview/session.rs) now owns target identity,
+line-only changes, reloads, page/sheet selection and stale-result checks for all
+three load streams. [`preview_view.rs`](../src/preview_view.rs) retains debounce,
+tasks, focus, editor/notebook resources and rendering. `panel/metadata.rs` still
+combines queue policy, metadata reading and GPUI scheduling.
 
 ## Ownership details
 
@@ -243,11 +244,12 @@ new features or dependency changes.
    column composition remain at their consumers. Generalized file detection
    remains an open TODO; move other readers individually as contracts become
    clear.
-4. **Separate feature state from GUI execution.** Extract `preview/session.rs`
-   for target identity, reloads, page/sheet selection and result acceptance.
-   Keep debounce, task cancellation, editor/notebook resources and focus in GUI
-   integration. Separately split metadata queue policy, metadata reading and
-   GPUI scheduling, preserving bounds and generation handling.
+4. **Separate feature state from GUI execution.** Slice 4a is complete:
+   `preview/session.rs` owns target identity, reloads, page/sheet selection and
+   result acceptance. Debounce, task cancellation, editor/notebook resources
+   and focus remain in GUI integration. Slice 4b remains: split metadata queue
+   policy, metadata reading and GPUI scheduling, preserving bounds and generation
+   handling.
 5. **Make later feature seams ready without prebuilding them.** If Properties is
    approved, define its independent structured inspection result before adding
    another renderer. If large-file preview or conversions are approved, design

@@ -138,6 +138,10 @@
 
 ## Done
 
+- [x] Architecture refactor, step 4a: extract `preview/session.rs` for target
+      identity, reloads, PDF/workbook navigation and stale-result acceptance;
+      keep task scheduling, focus and GUI resources in `preview_view.rs`.
+
 - [x] Architecture refactor, step 2a: move listing request and result values
       into `listing/contracts.rs`.
 

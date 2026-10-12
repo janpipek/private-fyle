@@ -23,6 +23,8 @@ mod notebook;
 mod parquet;
 mod pdf;
 mod raw;
+/// Preview target lifecycle and page/sheet navigation decisions.
+pub mod session;
 mod spreadsheet;
 mod table;
 pub mod text;

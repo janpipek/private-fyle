@@ -15,14 +15,8 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::fs_ops;
-use crate::preview::{Content, Preview, Registry, Sheet};
-
-enum State {
-    Empty,
-    Loading,
-    Ready(Preview),
-    Failed(String),
-}
+use crate::preview::session::{PreviewSession, Request, State, TargetChange};
+use crate::preview::{Content, Preview, Registry};
 
 struct LoadedPreview {
     preview: Preview,
@@ -32,18 +26,9 @@ struct LoadedPreview {
 /// How long the cursor must rest on an entry before its preview loads.
 const LOAD_DELAY: Duration = Duration::from_millis(60);
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct PreviewTarget {
-    path: Option<PathBuf>,
-    identity: Option<crate::location::Location>,
-}
-
 pub struct PreviewPane {
     registry: Arc<Registry>,
-    target: Option<PreviewTarget>,
-    /// Line (1-based) to show in text content, e.g. a search hit's.
-    line: Option<u64>,
-    state: State,
+    session: PreviewSession,
     /// Reused read-only editor for text content.
     editor: Entity<EditorState>,
     /// Variable-height virtual list state for notebook cells.
@@ -52,15 +37,7 @@ pub struct PreviewPane {
     notebook_images: Arc<HashMap<(usize, usize), Arc<RenderImage>>>,
     /// Scroll position for both axes of a table preview.
     table_scroll: ScrollHandle,
-    pdf_page: usize,
-    pdf_generation: u64,
-    pdf_image: Option<PathBuf>,
-    pdf_error: Option<String>,
     _pdf_render: Task<()>,
-    /// Selected sheet (0-based) of a spreadsheet and its sample, `None` while loading.
-    sheet_index: usize,
-    sheet_generation: u64,
-    sheet: Option<Result<Sheet, String>>,
     _sheet_load: Task<()>,
     _load: Task<()>,
     _reveal: Task<()>,
@@ -76,21 +53,12 @@ impl PreviewPane {
         });
         Self {
             registry,
-            target: None,
-            line: None,
-            state: State::Empty,
+            session: PreviewSession::default(),
             editor,
             notebook_list: ListState::new(0, ListAlignment::Top, px(160.)),
             notebook_images: Arc::new(HashMap::new()),
             table_scroll: ScrollHandle::new(),
-            pdf_page: 1,
-            pdf_generation: 0,
-            pdf_image: None,
-            pdf_error: None,
             _pdf_render: Task::ready(()),
-            sheet_index: 0,
-            sheet_generation: 0,
-            sheet: None,
             _sheet_load: Task::ready(()),
             _load: Task::ready(()),
             _reveal: Task::ready(()),
@@ -106,35 +74,35 @@ impl PreviewPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let target =
-            (path.is_some() || identity.is_some()).then_some(PreviewTarget { path, identity });
-        if target == self.target {
-            if line != self.line {
-                self.line = line;
+        let change = self.session.set_target(path, identity, line);
+        self.apply_target_change(change, window, cx);
+    }
+
+    fn apply_target_change(
+        &mut self,
+        change: TargetChange,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let request = match change {
+            TargetChange::Unchanged => return,
+            TargetChange::Reveal => {
                 self.reveal_line(window, cx);
+                return;
             }
-            return;
-        }
-        self.line = line;
-        self.target = target.clone();
+            TargetChange::Reset(request) => request,
+        };
         self.table_scroll.set_offset(point(px(0.), px(0.)));
         self.release_notebook_images(window, cx);
-        self.pdf_page = 1;
-        self.pdf_generation = self.pdf_generation.wrapping_add(1);
-        self.pdf_image = None;
-        self.pdf_error = None;
         self._pdf_render = Task::ready(());
-        self.sheet_index = 0;
-        self.sheet_generation = self.sheet_generation.wrapping_add(1);
-        self.sheet = None;
         self._sheet_load = Task::ready(());
-        let Some(path) = target.and_then(|target| target.path) else {
-            self.state = State::Empty;
+        self._reveal = Task::ready(());
+        let Some(request) = request else {
             self._load = Task::ready(());
             cx.notify();
             return;
         };
-        self.state = State::Loading;
+        let path = request.path.clone();
         let registry = self.registry.clone();
         self._load = cx.spawn_in(window, async move |this, cx| {
             // Holding an arrow key moves the cursor faster than this; the
@@ -155,32 +123,29 @@ impl PreviewPane {
                     })
                 })
                 .await;
-            let _ = this.update_in(cx, |this, window, cx| this.show(result, window, cx));
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.show(&request, result, window, cx)
+            });
         });
         cx.notify();
     }
 
     /// Loads the current target again (e.g. after it was edited).
     pub fn reload(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let target = self.target.take();
-        self.set_location_target(
-            target.as_ref().and_then(|target| target.path.clone()),
-            target.and_then(|target| target.identity),
-            self.line,
-            window,
-            cx,
-        );
+        let change = self.session.reload();
+        self.apply_target_change(change, window, cx);
     }
 
-    /// Moves the text view to [`Self::line`] without taking focus. Again
+    /// Moves the text view to the requested line without taking focus. Again
     /// after a moment too: scrolling needs the editor's layout, which new
     /// content only has once drawn.
     fn reveal_line(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(line) = self.line else {
+        let Some(line) = self.session.line() else {
             self._reveal = Task::ready(());
             return;
         };
-        if !matches!(&self.state, State::Ready(p) if matches!(p.content, Content::Text { .. })) {
+        if !matches!(self.session.state(), State::Ready(p) if matches!(p.content, Content::Text { .. }))
+        {
             return;
         }
         let editor = self.editor.clone();
@@ -206,64 +171,50 @@ impl PreviewPane {
 
     fn show(
         &mut self,
+        request: &Request,
         result: Result<LoadedPreview, String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.state = match result {
-            Ok(loaded) => {
-                let preview = loaded.preview;
-                self.release_notebook_images(window, cx);
-                self.notebook_images = Arc::new(loaded.notebook_images);
-                if let Content::Notebook(notebook) = &preview.content {
-                    self.notebook_list =
-                        ListState::new(notebook.cells.len(), ListAlignment::Top, px(240.));
-                }
-                if let Content::Text { text, language, .. } = &preview.content {
-                    self.editor.update(cx, |editor, cx| {
-                        editor.set_highlighter(language.unwrap_or("text"), cx);
-                        editor.set_value(text.clone(), window, cx);
-                    });
-                }
-                if let Content::Spreadsheet { first, .. } = &preview.content {
-                    self.sheet = Some(Ok(Sheet::clone(first)));
-                }
-                State::Ready(preview)
+        let (result, images) = match result {
+            Ok(loaded) => (Ok(loaded.preview), loaded.notebook_images),
+            Err(error) => (Err(error), HashMap::new()),
+        };
+        if !self.session.complete(request, result) {
+            return;
+        }
+        self.release_notebook_images(window, cx);
+        self.notebook_images = Arc::new(images);
+        if let State::Ready(preview) = self.session.state() {
+            if let Content::Notebook(notebook) = &preview.content {
+                self.notebook_list =
+                    ListState::new(notebook.cells.len(), ListAlignment::Top, px(240.));
             }
-            Err(e) => State::Failed(e),
-        };
-        let pdf_path = match &self.state {
-            State::Ready(preview) => match &preview.content {
-                Content::Pdf { path, .. } => Some(path.clone()),
-                _ => None,
-            },
-            _ => None,
-        };
-        if let Some(path) = pdf_path {
-            self.render_pdf_page(path, window, cx);
+            if let Content::Text { text, language, .. } = &preview.content {
+                self.editor.update(cx, |editor, cx| {
+                    editor.set_highlighter(language.unwrap_or("text"), cx);
+                    editor.set_value(text.clone(), window, cx);
+                });
+            }
+        }
+        if let Some(request) = self.session.render_pdf() {
+            self.render_pdf_page(request, window, cx);
         }
         self.reveal_line(window, cx);
         cx.notify();
     }
 
     /// Renders only the selected PDF page in the background.
-    fn render_pdf_page(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        let page = self.pdf_page;
-        self.pdf_generation = self.pdf_generation.wrapping_add(1);
-        let generation = self.pdf_generation;
-        self.pdf_image = None;
-        self.pdf_error = None;
+    fn render_pdf_page(&mut self, request: Request, window: &mut Window, cx: &mut Context<Self>) {
+        let path = request.path.clone();
+        let page = request.index;
         self._pdf_render = cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(async move { crate::preview::render_page(&path, page) })
                 .await
                 .map_err(|error| error.to_string());
             let _ = this.update_in(cx, |this, _, cx| {
-                if this.pdf_page == page && this.pdf_generation == generation {
-                    match result {
-                        Ok(path) => this.pdf_image = Some(path),
-                        Err(error) => this.pdf_error = Some(error),
-                    }
+                if this.session.complete_pdf(&request, result) {
                     cx.notify();
                 }
             });
@@ -272,44 +223,18 @@ impl PreviewPane {
     }
 
     fn change_pdf_page(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((path, pages)) = (match &self.state {
-            State::Ready(preview) => match &preview.content {
-                Content::Pdf { path, pages, .. } => Some((path.clone(), *pages)),
-                _ => None,
-            },
-            _ => None,
-        }) else {
-            return;
-        };
-        let page = self.pdf_page.saturating_add_signed(delta).clamp(1, pages);
-        if page != self.pdf_page {
-            self.pdf_page = page;
-            self.render_pdf_page(path, window, cx);
+        if let Some(request) = self.session.change_pdf_page(delta) {
+            self.render_pdf_page(request, window, cx);
         }
     }
 
     /// Shows another sheet of the workbook, read in the background.
     fn change_sheet(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((path, count)) = (match &self.state {
-            State::Ready(preview) => match &preview.content {
-                Content::Spreadsheet { path, sheets, .. } => Some((path.clone(), sheets.len())),
-                _ => None,
-            },
-            _ => None,
-        }) else {
+        let Some(request) = self.session.change_sheet(delta) else {
             return;
         };
-        let index = self
-            .sheet_index
-            .saturating_add_signed(delta)
-            .min(count.saturating_sub(1));
-        if index == self.sheet_index {
-            return;
-        }
-        self.sheet_index = index;
-        self.sheet_generation = self.sheet_generation.wrapping_add(1);
-        let generation = self.sheet_generation;
-        self.sheet = None;
+        let path = request.path.clone();
+        let index = request.index;
         self.table_scroll.set_offset(point(px(0.), px(0.)));
         self._sheet_load = cx.spawn_in(window, async move |this, cx| {
             let result = cx
@@ -317,8 +242,7 @@ impl PreviewPane {
                 .await
                 .map_err(|error| error.to_string());
             let _ = this.update_in(cx, |this, _, cx| {
-                if this.sheet_generation == generation {
-                    this.sheet = Some(result);
+                if this.session.complete_sheet(&request, result) {
                     cx.notify();
                 }
             });
@@ -454,9 +378,12 @@ impl PreviewPane {
                 .when(!info.is_empty(), |d| d.child(details(info, cx)))
                 .into_any_element(),
             Content::Pdf { pages, .. } => {
-                let page = self.pdf_page;
-                let image = self.pdf_image.clone();
-                let error = self.pdf_error.clone();
+                let page = self.session.pdf_page();
+                let (image, error) = match self.session.pdf_result() {
+                    Some(Ok(path)) => (Some(path.clone()), None),
+                    Some(Err(error)) => (None, Some(error.clone())),
+                    None => (None, None),
+                };
                 let controls = h_flex()
                     .flex_none()
                     .items_center()
@@ -504,16 +431,13 @@ impl PreviewPane {
                             .when_some(error, |view, error| {
                                 view.child(div().text_color(theme.muted_foreground).child(error))
                             })
-                            .when(
-                                self.pdf_image.is_none() && self.pdf_error.is_none(),
-                                |view| {
-                                    view.child(
-                                        div()
-                                            .text_color(theme.muted_foreground)
-                                            .child("Rendering page…"),
-                                    )
-                                },
-                            ),
+                            .when(self.session.pdf_result().is_none(), |view| {
+                                view.child(
+                                    div()
+                                        .text_color(theme.muted_foreground)
+                                        .child("Rendering page…"),
+                                )
+                            }),
                     )
                     .into_any_element()
             }
@@ -593,7 +517,7 @@ impl PreviewPane {
                 self.render_table(header, rows, footer, false, cx)
             }
             Content::Spreadsheet { sheets, .. } => {
-                let index = self.sheet_index;
+                let index = self.session.sheet_index();
                 let count = sheets.len();
                 let name = sheets.get(index).cloned().unwrap_or_default();
                 let controls =
@@ -620,7 +544,7 @@ impl PreviewPane {
                                     this.change_sheet(1, window, cx)
                                 })),
                         );
-                let body = match &self.sheet {
+                let body = match self.session.sheet() {
                     Some(Ok(sheet)) => {
                         self.render_table(&sheet.header, &sheet.rows, sheet.summary(), true, cx)
                     }
@@ -694,7 +618,7 @@ impl PreviewPane {
 impl Render for PreviewPane {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        let (title, detail, link) = match &self.state {
+        let (title, detail, link) = match self.session.state() {
             State::Ready(p) => (
                 p.name.clone(),
                 match p.content {
@@ -717,7 +641,7 @@ impl Render for PreviewPane {
                 .text_color(cx.theme().muted_foreground)
                 .child(text)
         };
-        let body = match &self.state {
+        let body = match self.session.state() {
             State::Ready(preview) => self.render_content(preview, cx),
             State::Loading => center(String::new()).into_any_element(),
             State::Empty => center("Nothing to preview".into()).into_any_element(),
@@ -786,41 +710,4 @@ fn details(info: &[(String, String)], cx: &Context<PreviewPane>) -> impl IntoEle
                 )
                 .child(div().min_w_0().truncate().child(value.clone()))
         }))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::PreviewTarget;
-    use crate::location::Location as TypedLocation;
-    use crate::remote::Location as RemoteLocation;
-    use std::path::PathBuf;
-
-    #[test]
-    fn materialized_preview_identity_is_not_its_cache_path() {
-        let path = PathBuf::from("/cache/fyle/remote/gdrive/report.docx");
-        let first = PreviewTarget {
-            path: Some(path.clone()),
-            identity: Some(TypedLocation::Remote(
-                RemoteLocation::root("gdrive")
-                    .unwrap()
-                    .child("report")
-                    .unwrap(),
-            )),
-        };
-        let other = PreviewTarget {
-            path: Some(path),
-            identity: Some(TypedLocation::Remote(
-                RemoteLocation::root("onedrive")
-                    .unwrap()
-                    .child("report")
-                    .unwrap(),
-            )),
-        };
-        assert_ne!(first, other);
-        let unavailable = PreviewTarget {
-            path: None,
-            identity: first.identity.clone(),
-        };
-        assert_ne!(first, unavailable);
-    }
 }

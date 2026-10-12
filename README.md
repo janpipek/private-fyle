@@ -543,7 +543,7 @@ Where things live (`src/`):
 | `fs_ops.rs`, `transfer.rs`, `jobs.rs` | Native metadata/account adapters and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
 | `remote.rs`, `remote/` | Remote providers: `Provider` trait; compatibility `Location` alias to `location::RemoteLocation`; Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `LocalCopy` keeps a typed source address separate from the cache path used at native I/O boundaries; `model/remote.rs` holds cached listings |
 | `archive.rs`, `archive/extraction.rs`, `dirsize.rs`, `links.rs` | Archive index; safe extraction; recursive sizes; symlink state |
-| `preview/`, `preview_view.rs`, `notebook_view.rs` | `Previewer`s and their `Registry` (including bounded nbformat 4 notebook parsing); one render arm per `Content`; notebooks render through a variable-height lazy list; preview identity stays separate from materialized local bytes |
+| `preview/`, `preview_view.rs`, `notebook_view.rs` | `Previewer`s and their `Registry` (including bounded nbformat 4 notebook parsing); one render arm per `Content`; notebooks render through a variable-height lazy list; `PreviewSession` owns target identity, reloads, navigation and stale-result acceptance; GUI resources stay in the pane |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and separate editor windows |
 | `tools/`, `tools_view.rs` | Tool, Action and Registry model; `defaults.toml`; built-ins; Lua plugins; `exec.rs` runs them |
 | `search.rs`, `places.rs`, `breadcrumbs.rs`, `remote_labels.rs`, `rename.rs`, `openers.rs`, `terminal.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs`, `zoom.rs` | Further UI-independent models, each with tests |
@@ -558,7 +558,10 @@ plain `Content` data; the first previewer whose `matches` accepts the file's
 in the background and can be browsed with Previous/Next controls; PDF metadata
 stays in the model for future file properties. Overflowing binary, Markdown,
 archive, notebook, table and detail previews show scrollbars. `src/preview_view.rs`
-loads in the background and has one render arm per `Content` variant. A new file
+keeps debounce, background tasks, focus and editor/notebook image resources,
+with one render arm per `Content` variant. `src/preview/session.rs` owns typed
+target identity, line-only changes, reload resets, PDF page and workbook sheet
+selection, and generation checks for full loads, page renders and sheet reads. A new file
 type is a new `Previewer` registered before the fallbacks; only a new kind of
 display needs a new `Content` variant and render arm.
 
