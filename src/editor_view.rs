@@ -29,6 +29,29 @@ pub enum EditorEvent {
     Closed,
 }
 
+/// Opens an editor in its own window and returns its window handle and pane.
+pub fn open_window(doc: Document, cx: &mut App) -> Result<(AnyWindowHandle, Entity<EditorPane>)> {
+    let title = format!("{} — Fyle", doc.name());
+    let bounds = Bounds::centered(None, size(px(900.), px(700.)), cx);
+    let options = WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        titlebar: Some(TitlebarOptions {
+            title: Some(title.into()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    gpui_kit::open_window(options, cx, move |window, cx| {
+        let pane = cx.new(|cx| EditorPane::new(doc, window, cx));
+        let weak_pane = pane.downgrade();
+        window.on_window_should_close(cx, move |window, cx| {
+            let _ = weak_pane.update(cx, |pane, cx| pane.close(&CloseEditor, window, cx));
+            false
+        });
+        pane
+    })
+}
+
 pub struct EditorPane {
     doc: Document,
     state: Entity<EditorState>,
@@ -71,17 +94,13 @@ impl EditorPane {
         }
     }
 
-    pub fn is_modified(&self) -> bool {
-        self.modified
-    }
-
     pub fn focus(&self, window: &mut Window, cx: &mut App) {
         self.state.update(cx, |state, cx| state.focus(window, cx));
     }
 
     fn save(&mut self, _: &SaveFile, window: &mut Window, cx: &mut Context<Self>) {
         if !self.doc.changed_on_disk() {
-            self.write(cx);
+            self.write(window, cx);
             return;
         }
         // Someone else changed the file since it was opened.
@@ -100,8 +119,8 @@ impl EditorPane {
                 .show_cancel(true)
                 .on_ok({
                     let this = this.clone();
-                    move |_, _, cx| {
-                        let _ = this.update(cx, |this, cx| this.write(cx));
+                    move |_, window, cx| {
+                        let _ = this.update(cx, |this, cx| this.write(window, cx));
                         true
                     }
                 })
@@ -112,7 +131,7 @@ impl EditorPane {
         });
     }
 
-    fn write(&mut self, cx: &mut Context<Self>) {
+    fn write(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.state.read(cx).value();
         match self.doc.save(&text) {
             Ok(()) => {
@@ -122,7 +141,7 @@ impl EditorPane {
                     self.doc.path().display()
                 )));
                 if std::mem::take(&mut self.close_after_save) {
-                    cx.emit(EditorEvent::Closed);
+                    self.finish_close(window, cx);
                 }
             }
             Err(e) => {
@@ -133,10 +152,15 @@ impl EditorPane {
         cx.notify();
     }
 
+    fn finish_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(EditorEvent::Closed);
+        window.remove_window();
+    }
+
     /// Closes, asking first if there are unsaved changes.
     fn close(&mut self, _: &CloseEditor, window: &mut Window, cx: &mut Context<Self>) {
         if !self.modified {
-            cx.emit(EditorEvent::Closed);
+            self.finish_close(window, cx);
             return;
         }
         let this = cx.entity().downgrade();
@@ -160,8 +184,8 @@ impl EditorPane {
                         .w_full()
                         .gap_2()
                         .child(
-                            button("discard", "Discard", |_, _, cx| {
-                                cx.emit(EditorEvent::Closed)
+                            button("discard", "Discard", |this, window, cx| {
+                                this.finish_close(window, cx)
                             })
                             .with_variant(ButtonVariant::Danger),
                         )

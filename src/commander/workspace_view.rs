@@ -37,25 +37,14 @@ impl Commander {
             },
         );
 
-        // F4 temporarily restores the familiar two-column editor arrangement.
-        let editor_open = self.editor.is_some();
-        let visible = if editor_open {
-            [true, true]
-        } else {
-            self.workspace.visible_panels()
-        };
-        let active = self.active;
+        let visible = self.workspace.visible_panels();
         let panel = |ix: usize| {
-            let child = if editor_open && ix != active {
-                self.editor
-                    .as_ref()
-                    .expect("editor_open matches editor presence")
-                    .clone()
-                    .into_any_element()
-            } else {
-                self.views[ix].clone().into_any_element()
-            };
-            div().flex_1().min_w_0().min_h_0().h_full().child(child)
+            div()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .h_full()
+                .child(self.views[ix].clone())
         };
 
         let divider = div()
@@ -127,7 +116,7 @@ impl Commander {
                 .into_any_element()
         };
 
-        let inspector_requested = mode.has_inspector() && !editor_open;
+        let inspector_requested = mode.has_inspector();
         let dock = fit.map(|fit| {
             // Prefer the inspector on the right whenever that arrangement fits.
             fit.right

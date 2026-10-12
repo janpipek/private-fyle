@@ -16,7 +16,7 @@ use super::keys::{
     MakeDir, Move, NewFile, PasteFiles, Rename, YankFiles,
 };
 use crate::editor::Document;
-use crate::editor_view::{EditorEvent, EditorPane};
+use crate::editor_view::EditorEvent;
 use crate::jobs::{self, Extraction, JobKind, Yank};
 use crate::menus::Cmd;
 use crate::model::Folder;
@@ -251,19 +251,9 @@ impl Commander {
         }
     }
 
-    /// F4: edits the cursor file in place of the inactive panel.
+    /// F4: opens the cursor file in its own editor window.
     pub fn edit_file(&mut self, _: &EditFile, window: &mut Window, cx: &mut Context<Self>) {
         if self.refuse_in_archive(cx) || self.refuse_on_remote(cx) {
-            return;
-        }
-        if let Some(editor) = &self.editor
-            && editor.read(cx).is_modified()
-        {
-            self.status = "Save or close the open file first".into();
-            editor
-                .clone()
-                .update(cx, |editor, cx| editor.focus(window, cx));
-            cx.notify();
             return;
         }
         let Some(entry) = self.folders[self.active].read(cx).current().cloned() else {
@@ -347,38 +337,66 @@ impl Commander {
                 return;
             }
         };
-        let editor = cx.new(|cx| EditorPane::new(doc, window, cx));
-        self._editor_subscription = Some(cx.subscribe_in(
-            &editor,
-            window,
-            |this, _, event: &EditorEvent, window, cx| {
-                match event {
-                    EditorEvent::Saved(message) => {
-                        this.status = message.clone().into();
-                        this.reload_all(window, cx);
-                        this.preview.update(cx, |p, cx| p.reload(window, cx));
-                    }
-                    EditorEvent::Failed(error) => this.status = error.clone().into(),
-                    EditorEvent::Closed => {
-                        this.editor = None;
-                        this._editor_subscription = None;
-                        this.focus_active(window, cx);
-                    }
-                }
+        if let Some(existing) = self
+            .editor_windows
+            .iter()
+            .find(|editor| editor.path == path)
+        {
+            let _ = existing.window.update(cx, |_, window, cx| {
+                window.activate_window();
+                existing.pane.update(cx, |pane, cx| pane.focus(window, cx));
+                cx.activate(true);
+            });
+            return;
+        }
+        let main_window = window.window_handle();
+        let (editor_window, editor) = match crate::editor_view::open_window(doc, cx) {
+            Ok(opened) => opened,
+            Err(error) => {
+                self.status = format!("{}: {error}", path.display()).into();
                 cx.notify();
-            },
-        ));
-        // A dialog that led here restores focus 250 ms after closing
-        // (gpui-component's close animation); take it back after that.
-        let focus_target = editor.downgrade();
-        cx.spawn_in(window, async move |_, cx| {
+                return;
+            }
+        };
+        let subscription = cx.subscribe(&editor, move |this, _, event: &EditorEvent, cx| {
+            match event {
+                EditorEvent::Saved(message) => {
+                    this.status = message.clone().into();
+                    let commander = cx.entity().downgrade();
+                    cx.defer(move |cx| {
+                        let _ = main_window.update(cx, |_, window, cx| {
+                            let _ = commander.update(cx, |this, cx| {
+                                this.reload_all(window, cx);
+                                this.preview
+                                    .update(cx, |preview, cx| preview.reload(window, cx));
+                            });
+                        });
+                    });
+                }
+                EditorEvent::Failed(error) => this.status = error.clone().into(),
+                EditorEvent::Closed => {
+                    this.editor_windows
+                        .retain(|editor| editor.window != editor_window);
+                }
+            }
+            cx.notify();
+        });
+        self.editor_windows.push(super::EditorWindow {
+            path,
+            window: editor_window,
+            pane: editor,
+            _subscription: subscription,
+        });
+        cx.spawn(async move |_, cx| {
             cx.background_executor()
                 .timer(Duration::from_millis(300))
                 .await;
-            let _ = focus_target.update_in(cx, |editor, window, cx| editor.focus(window, cx));
+            let _ = editor_window.update(cx, |_, window, cx| {
+                window.activate_window();
+                cx.activate(true);
+            });
         })
         .detach();
-        self.editor = Some(editor);
         cx.notify();
     }
 

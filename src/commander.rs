@@ -56,6 +56,13 @@ use crate::tools::{Programs, Registry};
 use crate::workspace::{LayoutMode, PanelSide, Workspace};
 use crate::zoom;
 
+struct EditorWindow {
+    path: PathBuf,
+    window: AnyWindowHandle,
+    pane: Entity<EditorPane>,
+    _subscription: Subscription,
+}
+
 pub struct Commander {
     folders: [Entity<Folder>; 2],
     views: [Entity<FolderView>; 2],
@@ -152,9 +159,8 @@ pub struct Commander {
     shortcut_entries: Vec<crate::settings::KeymapEntry>,
     /// Config write for shortcut edits.
     _keymap_save_task: Task<()>,
-    /// Open editor, shown in place of the inactive panel (before the preview).
-    editor: Option<Entity<EditorPane>>,
-    _editor_subscription: Option<Subscription>,
+    /// Built-in editor windows owned by this commander.
+    editor_windows: Vec<EditorWindow>,
     /// The `theme` setting currently in effect.
     theme: String,
     active: usize,
@@ -383,12 +389,11 @@ impl Commander {
             size_cancel: [None, None],
             _size_tasks: [Task::ready(()), Task::ready(())],
             _search_inputs: Vec::new(),
-            editor: None,
+            editor_windows: Vec::new(),
             editor_command: settings.editor.command.clone(),
             terminal_command: settings.terminal.command.clone(),
             shortcut_entries: settings.keymap.clone(),
             _keymap_save_task: Task::ready(()),
-            _editor_subscription: None,
             theme: settings.theme.clone(),
             active: 0,
             show_hidden: settings.show_hidden,
@@ -641,7 +646,6 @@ impl Render for Commander {
                         return;
                     }
                     let dock_ratio = if this.workspace.mode().has_inspector()
-                        && this.editor.is_none()
                         && this.inspector_split_horizontal
                     {
                         this.inspector_split

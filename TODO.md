@@ -6,9 +6,6 @@
       library (`git2` or `gix`) if dropping the Git executable dependency is
       useful. Preserve ignored, renamed and nested-directory marks and check
       performance before switching.
-- [ ] Idea: move the built-in editor from the panel into a separate window.
-      Decide whether F4 reuses an open editor window, and how focus and
-      unsaved-change prompts work across windows.
 - [ ] Add an image tool to set the selected image as the desktop wallpaper.
       Choose the Linux desktop integration and handle unsupported sessions.
 - [ ] Keymap presets: selectable fyle, Krusader, Midnight Commander and
@@ -193,8 +190,9 @@
       a panel position, so the command is unavailable (with a reason) while a
       navigation, remote reload, search or size scan runs; metadata and
       thumbnail work is keyed by the listing generation, which the swap
-      renews. The F4 editor and F3 preview cover a panel, so they block it too
-      (`panels::swap_blocked`).
+      renews. The F3 preview remains independent of panel swapping.
+- [x] Built-in editor opens each file in its own window; F4 can open multiple
+      editor windows, and each window prompts independently for unsaved changes.
 - [x] Go to Other Panel's Folder (`GoToOtherFolder`, Ctrl-Left / Ctrl-Right,
       Go menu, palette, F1): the active panel navigates to the other panel's
       typed location; search results use their root, a load in flight there is

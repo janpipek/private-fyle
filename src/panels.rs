@@ -51,8 +51,6 @@ pub fn other_panel_target(
 /// What the window is doing that decides whether the panels can be swapped.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Activity {
-    /// The F4 editor covers the inactive panel.
-    pub editor_open: bool,
     /// A navigation, archive read or remote reload is in flight.
     pub loading: bool,
     /// A search or a folder size scan is running.
@@ -64,13 +62,10 @@ pub struct Activity {
 /// Background work is bound to a panel by its position, so rather than
 /// re-pointing it, swapping waits until it is finished or cancelled (Esc).
 /// Metadata and thumbnails are not affected: they are keyed by the listing
-/// generation, which [`crate::model::Folder::swap_with`] renews. The editor
-/// covers the inactive panel, so the swap would be invisible on one side;
-/// close it first. The inspector follows the active selection after a swap.
+/// generation, which [`crate::model::Folder::swap_with`] renews. The inspector
+/// follows the active selection after a swap.
 pub fn swap_blocked(activity: &Activity) -> Option<&'static str> {
-    if activity.editor_open {
-        Some("Close the editor first")
-    } else if activity.loading {
+    if activity.loading {
         Some("A folder is still loading (Esc cancels)")
     } else if activity.scanning {
         Some("A search or size scan is running (Esc stops it)")
@@ -195,13 +190,9 @@ mod tests {
     }
 
     #[test]
-    fn swapping_waits_for_work_and_editor() {
+    fn swapping_waits_for_background_work() {
         assert_eq!(swap_blocked(&Activity::default()), None);
         for activity in [
-            Activity {
-                editor_open: true,
-                ..Default::default()
-            },
             Activity {
                 loading: true,
                 ..Default::default()

@@ -181,13 +181,6 @@ impl Commander {
     /// Help › Configuration: edits `config.toml`, created from the example
     /// first if missing.
     pub fn open_config(&mut self, _: &OpenConfig, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(editor) = &self.editor
-            && editor.read(cx).is_modified()
-        {
-            self.status = "Save or close the open file first".into();
-            cx.notify();
-            return;
-        }
         match settings::ensure_file() {
             Ok(path) => {
                 self.open_in_editor(path.clone(), Document::open(&path), window, cx);
