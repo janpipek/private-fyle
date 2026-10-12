@@ -1,6 +1,6 @@
 # Architecture refactoring plan
 
-Status: in progress; migration steps 1, 2a, 2b, 3a and 4a are complete.
+Status: in progress; migration steps 1, 2a, 2b, 3a, 4a and 4b are complete.
 
 This document records the architecture decision and an incremental migration
 plan. [README.md](../README.md#architecture) describes the current architecture;
@@ -119,8 +119,14 @@ EXIF fallback parses selected JPEG bytes without writing to that cache.
 [`preview/session.rs`](../src/preview/session.rs) now owns target identity,
 line-only changes, reloads, page/sheet selection and stale-result checks for all
 three load streams. [`preview_view.rs`](../src/preview_view.rs) retains debounce,
-tasks, focus, editor/notebook resources and rendering. `panel/metadata.rs` still
-combines queue policy, metadata reading and GPUI scheduling.
+tasks, focus, editor/notebook resources and rendering.
+
+[`panel/metadata/model.rs`](../src/panel/metadata/model.rs) now owns metadata
+requests, field selection, coalescing, concurrency limits and generation-scoped
+cache policy. [`panel/metadata/reader.rs`](../src/panel/metadata/reader.rs) reads
+optional local values; [`panel/metadata.rs`](../src/panel/metadata.rs) retains
+GPUI scheduling. Old-generation workers count toward the four-worker bound
+until completion; stale results never populate the current cache.
 
 ## Ownership details
 
@@ -247,9 +253,11 @@ new features or dependency changes.
 4. **Separate feature state from GUI execution.** Slice 4a is complete:
    `preview/session.rs` owns target identity, reloads, page/sheet selection and
    result acceptance. Debounce, task cancellation, editor/notebook resources
-   and focus remain in GUI integration. Slice 4b remains: split metadata queue
-   policy, metadata reading and GPUI scheduling, preserving bounds and generation
-   handling.
+   and focus remain in GUI integration. Slice 4b is complete:
+   `panel/metadata/model.rs` owns queue/cache policy and request/result contracts,
+   `panel/metadata/reader.rs` owns blocking reads, and `panel/metadata.rs` keeps
+   GPUI scheduling. Cache, queue and worker bounds and generation handling are
+   preserved.
 5. **Make later feature seams ready without prebuilding them.** If Properties is
    approved, define its independent structured inspection result before adding
    another renderer. If large-file preview or conversions are approved, design

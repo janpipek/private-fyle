@@ -138,6 +138,10 @@
 
 ## Done
 
+- [x] Architecture refactor, step 4b: separate panel metadata queue/cache
+      policy and contracts from blocking readers and GPUI scheduling; preserve
+      cache/queue/worker bounds and listing-generation rejection.
+
 - [x] Architecture refactor, step 4a: extract `preview/session.rs` for target
       identity, reloads, PDF/workbook navigation and stale-result acceptance;
       keep task scheduling, focus and GUI resources in `preview_view.rs`.
