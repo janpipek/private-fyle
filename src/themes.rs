@@ -48,6 +48,10 @@ pub const BUNDLED: &[(&str, &str)] = &[
     ("everforest.json", include_str!("../themes/everforest.json")),
     ("flexoki.json", include_str!("../themes/flexoki.json")),
     ("gruvbox.json", include_str!("../themes/gruvbox.json")),
+    (
+        "midnight-commander.json",
+        include_str!("../themes/midnight-commander.json"),
+    ),
     ("solarized.json", include_str!("../themes/solarized.json")),
     ("tokyonight.json", include_str!("../themes/tokyonight.json")),
 ];
@@ -248,8 +252,8 @@ mod tests {
             }
         }
         assert!(names.contains("tokyo night"));
-        assert_eq!(BUNDLED.len(), 7);
-        assert_eq!(names.len(), 17);
+        assert_eq!(BUNDLED.len(), 8);
+        assert_eq!(names.len(), 18);
     }
 
     #[test]

@@ -15,5 +15,6 @@ recorded in each file are listed below.
 | `everforest.json` | Everforest Light, Everforest Dark | sainnhe | <https://github.com/sainnhe/everforest> |
 | `flexoki.json` | Flexoki Light, Flexoki Dark | kepano | <https://github.com/kepano/flexoki> |
 | `gruvbox.json` | Gruvbox Light, Gruvbox Dark | Pavel Pertsev | <https://github.com/morhetz/gruvbox> |
+| `midnight-commander.json` | Midnight Commander | GNU Midnight Commander contributors; palette adapted from the default skin | <https://github.com/MidnightCommander/mc/blob/master/misc/skins/default.ini> |
 | `solarized.json` | Solarized Light, Solarized Dark | Ethan Schoonover | <https://ethanschoonover.com/solarized> |
 | `tokyonight.json` | Tokyo Night, Tokyo Storm, Tokyo Moon | Folke Lemaitre | <https://github.com/folke/tokyonight.nvim> |
