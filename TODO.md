@@ -140,6 +140,10 @@
 
 ## Done
 
+- [x] Architecture refactor, step 7a: move `FileTable` rendering and event
+      forwarding into `panel/table_view.rs`; keep shared panel headers, inputs,
+      focus and list/icon coordination in `panel.rs`.
+
 - [x] Architecture refactor, step 6a: extract settings file loading, creation
       and comment-preserving saves into `settings/persistence.rs`; keep schema,
       defaults and parsing in `settings.rs`, with explicit persistence callers.
