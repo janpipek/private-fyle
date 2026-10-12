@@ -292,6 +292,20 @@ More can be added as gpui-component theme files (`*.json`) in a `themes`
 folder next to `config.toml`; a user theme with the same name as a bundled
 one replaces it.
 
+For the classic Midnight Commander colours, copy
+[`examples/themes/midnight-commander.json`](examples/themes/midnight-commander.json)
+into that user `themes` folder, restart fyle, and select **Midnight Commander**
+in the picker (or set `theme = "Midnight Commander"`). On Linux the folder is
+`${XDG_CONFIG_HOME:-~/.config}/fyle/themes`; on Windows it is
+`%APPDATA%\fyle\themes`. This optional user theme uses the classic ANSI palette:
+blue panels, light-gray text, cyan cursor rows, white directories, yellow marks
+and headers, gray popovers, and square corners. Its palette follows MC's
+[default skin](https://github.com/MidnightCommander/mc/blob/master/misc/skins/default.ini);
+actual terminal RGB colours vary. Fyle keeps each file's text colour on the
+cursor row, so it cannot reproduce MC's black cursor text through a theme alone.
+Marks share the danger colour in fyle, so danger indicators are yellow too;
+destructive buttons retain red backgrounds.
+
 ## Build dependencies
 
 - Linux (Debian/Ubuntu): `libxkbcommon-dev libxkbcommon-x11-dev libfontconfig1-dev libxcb1-dev libwayland-dev libssl-dev pkg-config`,
