@@ -1,6 +1,6 @@
 # Architecture refactoring plan
 
-Status: in progress; migration steps 1, 2a, 2b, 3a, 4a, 4b, 6a and 7a are complete.
+Status: in progress; migration steps 1, 2a, 2b, 3a, 4a, 4b, 6a, 7a and 7b are complete.
 
 This document records the architecture decision and an incremental migration
 plan. [README.md](../README.md#architecture) describes the current architecture;
@@ -273,11 +273,14 @@ new features or dependency changes.
    and panel swapping cross several paths.
 7. **Finish GUI organization and documentation.** Slice 7a is complete:
    `panel/table_view.rs` owns `FileTable` rendering and event forwarding.
-   `panel.rs` retains shared headers, inputs, focus, subscriptions, Git scheduling
+   `panel.rs` retains header state, inputs, focus, subscriptions, Git scheduling
    and list/icon coordination; the table keeps its implementation details private.
-   Group other feature panes and shared visuals where useful. Keep composition
-   and command wiring in Commander. Update the README architecture map as each
-   boundary lands.
+   Slice 7b is complete: `panel/header_view.rs` renders breadcrumbs, the
+   location bar and header buttons, forwarding the existing events. `FolderView`
+   retains input/menu lifecycle, focus, subscriptions and event handlers; header
+   rendering uses its existing handles and state. Group other feature panes and
+   shared visuals where useful. Keep composition and command wiring in Commander.
+   Update the README architecture map as each boundary lands.
 
 Start with entry values and listing contracts: these foundations are used across
 the application. Preview session extraction follows as a contained feature step.

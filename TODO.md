@@ -140,6 +140,10 @@
 
 ## Done
 
+- [x] Architecture refactor, step 7b: move breadcrumbs, location-bar and
+      header-button rendering into `panel/header_view.rs`; keep input/menu
+      lifecycle, focus, subscriptions and event handlers in `FolderView`.
+
 - [x] Architecture refactor, step 7a: move `FileTable` rendering and event
       forwarding into `panel/table_view.rs`; keep shared panel headers, inputs,
       focus and list/icon coordination in `panel.rs`.
