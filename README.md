@@ -80,7 +80,8 @@ layout, the other panel remains the destination for copy and move commands and
 is identified by its destination label. F3 opens or closes the inspector. The
 selected layout is saved in `config.toml` and restored at startup; set
 `[workspace] layout` to `"two_panels"`, `"two_panels_inspector"` or
-`"one_panel_inspector"` to choose it directly.
+`"one_panel_inspector"` to choose it directly. This is the only startup
+setting for the inspector.
 
 Symbolic links keep their target's file icon with a small badge: a curved
 arrow for a working link, a crossed circle (and a muted name) for a broken

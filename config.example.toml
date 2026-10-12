@@ -70,9 +70,6 @@ sort_descending = false
 # "two_panels", "two_panels_inspector", or "one_panel_inspector".
 layout = "two_panels"
 
-[preview]
-open_on_start = false     # legacy option: start with two panels plus preview
-
 [editor]
 # External editor for F4 / Shift-F4, e.g. ["code"]; the file path is appended.
 # Empty uses the built-in editor.

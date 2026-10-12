@@ -230,14 +230,7 @@ impl Commander {
         let registry = Arc::new(PreviewRegistry::with_defaults());
         let preview = cx.new(|cx| PreviewPane::new(registry, window, cx));
         let mut workspace = Workspace::default();
-        let layout = if settings.workspace.layout == LayoutMode::TwoPanels
-            && settings.preview.open_on_start
-        {
-            LayoutMode::TwoPanelsInspector
-        } else {
-            settings.workspace.layout
-        };
-        workspace.set_mode(layout);
+        workspace.set_mode(settings.workspace.layout);
 
         let mut subscriptions = Vec::new();
         for folder in &folders {

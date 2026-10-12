@@ -37,7 +37,6 @@ pub struct Settings {
     pub window: WindowSettings,
     pub panels: PanelSettings,
     pub workspace: WorkspaceSettings,
-    pub preview: PreviewSettings,
     pub editor: EditorSettings,
     pub terminal: TerminalSettings,
 }
@@ -120,13 +119,6 @@ pub enum SortSetting {
     Modified,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize, Default)]
-#[serde(default, deny_unknown_fields)]
-pub struct PreviewSettings {
-    /// Open the F3 quick preview at startup.
-    pub open_on_start: bool,
-}
-
 /// Which workspace layout opens at startup.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
@@ -147,7 +139,6 @@ impl Default for Settings {
             window: WindowSettings::default(),
             panels: PanelSettings::default(),
             workspace: WorkspaceSettings::default(),
-            preview: PreviewSettings::default(),
             editor: EditorSettings::default(),
             terminal: TerminalSettings::default(),
         }
@@ -629,9 +620,6 @@ mod tests {
             sort = "size"
             sort_descending = true
 
-            [preview]
-            open_on_start = true
-
             [workspace]
             layout = "one_panel_inspector"
 
@@ -658,7 +646,6 @@ mod tests {
                 descending: true
             }
         );
-        assert!(settings.preview.open_on_start);
         assert_eq!(settings.workspace.layout, LayoutMode::OnePanelInspector);
     }
 
@@ -675,6 +662,7 @@ mod tests {
         assert!(Settings::parse("theme = 1").is_err());
         assert!(Settings::parse("[panels]\nsort = \"color\"").is_err());
         assert!(Settings::parse("[workspace]\nlayout = \"three_panels\"").is_err());
+        assert!(Settings::parse("[preview]\nopen_on_start = true").is_err());
     }
 
     #[test]
@@ -687,12 +675,16 @@ mod tests {
     fn saves_workspace_layout_without_losing_other_settings() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("config.toml");
-        std::fs::write(&path, "# Keep this\n[workspace]\nlayout = \"two_panels\" # layout\n[preview]\nopen_on_start = false\n").unwrap();
+        std::fs::write(
+            &path,
+            "# Keep this\n[workspace]\nlayout = \"two_panels\" # layout\n[editor]\ncommand = []\n",
+        )
+        .unwrap();
         save_workspace_layout_to(&path, LayoutMode::OnePanelInspector).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("# Keep this"));
         assert!(text.contains("# layout"));
-        assert!(text.contains("open_on_start = false"));
+        assert!(text.contains("command = []"));
         assert_eq!(
             Settings::parse(&text).unwrap().workspace.layout,
             LayoutMode::OnePanelInspector
