@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use gpui_kit::*;
 
 use crate::columns::ColumnKind;
-use crate::fs_ops::Attrs;
+use crate::fs_ops;
 use crate::links::LinkState;
 use crate::location::Location;
 
@@ -304,13 +304,7 @@ fn read_metadata(request: &Request) -> Values {
         values.exif = Some(crate::preview::exif_fields(path));
     }
     if request.fields.contains(&Field::Owner) {
-        values.owner = Some(
-            Attrs {
-                uid: request.uid,
-                ..Attrs::default()
-            }
-            .owner(),
-        );
+        values.owner = Some(fs_ops::owner_name(request.uid));
     }
     if request.fields.contains(&Field::ResolvedLink) {
         values.resolved_link = Some(request.link.resolved(path));

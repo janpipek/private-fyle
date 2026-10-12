@@ -25,24 +25,12 @@ use history::Visit;
 #[cfg(test)]
 use crate::archive;
 use crate::dirsize::DirSize;
-use crate::fs_ops::{self, Entry, SortKey};
+#[cfg(test)]
+use crate::entry::sort_entries;
+use crate::entry::{Entry, Sort, compare_entries};
+use crate::fs_ops;
 use crate::listing::{ListingRequest, ListingSnapshot};
 use crate::location::{Location, PanelTarget};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Sort {
-    pub key: SortKey,
-    pub descending: bool,
-}
-
-impl Default for Sort {
-    fn default() -> Self {
-        Self {
-            key: SortKey::Name,
-            descending: false,
-        }
-    }
-}
 
 /// Result of activating (Enter / double-click) the entry under the cursor.
 #[derive(Debug, PartialEq, Eq)]
@@ -754,7 +742,7 @@ impl Folder {
             entries.retain(|e| !e.is_parent);
         }
         self.apply_sizes(&mut entries);
-        fs_ops::sort_entries(&mut entries, self.sort.key, self.sort.descending);
+        sort_entries(&mut entries, self.sort.key, self.sort.descending);
         for entry in entries {
             let location = Location::from_panel_path(&entry.path, None)
                 .expect("native listing returns absolute paths");
@@ -803,9 +791,7 @@ fn sort_row_tree(rows: &mut Vec<Row>, depth: usize, sort: Sort) {
             group.push(row);
         }
     }
-    groups.sort_by(|a, b| {
-        fs_ops::compare_entries(&a[0].entry, &b[0].entry, sort.key, sort.descending)
-    });
+    groups.sort_by(|a, b| compare_entries(&a[0].entry, &b[0].entry, sort.key, sort.descending));
     for mut group in groups {
         if group.len() > 1 {
             let mut children = group.split_off(1);

@@ -8,7 +8,7 @@ use std::fmt;
 
 use serde::Deserialize;
 
-use crate::fs_ops::SortKey;
+use crate::entry::SortKey;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ColumnKind {

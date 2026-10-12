@@ -1,6 +1,6 @@
 # Architecture refactoring plan
 
-Status: proposed; implementation has not started.
+Status: in progress; migration step 1 is complete.
 
 This document records the architecture decision and an incremental migration
 plan. [README.md](../README.md#architecture) describes the current architecture;
@@ -76,22 +76,21 @@ all filesystem access is not required.
 
 ### Shared entry data inside filesystem operations
 
-[`fs_ops.rs`](../src/fs_ops.rs) contains `Entry`, `Attrs`, sorting and native
-filesystem operations. Remote providers and panel models import shared values
-through this module. `Attrs::owner()` reads the account database, while
-`Attrs::from_meta()` translates native filesystem metadata.
+[`entry.rs`](../src/entry.rs) now contains `Entry`, plain `Attrs`, `Sort`,
+`SortKey` and pure ordering. `fs_ops.rs` retains native filesystem operations,
+`attrs_from_metadata(&fs::Metadata)`, and `owner_name(Option<u32>)` adapters.
+Owner lookup remains in the existing background metadata worker.
 
-Extract plain values and pure ordering into `entry.rs`. Keep metadata conversion
-and account lookup as explicit adapter functions, so the shared types themselves
-do not expose hidden I/O methods.
+Consumers import shared values directly from `entry.rs`; the shared types do
+not expose hidden filesystem or account lookups. `LinkState` is unchanged.
 
 ### Listing contracts coupled to the panel model
 
-[`model.rs`](../src/model.rs) imports listing requests and snapshots, while
-[`listing.rs`](../src/listing.rs) imports `model::Sort`. Move `Sort` beside the
-entry ordering rules and separate listing contracts from listing execution.
-The Folder model should consume snapshots without depending on the service that
-obtains them.
+[`model.rs`](../src/model.rs) consumes listing requests and snapshots. `Sort`
+now comes from `entry.rs`, removing the reverse dependency from listing to the
+panel model. Listing contracts remain coupled to execution; the next step will
+separate them so Folder consumes snapshots without depending on the service
+that obtains them.
 
 ### Addresses coupled to execution modules
 
@@ -224,15 +223,16 @@ Each slice is independently reviewable and can contain several focused commits.
 Preserve behavior while changing ownership; avoid combining the migration with
 new features or dependency changes.
 
-1. **Extract shared entry values and ordering.** Introduce `entry.rs` for
+1. **Complete: extract shared entry values and ordering.** Introduce `entry.rs` for
    `Entry`, plain `Attrs`, `Sort`, `SortKey` and comparison functions. Leave
    metadata conversion and account lookup in adapters. Update consumers and
-   move existing ordering tests with their code.
+   move existing ordering tests with their code. This step has landed; metadata
+   and account adapters remain in `fs_ops.rs`.
 2. **Separate listing contracts and address semantics.** Introduce
    `listing/contracts.rs`, keeping execution and caches in the listing service.
-   Remove the model/listing dependency cycle. In a separate commit, isolate
-   pure remote-address and archive-member validation before regrouping their
-   execution modules.
+   Complete the listing-contract extraction. The dependency through sorting
+   was removed in step 1. In a separate commit, isolate pure remote-address and
+   archive-member validation before regrouping their execution modules.
 3. **Establish reader and classification boundaries.** Start
    with `formats.rs` and `formats/exif.rs`, consumed by previews and panel
    metadata. Preserve RAW fallback, existing limits and display behavior.

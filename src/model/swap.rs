@@ -25,9 +25,10 @@ mod tests {
     use std::fs;
     use std::io::Write;
 
+    use crate::entry::Sort;
     use crate::location::Location;
     use crate::model::test_support::{fixture, loaded, names};
-    use crate::model::{Folder, PanelContent, Sort};
+    use crate::model::{Folder, PanelContent};
     use crate::remote::{self, Item};
 
     fn two_folders() -> (tempfile::TempDir, tempfile::TempDir, Folder, Folder) {
@@ -101,7 +102,7 @@ mod tests {
         let (da, _db, mut a, mut b) = two_folders();
         a.show_results(da.path().to_path_buf(), "found".into());
         a.add_results(vec![crate::search::Hit {
-            entry: crate::fs_ops::Entry {
+            entry: crate::entry::Entry {
                 name: "a.txt".into(),
                 path: da.path().join("a.txt"),
                 is_dir: false,

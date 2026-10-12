@@ -1,6 +1,7 @@
 //! Sorting, tree expansion, the name filter and hidden files.
 
-use super::{Folder, Sort};
+use super::Folder;
+use crate::entry::Sort;
 use crate::location::Location;
 
 impl Folder {
@@ -145,9 +146,9 @@ impl Folder {
 #[cfg(test)]
 mod tests {
 
-    use crate::fs_ops::SortKey;
+    use crate::entry::Sort;
+    use crate::entry::SortKey;
     use crate::location::Location;
-    use crate::model::Sort;
     use crate::model::test_support::{fixture, loaded, names, reload};
     use std::fs;
 

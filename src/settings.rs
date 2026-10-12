@@ -11,10 +11,10 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::fs_ops::SortKey;
+use crate::entry::Sort;
+use crate::entry::SortKey;
 use crate::grid::ViewMode;
 use crate::location::Location;
-use crate::model::Sort;
 use crate::workspace::LayoutMode;
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]

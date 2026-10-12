@@ -9,6 +9,8 @@ use super::Folder;
 #[cfg(test)]
 use super::{Entry, PanelContent, Row};
 use crate::archive;
+#[cfg(test)]
+use crate::entry::{Attrs, sort_entries};
 use crate::fs_ops;
 #[cfg(test)]
 use crate::links::LinkState;
@@ -229,7 +231,7 @@ impl Folder {
             is_parent: false,
             size: Some(node.size),
             modified: node.modified,
-            attrs: fs_ops::Attrs {
+            attrs: Attrs {
                 mode: node.mode,
                 ..Default::default()
             },
@@ -240,7 +242,7 @@ impl Folder {
                 _ => LinkState::NotLink,
             },
         }));
-        fs_ops::sort_entries(&mut entries, self.sort.key, self.sort.descending);
+        sort_entries(&mut entries, self.sort.key, self.sort.descending);
         out.extend(entries.into_iter().map(|entry| {
             Row {
                 location: Location::from_panel_path(&entry.path, Some(&mount.file))
@@ -257,10 +259,11 @@ impl Folder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fs_ops::SortKey;
+    use crate::entry::Sort;
+    use crate::entry::SortKey;
     use crate::location::Location;
     use crate::model::test_support::{fixture, loaded, names};
-    use crate::model::{Activation, Folder, Sort};
+    use crate::model::{Activation, Folder};
     use std::fs;
     use std::path::Path;
 

@@ -11,7 +11,9 @@ use std::sync::Arc;
 
 use super::Folder;
 #[cfg(test)]
-use super::{Entry, PanelContent, Row};
+use super::{PanelContent, Row};
+#[cfg(test)]
+use crate::entry::{Entry, sort_entries};
 #[cfg(test)]
 use crate::fs_ops;
 use crate::location::Location;
@@ -180,7 +182,7 @@ impl Folder {
                 .filter(|e| self.show_hidden || !e.name.starts_with('.'))
                 .cloned(),
         );
-        fs_ops::sort_entries(&mut entries, self.sort.key, self.sort.descending);
+        sort_entries(&mut entries, self.sort.key, self.sort.descending);
         out.extend(entries.into_iter().map(|entry| {
             Row {
                 location: Location::from_panel_path(&entry.path, None)
@@ -197,15 +199,15 @@ impl Folder {
 #[cfg(test)]
 mod tests {
     use super::{Folder, remote};
+    use crate::entry::{Entry, Sort};
     use crate::location::Location as PanelLocation;
-    use crate::model::Sort;
     use crate::remote::{Item, Location};
 
     fn root() -> Location {
         Location::root("proton").unwrap()
     }
 
-    fn listing() -> Vec<crate::fs_ops::Entry> {
+    fn listing() -> Vec<Entry> {
         let item = Item {
             name: "a.txt".into(),
             is_dir: false,

@@ -21,6 +21,7 @@ use gpui_kit::*;
 
 use crate::columns::ColumnKind;
 use crate::context_menu::{self, ContextMenuBuilder};
+use crate::entry::Sort;
 use crate::fs_ops;
 use crate::git_status;
 use crate::glyphs::glyph;
@@ -28,7 +29,7 @@ use crate::grid::ViewMode;
 use crate::icon_view::{GridEvent, IconGrid};
 use crate::icons;
 use crate::location::PanelTarget;
-use crate::model::{DragSnapshot, Folder, PointerSelection, Sort};
+use crate::model::{DragSnapshot, Folder, PointerSelection};
 use gpui_kit::assets::IconName as Lucide;
 
 pub mod metadata;

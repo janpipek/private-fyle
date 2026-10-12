@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::SystemTime;
 
-use crate::fs_ops::{Attrs, Entry};
+use crate::entry::{Attrs, Entry};
 
 /// How a provider removes items.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

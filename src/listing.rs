@@ -11,10 +11,10 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 
 use crate::archive;
-use crate::fs_ops::{self, Attrs, Entry};
+use crate::entry::{Attrs, Entry, Sort, sort_entries};
+use crate::fs_ops;
 use crate::links::LinkState;
 use crate::location::{Location, PanelTarget};
-use crate::model::Sort;
 use crate::remote::{self, Control, Registry};
 
 /// Immutable options captured when a panel listing is requested.
@@ -183,7 +183,7 @@ impl ListingService {
         match &request.target {
             PanelTarget::Places => {
                 let mut entries = fs_ops::read_dir_cancellable(Path::new(""), true, Some(cancel))?;
-                fs_ops::sort_entries(&mut entries, request.sort.key, request.sort.descending);
+                sort_entries(&mut entries, request.sort.key, request.sort.descending);
                 snapshot.rows = entries
                     .into_iter()
                     .filter_map(|entry| {
@@ -378,7 +378,7 @@ impl ListingService {
         if depth > 0 {
             entries.retain(|entry| !entry.is_parent);
         }
-        fs_ops::sort_entries(&mut entries, request.sort.key, request.sort.descending);
+        sort_entries(&mut entries, request.sort.key, request.sort.descending);
         for entry in entries {
             let child = if entry.is_parent {
                 parent_location(location, request.remote_origin.as_ref())
@@ -505,9 +505,8 @@ fn fallback_location(location: Location) -> Option<Location> {
 #[cfg(test)]
 mod tests {
     use super::{ListingRequest, ListingService};
-    use crate::fs_ops::{Attrs, Entry, SortKey};
+    use crate::entry::{Attrs, Entry, Sort, SortKey};
     use crate::location::{Location, PanelTarget};
-    use crate::model::Sort;
     use crate::remote::{self, Capabilities, Control, Item, Listing, Provider};
     use std::collections::HashSet;
     use std::fs;

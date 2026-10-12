@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use super::Entry;
 use super::{Folder, Row};
 use crate::dirsize::DirSize;
-use crate::fs_ops::{self, SortKey};
+use crate::entry::SortKey;
+use crate::fs_ops;
 use crate::location::Location;
 
 /// What [`Folder::marked_total`] knows about the marked entries.
@@ -186,8 +187,7 @@ impl Folder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fs_ops::SortKey;
-    use crate::model::Sort;
+    use crate::entry::{Sort, SortKey};
     use crate::model::test_support::{fixture, loaded, names, reload};
 
     use std::fs;

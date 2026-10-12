@@ -138,6 +138,10 @@
 
 ## Done
 
+- [x] Architecture refactor, step 1: move shared `Entry`, `Attrs`, `Sort`,
+      and ordering into `entry.rs`; retain metadata and owner lookup as
+      `fs_ops` adapters.
+
 - [x] Windows Inno Setup installer with current-user/all-users modes, Explorer
       folder commands, and an opt-in default folder opener.
 

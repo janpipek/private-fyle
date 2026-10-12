@@ -4,7 +4,7 @@
 //! so names and availability agree everywhere. `commander.rs` maps each
 //! [`Cmd`] to its gpui action.
 
-use crate::fs_ops::SortKey;
+use crate::entry::SortKey;
 use crate::grid::{self, ViewMode};
 use crate::remote::{Capabilities, Removal};
 use crate::workspace::LayoutMode;
@@ -124,7 +124,7 @@ pub struct State {
     /// The selected folder/inspector arrangement.
     pub workspace_layout: LayoutMode,
     pub jobs_running: bool,
-    pub sort: crate::model::Sort,
+    pub sort: crate::entry::Sort,
     pub can_go_back: bool,
     pub can_go_forward: bool,
     /// What the remote shown by the active panel supports; `None` for

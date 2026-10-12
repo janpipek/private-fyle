@@ -463,8 +463,11 @@ the current result; `Folder` sorts and filters the cached rows without I/O.
 Each panel keeps a bounded cache of its last 32 remote listings, while explicit
 refreshes bypass that cache.
 `src/commander.rs` owns the two models and their views and implements the
-commands. `src/fs_ops.rs` contains the file system operations. `Entry.size` is optional,
-so a provider's missing size stays distinct from a known zero.
+commands. `src/entry.rs` owns shared `Entry`/`Attrs` values, sort settings and
+pure ordering; `src/fs_ops.rs` owns file system operations plus native metadata
+and account-name adapters. Owner names are resolved by the existing background
+metadata worker. `Entry.size` is optional, so a provider's missing size stays
+distinct from a known zero.
 `src/location.rs` identifies local paths, configured remote paths and archive
 members without a live connection. Local paths retain native bytes and symlink
 spelling; archive members are validated. `Folder` derives its path spelling
@@ -518,7 +521,7 @@ Where things live (`src/`):
 | `main.rs` | Startup, settings, start directories, window |
 | `commander.rs`, `commander/` | Main window: the two panels, actions, dialogs, jobs bar, tools orchestration. Split by area into `commander/` (keys, navigation, search, files, jobs, view, archives, remotes, tools, menus, appearance); new logic goes into its own module, only wiring here. |
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
-| `model.rs`, `location.rs`, `location_codec.rs` | `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; `Location` native, remote and archive addresses; versioned lossless location persistence |
+| `entry.rs`, `model.rs`, `location.rs`, `location_codec.rs` | Shared `Entry`/`Attrs` and pure sort rules; `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; `Location` native, remote and archive addresses; versioned lossless location persistence |
 | `copy_path.rs` | UI-independent selection path policy: local native paths, provider supplied standard URLs and no archive pseudo-paths |
 | `listing.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; typed snapshots and bounded per-panel remote listing cache |
 | `panel.rs`, `panel/metadata.rs` | `FolderView` and table wiring; bounded metadata request/cache model shared by list and icon views, with local metadata reads in background workers |
@@ -526,7 +529,7 @@ Where things live (`src/`):
 | `grid.rs`, `icon_view.rs`, `glyphs.rs`, `context_menu.rs` | Icon view: `ViewMode`, icon sizes, `Layout` (columns for a width) and cursor moves (UI-independent, tested); the lazy `IconGrid` view; the `FileIcon` → glyph table and the right-click menu shared with the list |
 | `workspace.rs` | UI-independent workspace state for two panels, two panels plus Preview, or one panel plus Preview; tracks source/destination, selection-following requests and feasible dock positions. |
 | `columns.rs` | `ColumnKind` catalog, grouped, ids like `exif.iso`. A new column is a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |
-| `fs_ops.rs`, `transfer.rs`, `jobs.rs` | `Entry` and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
+| `fs_ops.rs`, `transfer.rs`, `jobs.rs` | Native metadata/account adapters and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
 | `remote.rs`, `remote/` | Remote providers: `Provider` trait, `Location` paths, Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `LocalCopy` keeps a typed source address separate from the cache path used at native I/O boundaries; `model/remote.rs` holds cached listings |
 | `archive.rs`, `archive/extraction.rs`, `dirsize.rs`, `links.rs` | Archive index; safe extraction; recursive sizes; symlink state |
 | `preview/`, `preview_view.rs`, `notebook_view.rs` | `Previewer`s and their `Registry` (including bounded nbformat 4 notebook parsing); one render arm per `Content`; notebooks render through a variable-height lazy list; preview identity stays separate from materialized local bytes |

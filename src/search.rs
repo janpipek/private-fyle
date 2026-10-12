@@ -9,7 +9,7 @@ use globset::{GlobBuilder, GlobMatcher};
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, sinks};
 
-use crate::fs_ops::Entry;
+use crate::entry::Entry;
 
 /// What to look for.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -149,7 +149,7 @@ pub fn run(
                 size: meta.as_ref().map(|m| m.len()),
                 attrs: meta
                     .as_ref()
-                    .map(crate::fs_ops::Attrs::from_meta)
+                    .map(crate::fs_ops::attrs_from_metadata)
                     .unwrap_or_default(),
                 link,
                 modified: meta.and_then(|m| m.modified().ok()),

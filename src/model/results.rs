@@ -65,8 +65,9 @@ impl Folder {
 mod tests {
     use super::*;
 
+    use crate::entry::Sort;
+    use crate::model::Activation;
     use crate::model::test_support::{fixture, loaded, names};
-    use crate::model::{Activation, Sort};
     use std::fs;
 
     #[test]
