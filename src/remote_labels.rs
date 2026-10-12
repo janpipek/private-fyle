@@ -14,7 +14,7 @@ impl Global for RemoteLabels {}
 
 /// The label of the remote a panel path belongs to, if it is remote and known.
 pub fn label_of(path: &std::path::Path, cx: &App) -> Option<String> {
-    let name = crate::remote::Location::parse(path)
+    let name = crate::location::RemoteLocation::parse(path)
         .ok()??
         .remote()
         .to_owned();

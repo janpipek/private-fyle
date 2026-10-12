@@ -512,7 +512,7 @@ fn download_item(
             if matches!(name.as_str(), "." | "..") || child.is_symlink() {
                 continue;
             }
-            super::validate_name(&name)?;
+            crate::location::remote::validate_entry_name(&name)?;
             download_item(fs, child.path(), &local.join(&name), child.is_dir(), ctx)?;
         }
         return Ok(());

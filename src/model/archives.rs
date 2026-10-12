@@ -76,7 +76,7 @@ impl Folder {
     /// [`archive::Index::cached`]). Showing it would block on that read.
     #[cfg(test)]
     pub fn archive_needed(&self, path: &Path) -> Option<PathBuf> {
-        if crate::remote::is_remote(path) || path.as_os_str().is_empty() || path.is_dir() {
+        if crate::location::is_remote(path) || path.as_os_str().is_empty() || path.is_dir() {
             return None;
         }
         let (file, _) = archive::locate(path)?;
@@ -129,8 +129,11 @@ impl Folder {
                         .clone(),
                 )
                 .expect("archive file has an absolute path"),
-                &archive::inner_of(self.archive().expect("loading has an archive"), &target)
-                    .expect("target is within the archive"),
+                &crate::location::archive::inner_of(
+                    self.archive().expect("loading has an archive"),
+                    &target,
+                )
+                .expect("target is within the archive"),
             )
             .expect("archive target has a valid member path"),
         );
@@ -185,7 +188,7 @@ impl Folder {
     /// changed on disk ([`archive::Index::cached`]).
     #[cfg(test)]
     pub fn mount_for(&self, path: &Path) -> io::Result<Option<(Mount, String)>> {
-        if crate::remote::is_remote(path) || path.as_os_str().is_empty() || path.is_dir() {
+        if crate::location::is_remote(path) || path.as_os_str().is_empty() || path.is_dir() {
             return Ok(None);
         }
         let Some((file, inner)) = archive::locate(path) else {

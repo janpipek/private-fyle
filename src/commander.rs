@@ -196,7 +196,7 @@ impl Commander {
             .unwrap_or_else(|| PathBuf::from("/"));
         let folders = [left, right].map(|path| {
             // Remote folders are listed in the background; see `init`.
-            let path = if crate::remote::is_remote(&path) {
+            let path = if crate::location::is_remote(&path) {
                 start_remote[ix] = Some(path);
                 fallback.clone()
             } else {

@@ -99,7 +99,7 @@ fn main() {
     // `absolute` preserves the user's symlink and `..` spelling; canonicalize
     // here would change the location identity before the panel lists it.
     let [left, right] = [left, right].map(|path| {
-        if remote::is_remote(&path) {
+        if location::is_remote(&path) {
             return path;
         }
         std::path::absolute(&path).unwrap_or_else(|_| {

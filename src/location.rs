@@ -4,7 +4,17 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::{archive, remote};
+/// Archive member semantics and path helpers, independent of archive I/O.
+pub mod archive;
+/// Remote address semantics, independent of provider execution.
+pub mod remote;
+
+/// A validated member path within an archive.
+pub use archive::ArchiveMember;
+/// A parsed address in a configured remote's namespace.
+pub use remote::RemoteLocation;
+/// Whether a path belongs to the remote address namespace, including malformed addresses.
+pub use remote::is_remote;
 
 /// An absolute native path. Its original spelling and non-UTF-8 bytes are kept.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -29,41 +39,13 @@ impl LocalPath {
     }
 }
 
-/// A normalized path within an archive, with an empty path for its root.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct ArchiveMember(String);
-
-impl ArchiveMember {
-    /// Validates a slash-separated archive member path without normalization.
-    pub fn new(path: &str) -> io::Result<Self> {
-        let valid = match archive::clean(path) {
-            archive::Cleaned::Root => path.is_empty(),
-            archive::Cleaned::Path(cleaned) => cleaned == path,
-            archive::Cleaned::Unsafe => false,
-        };
-        if valid {
-            Ok(Self(path.to_owned()))
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "invalid archive member path",
-            ))
-        }
-    }
-
-    /// Returns the normalized path, empty at the archive root.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
 /// An address independent of a live connection, listing, or file metadata.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Location {
     /// A native filesystem path.
     Local(LocalPath),
     /// A configured remote and a path in its namespace.
-    Remote(remote::Location),
+    Remote(RemoteLocation),
     /// A member of an archive at `source`. Browsing currently supports local sources.
     Archive {
         source: Box<Location>,
@@ -156,7 +138,7 @@ impl Location {
                 "empty location",
             ));
         }
-        if let Some(remote) = remote::Location::parse(path)? {
+        if let Some(remote) = RemoteLocation::parse(path)? {
             return Ok(Self::Remote(remote));
         }
         if let Some(source) = archive_source

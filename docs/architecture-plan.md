@@ -1,6 +1,6 @@
 # Architecture refactoring plan
 
-Status: in progress; migration steps 1 and 2a are complete.
+Status: in progress; migration steps 1, 2a and 2b are complete.
 
 This document records the architecture decision and an incremental migration
 plan. [README.md](../README.md#architecture) describes the current architecture;
@@ -35,7 +35,7 @@ and a challenge of the proposed boundaries, and Astra for the overall decision.
 
 | Area | Owns | Existing code affected |
 | --- | --- | --- |
-| File identities and contracts | Entry metadata, sorting, listing requests and results; address semantics are still being isolated | Shared parts of `fs_ops`, `location`, `listing`, `model` |
+| File identities and contracts | Entry metadata, sorting, listing requests/results, local/remote/archive address semantics | Shared parts of `fs_ops`, `location`, `listing`, `model` |
 | Formats | Format-specific data, parsing, metadata extraction and enforced decoding limits | Reusable parts of `preview/*`, EXIF, RAW and archive readers |
 | System integration | Local filesystem operations, remote providers, desktop applications, accounts, xattrs and external programs | `fs_ops`, `remote/*`, desktop/MIME modules and specialized process adapters |
 | Application features | Browsing, preview, editing, search, transfers, tools and settings, with explicit state and execution responsibilities | Existing model and service modules |
@@ -67,9 +67,9 @@ to GUI integration; request generations, selection rules and queue policies
 belong to independent models.
 
 Shared contracts and pure state models must not import GPUI or concrete provider
-implementations. Listing contracts now import only standard types plus entry
-and location values. The `Location` model still contains remote-address and
-archive-validation dependencies, so the full address boundary remains pending.
+implementations. Listing contracts import standard types plus entry and
+location values. Remote parsing and archive member validation live in pure
+`location` modules; provider and archive execution modules consume those helpers.
 Format readers return plain data and do not depend on preview presentation.
 Readers and services may perform bounded I/O using Rust and third-party library
 APIs; they run off the UI thread. A universal wrapper around all filesystem
@@ -91,16 +91,16 @@ not expose hidden filesystem or account lookups. `LinkState` is unchanged.
 
 [`listing/contracts.rs`](../src/listing/contracts.rs) owns listing requests,
 rows, snapshots and outcomes; [`model.rs`](../src/model.rs) imports those values
-directly. `Sort` comes from `entry.rs`. The remaining address work is a separate
-slice: isolate remote-address and archive-member validation while preserving
-the typed `Location` API.
+directly. `Sort` comes from `entry.rs`. Address semantics are owned by pure
+submodules under `location/`, preserving the existing typed `Location` API.
 
 ### Addresses coupled to execution modules
 
-[`location.rs`](../src/location.rs) embeds `remote::Location` and calls archive
-member validation. Extract pure remote-address and archive-member validation
-before regrouping provider and archive execution. Preserve native path bytes,
-symlink spelling, typed identities and persisted encodings.
+[`location.rs`](../src/location.rs) owns the typed address union and delegates
+address details to [`location/remote.rs`](../src/location/remote.rs) and
+[`location/archive.rs`](../src/location/archive.rs). Provider execution keeps
+its compatibility alias; archive execution imports pure helpers. Native path
+bytes, symlink spelling, typed identities and persisted encodings are covered.
 
 ### Shared format knowledge owned by preview
 
@@ -234,9 +234,8 @@ new features or dependency changes.
 2. **Separate listing contracts and address semantics.** Slice 2a is complete:
    `listing/contracts.rs` owns request and result values, while execution and
    caches remain in the listing service. The panel model imports those values
-   directly. Slice 2b remains: isolate pure remote-address and archive-member
-   validation before regrouping their execution modules. `Location` still
-   carries those address dependencies, so the full boundary is not provider-free.
+   directly. Slice 2b is complete: pure remote addresses and archive members
+   live under `location/`; providers retain their address compatibility alias.
 3. **Establish reader and classification boundaries.** Start
    with `formats.rs` and `formats/exif.rs`, consumed by previews and panel
    metadata. Preserve RAW fallback, existing limits and display behavior.

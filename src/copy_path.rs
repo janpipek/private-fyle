@@ -5,7 +5,7 @@ use crate::location::Location;
 /// Returns a useful copied path, asking the caller for standard URLs for remotes.
 pub fn selected_path(
     location: &Location,
-    remote_url: impl FnOnce(&crate::remote::Location) -> Option<String>,
+    remote_url: impl FnOnce(&crate::location::RemoteLocation) -> Option<String>,
 ) -> Option<String> {
     match location {
         Location::Local(path) => Some(path.as_path().to_str()?.to_owned()),

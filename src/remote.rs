@@ -11,12 +11,16 @@ pub mod remotefs;
 
 use std::collections::HashSet;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::SystemTime;
 
 use crate::entry::{Attrs, Entry};
+use crate::location::remote::validate_remote_name;
+
+/// Compatibility name for provider APIs; address semantics live in `location`.
+pub use crate::location::RemoteLocation as Location;
 
 /// How a provider removes items.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -142,123 +146,6 @@ pub trait Provider: Send + Sync {
     }
 }
 
-/// A folder or item on a remote, kept distinct from local paths. Shown in
-/// panels as `<remote>:/a/b`; the root is `<remote>:/`.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Location {
-    remote: String,
-    parts: Vec<String>,
-}
-
-impl Location {
-    /// The root of `remote`.
-    pub fn root(remote: &str) -> io::Result<Self> {
-        if !valid_remote(remote) {
-            return Err(invalid("invalid remote name"));
-        }
-        Ok(Self {
-            remote: remote.into(),
-            parts: Vec::new(),
-        })
-    }
-
-    /// Parses a panel path. `Ok(None)` means a local path; an error means a
-    /// remote path that is malformed or escapes the remote's root.
-    pub fn parse(path: &Path) -> io::Result<Option<Self>> {
-        let Some((remote, rest)) = split_remote(path) else {
-            return Ok(None);
-        };
-        if !rest.is_empty() && !rest.starts_with('/') {
-            return Err(invalid(&format!("use {remote}:/folder")));
-        }
-        let mut location = Self::root(remote)?;
-        for part in rest.split('/') {
-            match part {
-                "" | "." => {}
-                ".." => {
-                    location = location
-                        .parent()
-                        .ok_or_else(|| invalid("remote path cannot leave its root"))?;
-                }
-                name => location = location.child(name)?,
-            }
-        }
-        Ok(Some(location))
-    }
-
-    /// The remote's name, which selects its [`Provider`].
-    pub fn remote(&self) -> &str {
-        &self.remote
-    }
-
-    /// The folder names below the root.
-    pub fn parts(&self) -> &[String] {
-        &self.parts
-    }
-
-    /// The last name; `None` at the root.
-    pub fn name(&self) -> Option<&str> {
-        self.parts.last().map(String::as_str)
-    }
-
-    /// The path below the root, without a leading slash ("" at the root).
-    pub fn relative(&self) -> String {
-        self.parts.join("/")
-    }
-
-    /// The panel address, never a local download or cache path.
-    pub fn panel_path(&self) -> PathBuf {
-        PathBuf::from(format!("{}:/{}", self.remote, self.relative()))
-    }
-
-    /// Resolves a single entry name without permitting traversal.
-    pub fn child(&self, name: &str) -> io::Result<Self> {
-        validate_name(name)?;
-        let mut child = self.clone();
-        child.parts.push(name.into());
-        Ok(child)
-    }
-
-    /// The parent folder; the root has none.
-    pub fn parent(&self) -> Option<Self> {
-        let mut parent = self.clone();
-        parent.parts.pop()?;
-        Some(parent)
-    }
-}
-
-/// Whether a path is in the remote namespace (`<remote>:...`), even if
-/// malformed, so it is never treated as a local path.
-pub fn is_remote(path: &Path) -> bool {
-    split_remote(path).is_some()
-}
-
-/// Remote names are at least two characters (so Windows drive letters are
-/// never remotes) from a conservative set that needs no quoting.
-fn valid_remote(name: &str) -> bool {
-    name.len() >= 2
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '+' | '@'))
-        && !name.starts_with(['-', '.'])
-}
-
-fn split_remote(path: &Path) -> Option<(&str, &str)> {
-    let (remote, rest) = path.to_str()?.split_once(':')?;
-    valid_remote(remote).then_some((remote, rest))
-}
-
-fn validate_name(name: &str) -> io::Result<()> {
-    if name.is_empty() || matches!(name, "." | "..") || name.contains(['/', '\\', '\0']) {
-        return Err(invalid("invalid remote entry name"));
-    }
-    Ok(())
-}
-
-fn invalid(message: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidInput, message)
-}
-
 fn unsupported(label: &str, what: &str) -> io::Error {
     io::Error::new(
         io::ErrorKind::Unsupported,
@@ -382,7 +269,7 @@ impl Registry {
         let mut names = HashSet::new();
         let providers = providers
             .into_iter()
-            .filter(|p| valid_remote(p.name()) && names.insert(p.name().to_owned()))
+            .filter(|p| validate_remote_name(p.name()) && names.insert(p.name().to_owned()))
             .collect();
         Self { providers }
     }
@@ -447,7 +334,7 @@ impl Registry {
 mod tests {
     use super::{
         Capabilities, Control, Item, Listing, Location, Provider, Registry, entries,
-        entries_with_hint, is_remote,
+        entries_with_hint,
     };
     use std::io;
     use std::path::Path;
@@ -471,50 +358,6 @@ mod tests {
         }
         fn download(&self, _: &Location, _: bool, _: &Path, _: &Control) -> io::Result<()> {
             Ok(())
-        }
-    }
-
-    #[test]
-    fn locations_round_trip_and_stay_distinct_from_local_paths() {
-        let root = Location::root("gdrive").unwrap();
-        let child = root.child("résumé 2026").unwrap();
-        assert_eq!(child.panel_path(), Path::new("gdrive:/résumé 2026"));
-        assert_eq!(root.panel_path(), Path::new("gdrive:/"));
-        assert_eq!(
-            Location::parse(&child.panel_path()).unwrap(),
-            Some(child.clone())
-        );
-        assert_eq!(
-            Location::parse(Path::new("gdrive:")).unwrap(),
-            Some(root.clone())
-        );
-        assert_eq!(child.parent(), Some(root.clone()));
-        assert_eq!(root.parent(), None);
-        assert_eq!(child.relative(), "résumé 2026");
-        assert_eq!(Location::parse(Path::new("/tmp/gdrive:/x")).unwrap(), None);
-        assert_eq!(Location::parse(Path::new("C:/Users")).unwrap(), None);
-        assert!(is_remote(Path::new("proton:invalid")));
-        assert!(!is_remote(Path::new("/home/a:b")));
-    }
-
-    #[test]
-    fn normalizes_paths_without_escaping_the_root() {
-        let b = Location::root("proton").unwrap().child("b").unwrap();
-        assert_eq!(
-            Location::parse(Path::new("proton:/a/../b/.")).unwrap(),
-            Some(b)
-        );
-        for path in ["proton:/..", "proton:/a/../..", "proton:a", "proton:/a\\b"] {
-            assert!(Location::parse(Path::new(path)).is_err(), "{path}");
-        }
-        for name in ["", ".", "..", "../escape", "/absolute", "a\\b", "a\0b"] {
-            assert!(
-                Location::root("x1").unwrap().child(name).is_err(),
-                "{name:?}"
-            );
-        }
-        for remote in ["", "x", "-flag", ".x", "a b", "a/b"] {
-            assert!(Location::root(remote).is_err(), "{remote:?}");
         }
     }
 

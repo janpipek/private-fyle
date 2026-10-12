@@ -17,6 +17,8 @@ use crate::entry::{Entry, sort_entries};
 #[cfg(test)]
 use crate::fs_ops;
 use crate::location::Location;
+#[cfg(test)]
+use crate::location::RemoteLocation;
 use crate::remote;
 
 /// Folders whose listings a panel keeps, so Back, Forward and Up are instant.
@@ -28,9 +30,9 @@ const LISTING_CAP: usize = 32;
 #[cfg(test)]
 #[derive(Clone, Default)]
 pub struct ListingCache {
-    listings: HashMap<remote::Location, Arc<Vec<Entry>>>,
+    listings: HashMap<RemoteLocation, Arc<Vec<Entry>>>,
     /// Paths from least to most recently stored.
-    order: Vec<remote::Location>,
+    order: Vec<RemoteLocation>,
 }
 
 #[cfg(test)]
@@ -39,9 +41,9 @@ impl ListingCache {
     /// `keep` (the folder on show) is dropped.
     pub fn insert(
         &mut self,
-        path: remote::Location,
+        path: RemoteLocation,
         entries: Vec<Entry>,
-        keep: Option<&remote::Location>,
+        keep: Option<&RemoteLocation>,
     ) {
         self.order.retain(|p| p != &path);
         self.order.push(path.clone());
@@ -55,11 +57,11 @@ impl ListingCache {
         }
     }
 
-    pub fn get(&self, path: &remote::Location) -> Option<&Arc<Vec<Entry>>> {
+    pub fn get(&self, path: &RemoteLocation) -> Option<&Arc<Vec<Entry>>> {
         self.listings.get(path)
     }
 
-    pub fn contains(&self, path: &remote::Location) -> bool {
+    pub fn contains(&self, path: &RemoteLocation) -> bool {
         self.get(path).is_some()
     }
 }
@@ -76,7 +78,7 @@ impl Folder {
         if !self.is_remote() {
             self.remote_origin = self.location().cloned();
         }
-        let path = remote::Location::parse(&path)
+        let path = RemoteLocation::parse(&path)
             .expect("background result has a validated address")
             .expect("background result names a remote");
         let keep = match self.location() {
@@ -90,7 +92,7 @@ impl Folder {
     /// remote and not cached.
     #[cfg(test)]
     pub fn remote_needed(&self, path: &Path) -> bool {
-        remote::Location::parse(path)
+        RemoteLocation::parse(path)
             .ok()
             .flatten()
             .is_some_and(|location| !self.remote_listings.contains(&location))
@@ -152,7 +154,7 @@ impl Folder {
     /// Lists the cached remote folder `location` with a ".." row; fails with
     /// `WouldBlock` when it was not loaded in the background first.
     #[cfg(test)]
-    pub fn list_remote(&self, location: &remote::Location, out: &mut Vec<Row>) -> io::Result<()> {
+    pub fn list_remote(&self, location: &RemoteLocation, out: &mut Vec<Row>) -> io::Result<()> {
         let cached = self.remote_listings.get(location).ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::WouldBlock,
@@ -201,10 +203,11 @@ mod tests {
     use super::{Folder, remote};
     use crate::entry::{Entry, Sort};
     use crate::location::Location as PanelLocation;
-    use crate::remote::{Item, Location};
+    use crate::location::RemoteLocation;
+    use crate::remote::Item;
 
-    fn root() -> Location {
-        Location::root("proton").unwrap()
+    fn root() -> RemoteLocation {
+        RemoteLocation::root("proton").unwrap()
     }
 
     fn listing() -> Vec<Entry> {

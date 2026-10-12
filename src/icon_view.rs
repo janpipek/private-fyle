@@ -196,7 +196,8 @@ impl IconGrid {
         let root = self.thumb_root.as_deref()?;
         let entry = &row.entry;
         // Remote files are not on the disk to be thumbnailed.
-        if in_archive || entry.is_dir || entry.is_parent || crate::remote::is_remote(&entry.path) {
+        if in_archive || entry.is_dir || entry.is_parent || crate::location::is_remote(&entry.path)
+        {
             return None;
         }
         let mtime = entry.modified?.duration_since(UNIX_EPOCH).ok()?.as_secs() as i64;

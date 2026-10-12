@@ -58,7 +58,7 @@ pub fn segments(
     inner: Option<&str>,
     remote_label: Option<&str>,
 ) -> Vec<Segment> {
-    if crate::remote::is_remote(path) {
+    if crate::location::is_remote(path) {
         return remote_segments(path, remote_label);
     }
     let Some(file) = archive_file else {
@@ -87,14 +87,14 @@ pub fn segments(
 /// Never touches the disk. A malformed remote path is one unclickable-ish
 /// segment that reopens itself.
 fn remote_segments(path: &Path, label: Option<&str>) -> Vec<Segment> {
-    let Ok(Some(location)) = crate::remote::Location::parse(path) else {
+    let Ok(Some(location)) = crate::location::RemoteLocation::parse(path) else {
         return vec![Segment {
             label: path.display().to_string(),
             path: path.to_path_buf(),
             kind: Kind::Remote,
         }];
     };
-    let mut target = crate::remote::Location::root(location.remote())
+    let mut target = crate::location::RemoteLocation::root(location.remote())
         .expect("a parsed location has a valid remote name");
     let mut result = vec![Segment {
         label: label.unwrap_or(location.remote()).to_string(),
@@ -167,7 +167,7 @@ pub fn parse_location(
     }
     // `<remote>:/path` is never a local path and must not be resolved
     // against (or checked on) the disk.
-    if crate::remote::is_remote(Path::new(text)) {
+    if crate::location::is_remote(Path::new(text)) {
         return remote_path(Path::new(text));
     }
     let path = expand_home(text, home)?;
@@ -176,7 +176,7 @@ pub fn parse_location(
     } else {
         current.join(path)
     };
-    if crate::remote::is_remote(&path) {
+    if crate::location::is_remote(&path) {
         // Relative to a remote folder.
         return remote_path(&path);
     }
@@ -188,7 +188,7 @@ pub fn parse_location(
 
 /// The normalized panel path of a remote location (no `.` or `..`).
 fn remote_path(path: &Path) -> io::Result<PathBuf> {
-    match crate::remote::Location::parse(path)? {
+    match crate::location::RemoteLocation::parse(path)? {
         Some(location) => Ok(location.panel_path()),
         None => Ok(path.to_path_buf()),
     }

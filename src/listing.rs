@@ -414,7 +414,7 @@ fn entry_location(parent: &Location, entry: &Entry) -> io::Result<Location> {
                 )
             }),
         Location::Archive { source, .. } => {
-            let inner = archive::inner_of(
+            let inner = crate::location::archive::inner_of(
                 source.as_local_path().ok_or_else(|| {
                     io::Error::new(io::ErrorKind::Unsupported, "archive source must be local")
                 })?,

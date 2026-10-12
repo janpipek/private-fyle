@@ -236,7 +236,7 @@ impl Registry {
     /// Probes and loads `path` with the first matching previewer. Blocking.
     pub fn preview(&self, path: &Path) -> Result<Preview, String> {
         // Remote files are previewed from their downloaded copy only.
-        if crate::remote::is_remote(path) {
+        if crate::location::is_remote(path) {
             return Err(format!("{}: not downloaded", path.display()));
         }
         if !path.exists()

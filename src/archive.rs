@@ -10,10 +10,12 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fs::{self, File};
 use std::io::{self, BufReader, Read, Seek, SeekFrom, Write};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use crate::location::archive::{Cleaned, clean, inner_of};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
@@ -89,58 +91,6 @@ pub fn locate(path: &Path) -> Option<(PathBuf, String)> {
         }
     }
     None
-}
-
-/// `path` relative to `file` as an inner path (`a/b`); None if it is not
-/// below it or has odd components.
-pub fn inner_of(file: &Path, path: &Path) -> Option<String> {
-    let rest = path.strip_prefix(file).ok()?;
-    let mut parts = Vec::new();
-    for component in rest.components() {
-        match component {
-            Component::Normal(part) => parts.push(part.to_string_lossy().into_owned()),
-            _ => return None,
-        }
-    }
-    Some(parts.join("/"))
-}
-
-/// Result of cleaning an entry name.
-#[derive(Debug, PartialEq, Eq)]
-pub enum Cleaned {
-    /// The archive root itself (`./`, `/` is *not* this: see `Unsafe`).
-    Root,
-    /// A relative path of normal components joined by `/`.
-    Path(String),
-    /// Absolute, or containing `..`, a drive prefix or NUL: never used.
-    Unsafe,
-}
-
-/// Cleans an entry name: drops `.` and empty components and treats `\` as
-/// a separator; rejects absolute names and `..`.
-pub fn clean(raw: &str) -> Cleaned {
-    if raw.contains('\0') || raw.starts_with('/') || raw.starts_with('\\') {
-        return Cleaned::Unsafe;
-    }
-    let mut parts = Vec::new();
-    for part in raw.split(['/', '\\']) {
-        match part {
-            "" | "." => {}
-            ".." => return Cleaned::Unsafe,
-            p if p.len() >= 2
-                && p.as_bytes()[1] == b':'
-                && p.as_bytes()[0].is_ascii_alphabetic() =>
-            {
-                return Cleaned::Unsafe; // C:
-            }
-            p => parts.push(p),
-        }
-    }
-    if parts.is_empty() {
-        Cleaned::Root
-    } else {
-        Cleaned::Path(parts.join("/"))
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -749,25 +699,6 @@ pub(super) mod tests {
         assert_eq!(format_of(Path::new("x.tgz")), Some(Format::TarGz));
         assert_eq!(format_of(Path::new("x.docx")), None);
         assert_eq!(format_of(Path::new("x.gz")), None);
-    }
-
-    #[test]
-    fn cleans_entry_names() {
-        assert_eq!(clean("a/b"), Cleaned::Path("a/b".into()));
-        assert_eq!(clean("./a//b/"), Cleaned::Path("a/b".into()));
-        assert_eq!(clean("a\\b"), Cleaned::Path("a/b".into()));
-        assert_eq!(clean("./"), Cleaned::Root);
-        for bad in [
-            "/etc/passwd",
-            "../x",
-            "a/../../x",
-            "a/..",
-            "\\x",
-            "C:/x",
-            "a\0b",
-        ] {
-            assert_eq!(clean(bad), Cleaned::Unsafe, "{bad}");
-        }
     }
 
     #[test]

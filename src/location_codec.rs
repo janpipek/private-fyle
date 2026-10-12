@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::location::{ArchiveMember, Location};
+use crate::location::{ArchiveMember, Location, RemoteLocation};
 
 /// Marker that makes a serialized location distinguishable from a legacy path.
 pub const PREFIX: &str = "fyle-location:v1:";
@@ -157,7 +157,7 @@ fn from_wire(wire: WireLocation) -> io::Result<Location> {
             Location::local(path).map_err(invalid_data)
         }
         WireLocation::Remote { name, parts } => {
-            let mut location = crate::remote::Location::root(&name).map_err(invalid_data)?;
+            let mut location = RemoteLocation::root(&name).map_err(invalid_data)?;
             for part in parts {
                 location = location.child(&part).map_err(invalid_data)?;
             }
@@ -180,10 +180,9 @@ fn invalid_data(error: impl std::fmt::Display) -> io::Error {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(unix)]
     use super::PREFIX;
     use super::{decode, encode};
-    use crate::location::Location;
+    use crate::location::{Location, RemoteLocation};
     #[cfg(unix)]
     use std::path::PathBuf;
 
@@ -196,7 +195,7 @@ mod tests {
         #[cfg(unix)]
         let colon_path = Location::local(PathBuf::from("/mnt/nas:/x")).unwrap();
         let remote = Location::Remote(
-            crate::remote::Location::root("nas")
+            RemoteLocation::root("nas")
                 .unwrap()
                 .child("x\tline\nnext")
                 .unwrap(),
@@ -217,6 +216,27 @@ mod tests {
             )
             .unwrap(),
         );
+    }
+
+    #[test]
+    fn remote_and_archive_v1_encodings_remain_stable() {
+        let remote = Location::Remote(RemoteLocation::root("nas").unwrap().child("docs").unwrap());
+        let encoded_remote = format!(
+            "{PREFIX}{{\"version\":1,\"location\":{{\"kind\":\"remote\",\"name\":\"nas\",\"parts\":[\"docs\"]}}}}"
+        );
+        assert_eq!(encode(&remote).unwrap(), encoded_remote);
+        assert_eq!(decode(&encoded_remote).unwrap(), remote);
+
+        let archive = Location::archive(
+            Location::Remote(RemoteLocation::root("nas").unwrap()),
+            "docs/readme.md",
+        )
+        .unwrap();
+        let encoded_archive = format!(
+            "{PREFIX}{{\"version\":1,\"location\":{{\"kind\":\"archive\",\"source\":{{\"kind\":\"remote\",\"name\":\"nas\",\"parts\":[]}},\"member\":\"docs/readme.md\"}}}}"
+        );
+        assert_eq!(encode(&archive).unwrap(), encoded_archive);
+        assert_eq!(decode(&encoded_archive).unwrap(), archive);
     }
 
     #[cfg(unix)]
