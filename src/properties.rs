@@ -11,6 +11,7 @@ use crate::entry::{Attrs, Entry};
 use crate::location::Location;
 
 mod exif_reader;
+mod parquet;
 
 /// A selected listing row paired with its source address.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -194,7 +195,7 @@ pub enum GroupStatus {
     /// Loading this group failed independently.
     Failed(String),
     /// Values were cut off by a resource limit.
-    Truncated { limit: u64 },
+    Truncated { reason: String },
 }
 
 /// One named semantic field.
@@ -384,7 +385,7 @@ pub fn inspect(selection: &Selection, cancel: &AtomicBool) -> io::Result<Inspect
         },
         link: selection.entry.link.clone(),
     };
-    let (filesystem, exif) = match &selection.location {
+    let (filesystem, exif, additional_groups) = match &selection.location {
         Location::Local(path) => {
             let current = fs::metadata(path.as_path());
             let regular_file = current.as_ref().is_ok_and(fs::Metadata::is_file);
@@ -415,19 +416,35 @@ pub fn inspect(selection: &Selection, cancel: &AtomicBool) -> io::Result<Inspect
                     Err(error) => Section::Failed(error.to_string()),
                 }
             };
-            (fs, exif)
+            let mut additional_groups = Vec::new();
+            if regular_file && parquet::is_candidate(path.as_path()) {
+                match parquet::read(path.as_path(), cancel) {
+                    Ok(group) => additional_groups.push(group),
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => return Err(error),
+                    Err(error) => additional_groups.push(PropertyGroup {
+                        id: GroupId("parquet".into()),
+                        status: GroupStatus::Failed(error.to_string()),
+                        fields: Vec::new(),
+                        groups: Vec::new(),
+                        tables: Vec::new(),
+                    }),
+                }
+            }
+            (fs, exif, additional_groups)
         }
         Location::Remote(_) => (
             Section::Unavailable(
                 "local filesystem attributes are unavailable for remote items".into(),
             ),
             Section::Unavailable("EXIF is not read from remote items".into()),
+            Vec::new(),
         ),
         Location::Archive { .. } => (
             Section::Unavailable(
                 "local filesystem attributes are unavailable for archive members".into(),
             ),
             Section::Unavailable("EXIF is not read from archive members".into()),
+            Vec::new(),
         ),
     };
     Ok(Inspection {
@@ -435,7 +452,7 @@ pub fn inspect(selection: &Selection, cancel: &AtomicBool) -> io::Result<Inspect
         listing,
         filesystem,
         exif,
-        additional_groups: Vec::new(),
+        additional_groups,
     })
 }
 
@@ -544,9 +561,9 @@ mod tests {
         assert!(property_group(GroupStatus::Failed("reader failed".into())).is_visible());
 
         let mut parent = property_group(GroupStatus::Available);
-        parent
-            .groups
-            .push(property_group(GroupStatus::Truncated { limit: 512 }));
+        parent.groups.push(property_group(GroupStatus::Truncated {
+            reason: "limited schema output".into(),
+        }));
         assert!(parent.is_visible());
 
         let mut table_group = property_group(GroupStatus::Available);
@@ -612,6 +629,21 @@ mod tests {
         assert_eq!(result.listing.size, Some(17));
         assert!(matches!(result.filesystem, super::Section::Failed(_)));
         assert!(matches!(result.exif, super::Section::Unavailable(_)));
+    }
+
+    #[test]
+    fn malformed_parquet_keeps_filesystem_facts_and_reports_only_its_group_failure() {
+        let temp = TempDir::new().expect("tempdir");
+        let path = temp.path().join("bad.parquet");
+        std::fs::write(&path, b"invalid parquet").expect("write fixture");
+        let result = inspect(&selection(path), &AtomicBool::new(false)).expect("inspection");
+        assert!(matches!(result.filesystem, super::Section::Available(_)));
+        assert!(matches!(result.exif, super::Section::Unavailable(_)));
+        assert_eq!(result.additional_groups.len(), 1);
+        assert!(matches!(
+            result.additional_groups[0].status,
+            GroupStatus::Failed(_)
+        ));
     }
 
     #[test]
@@ -691,6 +723,39 @@ mod tests {
         assert_eq!(facts.symlink_target, Some(PathBuf::from("missing")));
         assert!(facts.target.is_none());
         assert!(facts.target_error.is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn parquet_symlink_inspects_target_without_losing_link_facts() {
+        use std::os::unix::fs::symlink;
+        let temp = TempDir::new().expect("tempdir");
+        let target = temp.path().join("target.parquet");
+        let link = temp.path().join("link.parquet");
+        let schema = std::sync::Arc::new(
+            parquet::schema::parser::parse_message_type("message sample { REQUIRED INT32 value; }")
+                .expect("schema"),
+        );
+        let writer = parquet::file::writer::SerializedFileWriter::new(
+            std::fs::File::create(&target).expect("target"),
+            schema,
+            Default::default(),
+        )
+        .expect("writer");
+        writer.close().expect("close");
+        symlink(&target, &link).expect("symlink");
+        let result = inspect(&selection(link), &AtomicBool::new(false)).expect("inspection");
+        let filesystem = match result.filesystem {
+            super::Section::Available(value) => value,
+            _ => panic!("filesystem facts available"),
+        };
+        assert!(filesystem.symlink_target.is_some());
+        assert!(
+            result
+                .additional_groups
+                .iter()
+                .any(|group| group.id.0 == "parquet")
+        );
     }
 
     #[test]

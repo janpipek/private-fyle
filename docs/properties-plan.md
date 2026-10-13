@@ -16,7 +16,7 @@ attributes, distinguishes symlink objects from targets, and reads supported
 EXIF fields for regular image files. Properties has its own inspection result
 and session; it does not load `Preview::Content`. Reads run in the background,
 are bounded and cancellable, reject stale completions, and preserve listing and
-filesystem facts when EXIF is unavailable. The controller permits one blocking
+filesystem facts when a format reader fails. The controller permits one blocking
 inspection worker at a time and keeps only the newest replacement request
 queued until a cancelled worker exits.
 
@@ -35,15 +35,22 @@ attributes of a downloaded cache copy. Its semantic groups, typed fields,
 nested groups and tables provide a shape for future format readers. The view
 renders listing facts and only relevant, non-empty filesystem, EXIF, and
 additional format groups. Unavailable or empty groups are hidden, while
-independent failures and truncated results remain visible. SQLite structure,
-Parquet schema/row-group details, and additional PDF/media metadata are not part
-of this implementation. Image and video-frame View previews contain no metadata
-overlay; audio retains its standalone format and tag details.
+independent failures and truncated results remain visible. Local regular Parquet
+files expose schema paths, physical/logical types, definition/repetition levels,
+file row count, and per-row-group row and byte counts. This reader uses only the
+footer, capped at 8 MiB; schema output is capped at 256 leaf columns, row groups
+at 128, and displayed text at 1024 characters. Footer decoding is synchronous
+and cannot be interrupted, and decoded metadata may use more memory than its
+serialized footer. Remote and archive contents are not read. A symlink to a
+regular local Parquet file is inspected through its target while Filesystem
+continues to describe the link object.
+SQLite structure and additional PDF/media metadata remain future work. Image
+and video-frame View previews contain no metadata overlay; audio retains its
+standalone format and tag details.
 
 ## Remaining work
 
-- Add SQLite structure and Parquet schema/row-group readers as separately
-  bounded Properties sections.
+- Add a bounded SQLite structure reader as a separate Properties section.
 - Decide whether any additional metadata should be shared with Preview readers
   when a concrete second consumer exists.
 - Validate right and bottom docks at narrow sizes and different UI scales on a

@@ -98,8 +98,15 @@ metadata groups are hidden; independent failures and truncated results remain
 visible. For remote and archive entries, Properties does not download or
 extract data; only facts already present in the listing are shown. A Properties
 inspection does not depend on View or on
-optional preview programs. SQLite structure and Parquet schema remain future
-format readers.
+optional preview programs. Local regular Parquet files show schema paths,
+physical and logical types, definition and repetition levels, file row count,
+and per-row-group row counts and compressed/uncompressed sizes. This footer-only
+reader caps serialized metadata at 8 MiB, schema output at 256 leaf columns,
+row groups at 128, and displayed text at 1,024 characters. Footer decoding
+cannot be interrupted and decoded metadata may use more memory than its
+serialized size. Symlinks to regular local Parquet files show target metadata
+while Filesystem continues to describe the link object. SQLite structure
+remains open work.
 
 Symbolic links keep their target's file icon with a small badge: a curved
 arrow for a working link, a crossed circle (and a muted name) for a broken
@@ -603,7 +610,7 @@ Where things live (`src/`):
 | `commander.rs`, `commander/` | Main window: the two panels, actions, dialogs, jobs bar, tools orchestration. Split by area into `commander/` (keys, navigation, search, files, jobs, view, archives, remotes, tools, menus, appearance); new logic goes into its own module, only wiring here. |
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
 | `entry.rs`, `model.rs`, `location.rs`, `location/`, `location_codec.rs` | Shared `Entry`/`Attrs` and pure sort rules; `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; pure local, remote and archive address semantics; versioned lossless location persistence |
-| `formats.rs`, `formats/` | Semantic EXIF fields and bounded RAW embedded-JPEG selection, shared by panel metadata and Properties |
+| `formats.rs`, `formats/` | Semantic EXIF fields, bounded RAW embedded-JPEG selection, and bounded Parquet footer validation/decoding shared by Preview and Properties |
 | `copy_path.rs` | UI-independent selection path policy: local native paths, provider supplied standard URLs and no archive pseudo-paths |
 | `listing.rs`, `listing/contracts.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; shared request/result values and bounded per-panel remote listing cache |
 | `panel.rs`, `panel/header_view.rs`, `panel/table_view.rs`, `panel/metadata.rs`, `panel/metadata/` | `FolderView` owns input/menu lifecycle, focus and list/icon coordination; `header_view.rs` renders breadcrumbs, location editing and header buttons; `table_view.rs` owns `FileTable` rendering and forwarding to `Folder`; `metadata/model.rs` owns bounded request/cache policy; `metadata/reader.rs` reads optional local values; `metadata.rs` schedules GPUI workers shared by list and icon views; `metadata/exif.rs` composes semantic EXIF values into stable column keys |
@@ -615,7 +622,7 @@ Where things live (`src/`):
 | `remote.rs`, `remote/` | Remote providers: `Provider` trait; compatibility `Location` alias to `location::RemoteLocation`; Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `LocalCopy` keeps a typed source address separate from the cache path used at native I/O boundaries; `model/remote.rs` holds cached listings |
 | `archive.rs`, `archive/extraction.rs`, `dirsize.rs`, `links.rs` | Archive index; safe extraction; recursive sizes; symlink state |
 | `preview/`, `preview_view.rs`, `notebook_view.rs` | `Previewer`s and their `Registry` (including bounded nbformat 4 notebook parsing); one render arm per `Content`; notebooks render through a variable-height lazy list; `PreviewSession` owns target identity, reloads, navigation and stale-result acceptance; GUI resources stay in the pane |
-| `properties.rs`, `properties/`, `properties_view.rs` | UI-independent source facts and bounded local filesystem/EXIF inspection; cancellable `PropertiesSession`; GPUI controller limits inspection to one active worker with the latest selection queued; grouped data supports future format readers |
+| `properties.rs`, `properties/`, `properties_view.rs` | UI-independent source facts and bounded local filesystem/EXIF inspection; `properties/parquet.rs` maps shared Parquet footer metadata into bounded schema and row-group groups; cancellable `PropertiesSession`; GPUI controller limits inspection to one active worker with the latest selection queued |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and separate editor windows |
 | `tools/`, `tools_view.rs` | Tool, Action and Registry model; `defaults.toml`; built-ins; Lua plugins; `exec.rs` runs them |
 | `search.rs`, `places.rs`, `breadcrumbs.rs`, `remote_labels.rs`, `rename.rs`, `openers.rs`, `terminal.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs`, `zoom.rs` | Further UI-independent models, each with tests |

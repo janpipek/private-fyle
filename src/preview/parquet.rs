@@ -2,7 +2,7 @@
 
 use std::fmt::{self, Write as _};
 use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io;
 
 use parquet::file::reader::{FileReader, SerializedFileReader};
 use parquet::record::Field;
@@ -13,7 +13,6 @@ use super::{Content, Previewer, Probe};
 const MAX_ROWS: usize = 500;
 const MAX_COLS: usize = 40;
 const MAX_CELL_CHARS: usize = 1024;
-const MAX_METADATA_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_SAMPLE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Native Parquet content preview, without an external converter or Arrow.
@@ -30,7 +29,9 @@ impl Previewer for ParquetPreviewer {
 
     fn load(&self, probe: &Probe) -> io::Result<Content> {
         let mut file = File::open(&probe.path)?;
-        check_footer(&mut file)?;
+        // Share the bounded checked footer decoder with Properties before the
+        // preview reader reads its row groups through Parquet's streaming API.
+        crate::formats::parquet::read_metadata(&mut file, None)?;
         let reader = SerializedFileReader::new(file).map_err(invalid_data)?;
         let metadata = reader.metadata();
         let schema = metadata.file_metadata().schema_descr();
@@ -122,29 +123,6 @@ fn selected_chunk_bytes(sizes: impl IntoIterator<Item = (i64, i64)>) -> io::Resu
                 io::Error::new(io::ErrorKind::InvalidData, "Parquet chunk sizes overflow")
             })
         })
-}
-
-fn check_footer(file: &mut File) -> io::Result<()> {
-    let size = file.metadata()?.len();
-    if size < 12 {
-        return Err(invalid_data("Invalid Parquet file: missing footer"));
-    }
-    file.seek(SeekFrom::End(-8))?;
-    let mut footer = [0; 8];
-    file.read_exact(&mut footer)?;
-    if &footer[4..] != b"PAR1" {
-        return Err(invalid_data("Invalid or encrypted Parquet footer"));
-    }
-    let metadata_size = u32::from_le_bytes(footer[..4].try_into().expect("four footer bytes"));
-    if u64::from(metadata_size) > MAX_METADATA_BYTES {
-        return Err(invalid_data(
-            "Parquet metadata exceeds the 8 MiB preview limit",
-        ));
-    }
-    if u64::from(metadata_size) > size - 12 {
-        return Err(invalid_data("Invalid Parquet metadata length"));
-    }
-    Ok(())
 }
 
 // Stop formatting at the limit, including for large nested or binary values,
@@ -297,9 +275,10 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{
-        MAX_CELL_CHARS, MAX_COLS, MAX_METADATA_BYTES, MAX_ROWS, MAX_SAMPLE_BYTES, cell, field_cell,
+        MAX_CELL_CHARS, MAX_COLS, MAX_ROWS, MAX_SAMPLE_BYTES, cell, field_cell,
         selected_chunk_bytes,
     };
+    use crate::formats::parquet::MAX_METADATA_BYTES;
     use crate::preview::{Content, Registry};
     use parquet::record::Field;
 

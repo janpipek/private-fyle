@@ -87,9 +87,9 @@ not to pursue an item.
       keep minimize, maximize and close clearly visible in both main and editor
       windows.
 - [ ] Archive follow-ups: nested archives; maybe write support.
-- [ ] Properties format readers: add SQLite structure and Parquet schema/row-group
-      metadata as independent Properties sections. Keep readers bounded and
-      usable without content previews; see [Properties plan](docs/properties-plan.md).
+- [ ] Add a bounded SQLite structure reader as a separate Properties section;
+      keep it usable without content previews. See
+      [Properties plan](docs/properties-plan.md).
 - [ ] Idea: add a bounded, timed `ffprobe` JSON reader for media Properties
       (container and stream codecs/details), without frame extraction. Honor
       cancellation and output bounds. Consider only a single optional Duration
@@ -147,6 +147,15 @@ not to pursue an item.
       right-click to show a menu etc.
 
 ## Done
+
+- [x] Parquet Properties metadata: local regular files show schema paths,
+      physical/logical types, definition/repetition levels, row count, and
+      per-row-group row and compressed/uncompressed byte counts. The bounded
+      footer reader caps metadata at 8 MiB, schema columns at 256, row groups
+      at 128, and displayed text at 1,024 characters. Remote/archive contents
+      remain listing-only; symlinks to regular local Parquet files show target
+      metadata while preserving link-object filesystem facts. See
+      [Properties plan](docs/properties-plan.md).
 
 - [x] Show spreadsheet sheet names as tabs in F3, replacing Previous/Next
       sheet navigation while preserving the bounded per-sheet sample. Sheet

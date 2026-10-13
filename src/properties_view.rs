@@ -170,12 +170,8 @@ fn render_group(group: &PropertyGroup, cx: &App) -> AnyElement {
         GroupStatus::Failed(error) => {
             content = content.child(field("Status", &format!("Unavailable: {error}"), cx));
         }
-        GroupStatus::Truncated { limit } => {
-            content = content.child(field(
-                "Status",
-                &format!("Truncated at {}", format_size(*limit)),
-                cx,
-            ));
+        GroupStatus::Truncated { reason } => {
+            content = content.child(field("Status", reason, cx));
         }
     }
     for property_field in &group.fields {
@@ -195,26 +191,64 @@ fn render_group(group: &PropertyGroup, cx: &App) -> AnyElement {
             continue;
         }
         content = content.child(section_title(&humanize(&table.id), cx));
-        content = content.child(
+        let widths = table
+            .columns
+            .iter()
+            .map(|column| match column.as_str() {
+                "path" => 160.0,
+                "uncompressed_bytes" => 164.0,
+                "compressed_bytes" | "definition_level" | "repetition_level" => 148.0,
+                "rows" => 100.0,
+                "index" => 80.0,
+                _ => 132.0,
+            })
+            .collect::<Vec<_>>();
+        let table_width = px(widths.iter().sum::<f32>());
+        let header =
             h_flex()
-                .gap_2()
-                .children(table.columns.iter().map(|column| {
+                .w(table_width)
+                .flex_none()
+                .children(table.columns.iter().zip(&widths).map(|(column, width)| {
                     div()
-                        .flex_1()
+                        .w(px(*width))
+                        .flex_none()
+                        .px_1()
                         .text_xs()
                         .font_semibold()
+                        .truncate()
                         .child(humanize(column))
-                })),
+                }));
+        let rows = v_flex()
+            .w(table_width)
+            .flex_none()
+            .children(table.rows.iter().map(|row| {
+                h_flex()
+                    .w(table_width)
+                    .flex_none()
+                    .children(row.iter().zip(&widths).map(|(value, width)| {
+                        div()
+                            .w(px(*width))
+                            .flex_none()
+                            .px_1()
+                            .text_sm()
+                            .truncate()
+                            .child(format_value(value))
+                    }))
+            }));
+        content = content.child(
+            div()
+                .relative()
+                .w_full()
+                .overflow_x_scrollbar()
+                .id(format!("properties-table-{}-{}", group.id.0, table.id))
+                .child(
+                    v_flex()
+                        .w(table_width)
+                        .flex_none()
+                        .child(header)
+                        .child(rows),
+                ),
         );
-        for row in &table.rows {
-            content = content.child(h_flex().gap_2().children(row.iter().map(|value| {
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_sm()
-                    .child(format_value(value))
-            })));
-        }
     }
     content.into_any_element()
 }
