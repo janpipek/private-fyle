@@ -18,9 +18,6 @@ impl Previewer for RawPreviewer {
 
     fn load(&self, probe: &Probe) -> io::Result<Content> {
         let path = crate::raw_preview::extract(&probe.path)?;
-        Ok(Content::Image {
-            path,
-            info: super::image::exif_info(&probe.path),
-        })
+        Ok(Content::Image { path })
     }
 }

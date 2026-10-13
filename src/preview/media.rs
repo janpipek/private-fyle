@@ -59,14 +59,14 @@ impl Previewer for MediaPreviewer {
             }));
         }
         let probed = Probed::parse(&output.stdout)?;
-        let info = probed.info();
         if probed.has_video {
             // A frame a tenth of the way in: past black intros, still early.
-            if let Ok(frame) = grab_frame(&probe.path, probed.duration.unwrap_or(0.) / 10.) {
-                return Ok(Content::Image { path: frame, info });
-            }
+            let frame = grab_frame(&probe.path, probed.duration.unwrap_or(0.) / 10.)?;
+            return Ok(Content::Image { path: frame });
         }
-        Ok(Content::Info { info })
+        Ok(Content::Info {
+            info: probed.info(),
+        })
     }
 }
 

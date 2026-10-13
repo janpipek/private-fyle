@@ -5,6 +5,7 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::*;
 
+use crate::location::Location;
 use crate::properties::{
     GroupStatus, Inspection, PropertiesSession, PropertyGroup, PropertyValue, Request, Section,
     Selection, State,
@@ -102,37 +103,58 @@ fn message(text: &str, cx: &App) -> AnyElement {
 fn render_inspection(inspection: &Inspection, cx: &App) -> AnyElement {
     let listing = &inspection.listing;
     let mut body = v_flex().w_full().gap_2().p_2();
-    body = body.child(section_title("Source", cx));
-    body = body.child(field("Name", &listing.name, cx));
-    body = body.child(field(
-        "Type",
-        if listing.is_dir { "Directory" } else { "File" },
-        cx,
-    ));
-    if let Some(size) = listing.size {
-        body = body.child(field("Size", &crate::fs_ops::format_size(size), cx));
-    }
-    if let Some(modified) = listing.modified {
-        body = body.child(field("Modified", &crate::fs_ops::format_time(modified), cx));
-    }
-    if let Some(attrs) = listing.attrs {
-        body = body.child(field("Permissions", &attrs.permissions(listing.is_dir), cx));
-        if let Some(uid) = attrs.uid {
-            body = body.child(field("Owner ID", &uid.to_string(), cx));
+    if let Location::Local(path) = &inspection.location {
+        if let Some(filesystem) =
+            render_filesystem(path.as_path(), listing, &inspection.filesystem, cx)
+        {
+            body = body.child(filesystem);
         }
-        if attrs.readonly {
-            body = body.child(field("Read only", "Yes", cx));
-        }
+    } else {
+        body = body.child(render_listing(listing, &inspection.location, cx));
     }
-    if let Some(link) = listing.link.tooltip_with_resolved(None) {
-        body = body.child(field("Link", &link, cx));
+    if inspection.exif.is_visible()
+        && let Some(exif) = render_exif(&inspection.exif, cx)
+    {
+        body = body.child(exif);
     }
-    body = body.child(render_filesystem(&inspection.filesystem, cx));
-    body = body.child(render_exif(&inspection.exif, cx));
     for group in &inspection.additional_groups {
-        body = body.child(render_group(group, cx));
+        if group.is_visible() {
+            body = body.child(render_group(group, cx));
+        }
     }
     body.into_any_element()
+}
+
+fn render_listing(
+    listing: &crate::properties::ListingFacts,
+    location: &Location,
+    cx: &App,
+) -> AnyElement {
+    let mut section = v_flex()
+        .w_full()
+        .gap_1()
+        .child(section_title("Source", cx))
+        .child(field("Name", &listing.name, cx))
+        .child(field(
+            "Location",
+            &location.panel_path().display().to_string(),
+            cx,
+        ))
+        .child(field(
+            "Type",
+            if listing.is_dir { "Directory" } else { "File" },
+            cx,
+        ));
+    if let Some(size) = listing.size {
+        section = section.child(field("Size", &format_size(size), cx));
+    }
+    if let Some(modified) = listing.modified {
+        section = section.child(field("Modified", &crate::fs_ops::format_time(modified), cx));
+    }
+    if let Some(link) = listing.link.tooltip_with_resolved(None) {
+        section = section.child(field("Link", &link, cx));
+    }
+    section.into_any_element()
 }
 
 fn render_group(group: &PropertyGroup, cx: &App) -> AnyElement {
@@ -164,9 +186,14 @@ fn render_group(group: &PropertyGroup, cx: &App) -> AnyElement {
         ));
     }
     for nested in &group.groups {
-        content = content.child(render_group(nested, cx));
+        if nested.is_visible() {
+            content = content.child(render_group(nested, cx));
+        }
     }
     for table in &group.tables {
+        if table.columns.is_empty() && table.rows.is_empty() {
+            continue;
+        }
         content = content.child(section_title(&humanize(&table.id), cx));
         content = content.child(
             h_flex()
@@ -192,48 +219,104 @@ fn render_group(group: &PropertyGroup, cx: &App) -> AnyElement {
     content.into_any_element()
 }
 
-fn render_filesystem(value: &Section<crate::properties::FilesystemFacts>, cx: &App) -> AnyElement {
+fn render_filesystem(
+    path: &std::path::Path,
+    listing: &crate::properties::ListingFacts,
+    value: &Section<crate::properties::FilesystemFacts>,
+    cx: &App,
+) -> Option<AnyElement> {
     match value {
-        Section::Available(value) => render_filesystem_facts(value, cx),
-        Section::Unavailable(reason) => status_section("Filesystem", reason, cx),
-        Section::Failed(error) => {
-            status_section("Filesystem", &format!("Unavailable: {error}"), cx)
-        }
-        Section::Truncated { value, limit } => v_flex()
-            .w_full()
-            .gap_1()
-            .child(render_filesystem_facts(value, cx))
-            .child(field("Read limit", &format_size(*limit), cx))
-            .into_any_element(),
+        Section::Available(value) => Some(render_filesystem_facts(path, listing, value, cx)),
+        Section::Unavailable(_) => None,
+        Section::Failed(error) => Some(render_filesystem_fallback(path, listing, error, cx)),
+        Section::Truncated { value, limit } => Some(
+            v_flex()
+                .w_full()
+                .gap_1()
+                .child(render_filesystem_facts(path, listing, value, cx))
+                .child(field("Read limit", &format_size(*limit), cx))
+                .into_any_element(),
+        ),
     }
 }
 
-fn render_filesystem_facts(facts: &crate::properties::FilesystemFacts, cx: &App) -> AnyElement {
+fn render_filesystem_fallback(
+    path: &std::path::Path,
+    listing: &crate::properties::ListingFacts,
+    error: &str,
+    cx: &App,
+) -> AnyElement {
+    let mut section = v_flex()
+        .w_full()
+        .gap_1()
+        .child(section_title("Filesystem", cx))
+        .child(field("Name", &listing.name, cx))
+        .child(field("Path", &path.display().to_string(), cx))
+        .child(field(
+            "Status",
+            &format!("Native stat unavailable: {error}"),
+            cx,
+        ))
+        .child(field(
+            "Listed type",
+            if listing.is_dir { "Directory" } else { "File" },
+            cx,
+        ));
+    if let Some(size) = listing.size {
+        section = section.child(field("Listed size", &format_size(size), cx));
+    }
+    if let Some(modified) = listing.modified {
+        section = section.child(field(
+            "Listed modified",
+            &crate::fs_ops::format_time(modified),
+            cx,
+        ));
+    }
+    if let Some(attrs) = listing.attrs {
+        section = section.child(field(
+            "Listed permissions",
+            &attrs.permissions(listing.is_dir),
+            cx,
+        ));
+        if let Some(uid) = attrs.uid {
+            section = section.child(field("Listed owner ID", &uid.to_string(), cx));
+        }
+        section = section.child(field(
+            "Listed read only",
+            if attrs.readonly { "Yes" } else { "No" },
+            cx,
+        ));
+    }
+    section.into_any_element()
+}
+
+fn render_filesystem_facts(
+    path: &std::path::Path,
+    listing: &crate::properties::ListingFacts,
+    facts: &crate::properties::FilesystemFacts,
+    cx: &App,
+) -> AnyElement {
     let stat = &facts.link_object;
     let mut section = v_flex()
         .w_full()
         .gap_1()
-        .child(section_title("Filesystem", cx));
-    section = section.child(field(
-        "Object",
-        if stat.is_dir {
-            "Directory"
-        } else if stat.is_file {
-            "File"
-        } else {
-            "Other"
-        },
-        cx,
-    ));
-    if let Some(size) = stat.size {
-        section = section.child(field("Local size", &format_size(size), cx));
-    }
-    if let Some(time) = stat.modified {
-        section = section.child(field(
-            "Local modified",
-            &crate::fs_ops::format_time(time),
+        .child(section_title("Filesystem", cx))
+        .child(field("Name", &listing.name, cx))
+        .child(field("Path", &path.display().to_string(), cx))
+        .child(field(
+            "Object",
+            object_type(
+                facts.symlink_target.is_some() || facts.target_error.is_some(),
+                stat.is_dir,
+                stat.is_file,
+            ),
             cx,
         ));
+    if let Some(size) = stat.size {
+        section = section.child(field("Size", &format_size(size), cx));
+    }
+    if let Some(time) = stat.modified {
+        section = section.child(field("Modified", &crate::fs_ops::format_time(time), cx));
     }
     if let Some(time) = stat.created {
         section = section.child(field("Created", &crate::fs_ops::format_time(time), cx));
@@ -248,51 +331,93 @@ fn render_filesystem_facts(facts: &crate::properties::FilesystemFacts, cx: &App)
     }
     if stat.attrs.readonly {
         section = section.child(field("Read only", "Yes", cx));
+    } else {
+        section = section.child(field("Read only", "No", cx));
     }
-    if let Some(target) = &facts.symlink_target {
-        section = section.child(field("Link target", &target.display().to_string(), cx));
-    }
-    if let Some(target) = &facts.target {
-        section = section.child(field(
-            "Target",
-            if target.is_dir {
-                "Directory"
-            } else if target.is_file {
-                "File"
-            } else {
-                "Other"
-            },
-            cx,
-        ));
-    }
-    if let Some(error) = &facts.target_error {
-        section = section.child(field("Target status", &format!("Unavailable: {error}"), cx));
+    if facts.symlink_target.is_some() || facts.target_error.is_some() {
+        let mut link = v_flex()
+            .w_full()
+            .gap_1()
+            .child(section_title("Symlink", cx));
+        if let Some(target) = &facts.symlink_target {
+            link = link.child(field("Target path", &target.display().to_string(), cx));
+        }
+        if let Some(target) = &facts.target {
+            link = link.child(field(
+                "Target type",
+                object_type(false, target.is_dir, target.is_file),
+                cx,
+            ));
+            if let Some(size) = target.size {
+                link = link.child(field("Target size", &format_size(size), cx));
+            }
+            if let Some(modified) = target.modified {
+                link = link.child(field(
+                    "Target modified",
+                    &crate::fs_ops::format_time(modified),
+                    cx,
+                ));
+            }
+            link = link.child(field(
+                "Target permissions",
+                &target.attrs.permissions(target.is_dir),
+                cx,
+            ));
+            if let Some(uid) = target.attrs.uid {
+                link = link.child(field("Target owner ID", &uid.to_string(), cx));
+            }
+            link = link.child(field(
+                "Target read only",
+                if target.attrs.readonly { "Yes" } else { "No" },
+                cx,
+            ));
+        }
+        if let Some(error) = &facts.target_error {
+            link = link.child(field("Target status", &format!("Unavailable: {error}"), cx));
+        }
+        section = section.child(link);
     }
     section.into_any_element()
 }
 
-fn render_exif(value: &Section<Vec<crate::properties::ExifField>>, cx: &App) -> AnyElement {
+fn object_type(is_symlink: bool, is_dir: bool, is_file: bool) -> &'static str {
+    if is_symlink {
+        "Symlink"
+    } else if is_dir {
+        "Directory"
+    } else if is_file {
+        "File"
+    } else {
+        "Other"
+    }
+}
+
+fn render_exif(value: &Section<Vec<crate::properties::ExifField>>, cx: &App) -> Option<AnyElement> {
     match value {
         Section::Available(fields) => {
-            let mut section = v_flex().w_full().gap_1().child(section_title("EXIF", cx));
             if fields.is_empty() {
-                section = section.child(field("Metadata", "No EXIF fields", cx));
+                return None;
             }
+            let mut section = v_flex().w_full().gap_1().child(section_title("EXIF", cx));
             for item in fields {
                 section = section.child(field(exif_label(item.id), &item.value, cx));
             }
-            section.into_any_element()
+            Some(section.into_any_element())
         }
-        Section::Unavailable(reason) => status_section("EXIF", reason, cx),
-        Section::Failed(error) => status_section("EXIF", &format!("Unavailable: {error}"), cx),
+        Section::Unavailable(_) => None,
+        Section::Failed(error) => {
+            Some(status_section("EXIF", &format!("Unavailable: {error}"), cx))
+        }
         Section::Truncated { value, limit } => {
             let mut section = v_flex().w_full().gap_1().child(section_title("EXIF", cx));
             for item in value {
                 section = section.child(field(exif_label(item.id), &item.value, cx));
             }
-            section
-                .child(field("Read limit", &format_size(*limit), cx))
-                .into_any_element()
+            Some(
+                section
+                    .child(field("Read limit", &format_size(*limit), cx))
+                    .into_any_element(),
+            )
         }
     }
 }

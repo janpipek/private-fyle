@@ -90,10 +90,14 @@ its destination label. The selected layout is saved in `config.toml` and restore
 setting for the inspector.
 
 Properties shows source listing facts for local, remote and archive entries.
-For local entries it also reads filesystem attributes, symlink target details
-and supported EXIF fields for regular image files. Remote and archive
-Properties does not download or extract entries; only facts already present in
-the listing are shown. A Properties inspection does not depend on View or on
+For local entries, a single Filesystem group combines source identity with
+fresh native attributes; symlink target facts appear in a separate subgroup.
+If native stat fails, listing facts remain visible with a status. The view also
+shows supported EXIF fields for regular image files. Empty or inapplicable
+metadata groups are hidden; independent failures and truncated results remain
+visible. For remote and archive entries, Properties does not download or
+extract data; only facts already present in the listing are shown. A Properties
+inspection does not depend on View or on
 optional preview programs. SQLite structure and Parquet schema remain future
 format readers.
 
@@ -153,8 +157,9 @@ files with only bitmap/JPEG XL previews or no embedded JPEG show the file icon
 or a preview error. Extraction scans at most 64 MiB and limits JPEG dimensions,
 decode memory and candidate count; it does not decode RAW sensor data. RAW
 thumbnails use the original file's URI and modification time in the shared
-thumbnail cache. F3 shows available EXIF details from the RAW file or its
-embedded JPEG.
+thumbnail cache. View shows images and video frames without metadata overlays;
+use Properties for EXIF details. Audio keeps its standalone format and tag
+details in View.
 
 In tree mode, clicking a folder's chevron also expands/collapses it; Enter
 still makes the folder the panel's root.
@@ -532,8 +537,8 @@ selections carry typed identities. `Folder::path()` and `Entry::path` remain
 compatibility spellings for panel and native-operation boundaries; virtual
 spellings must not be passed to native filesystem calls.
 
-`src/formats/exif.rs` reads ordered semantic EXIF values; preview maps them to
-labels, and panel metadata composes them into column values. `src/formats/raw.rs`
+`src/formats/exif.rs` reads ordered semantic EXIF values; Properties and panel
+metadata consume them. `src/formats/raw.rs`
 owns the bounded embedded-JPEG selector; `src/raw_preview.rs` owns its cache
 identity and atomic materialization.
 `src/tools/` is the model for context-dependent tools (run ruff on Python
@@ -598,7 +603,7 @@ Where things live (`src/`):
 | `commander.rs`, `commander/` | Main window: the two panels, actions, dialogs, jobs bar, tools orchestration. Split by area into `commander/` (keys, navigation, search, files, jobs, view, archives, remotes, tools, menus, appearance); new logic goes into its own module, only wiring here. |
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
 | `entry.rs`, `model.rs`, `location.rs`, `location/`, `location_codec.rs` | Shared `Entry`/`Attrs` and pure sort rules; `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; pure local, remote and archive address semantics; versioned lossless location persistence |
-| `formats.rs`, `formats/` | Semantic EXIF fields and bounded RAW embedded-JPEG selection, shared by panel metadata and previews |
+| `formats.rs`, `formats/` | Semantic EXIF fields and bounded RAW embedded-JPEG selection, shared by panel metadata and Properties |
 | `copy_path.rs` | UI-independent selection path policy: local native paths, provider supplied standard URLs and no archive pseudo-paths |
 | `listing.rs`, `listing/contracts.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; shared request/result values and bounded per-panel remote listing cache |
 | `panel.rs`, `panel/header_view.rs`, `panel/table_view.rs`, `panel/metadata.rs`, `panel/metadata/` | `FolderView` owns input/menu lifecycle, focus and list/icon coordination; `header_view.rs` renders breadcrumbs, location editing and header buttons; `table_view.rs` owns `FileTable` rendering and forwarding to `Folder`; `metadata/model.rs` owns bounded request/cache policy; `metadata/reader.rs` reads optional local values; `metadata.rs` schedules GPUI workers shared by list and icon views; `metadata/exif.rs` composes semantic EXIF values into stable column keys |

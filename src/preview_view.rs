@@ -418,7 +418,7 @@ impl PreviewPane {
                     d.child(note("Showing the first 512 KiB.".into()))
                 })
                 .into_any_element(),
-            Content::Image { path, info } => v_flex()
+            Content::Image { path } => v_flex()
                 .size_full()
                 .p_2()
                 .gap_2()
@@ -432,7 +432,6 @@ impl PreviewPane {
                             }),
                     ),
                 )
-                .when(!info.is_empty(), |d| d.child(details(info, cx)))
                 .into_any_element(),
             Content::Pdf { pages, .. } => {
                 let page = self.session.pdf_page();
@@ -748,7 +747,7 @@ impl Render for PreviewPane {
     }
 }
 
-/// Labelled details (EXIF, PDF info, media streams), one per line.
+/// Labelled details for standalone media information, one per line.
 fn details(info: &[(String, String)], cx: &Context<PreviewPane>) -> impl IntoElement {
     let muted = cx.theme().muted_foreground;
     v_flex()

@@ -88,6 +88,10 @@ not to pursue an item.
 - [ ] Properties format readers: add SQLite structure and Parquet schema/row-group
       metadata as independent Properties sections. Keep readers bounded and
       usable without content previews; see [Properties plan](docs/properties-plan.md).
+- [ ] Idea: add a bounded, timed `ffprobe` JSON reader for media Properties
+      (container and stream codecs/details), without frame extraction. Honor
+      cancellation and output bounds. Consider only a single optional Duration
+      column, one value per file formatted as `mm:ss` or `h:mm:ss`.
 - [ ] Workspace layout follow-ups: test the current right/bottom inspector
       arrangements across window sizes and UI scaling; decide whether to add
       a two-inspector layout. Properties remains a separate
@@ -146,9 +150,11 @@ not to pursue an item.
       opens Properties, while F3 opens/selects View or closes the inspector when
       View is active. Layout changes retain the selected tab for the app session.
       Properties shows listing facts for local, remote and archive entries plus
-      local filesystem/symlink facts and supported EXIF metadata; remote/archive
-      inspection does not download or extract data. Inspection runs independently
-      from Preview with cancellation, stale-result rejection and bounded reads.
+      local fresh filesystem/symlink facts and supported EXIF metadata; remote/archive
+      inspection does not download or extract data. Empty and inapplicable groups
+      are hidden; failures and truncation remain visible. Inspection runs
+      independently from Preview with cancellation, stale-result rejection and
+      bounded reads.
       See [Properties plan](docs/properties-plan.md).
 
 - [x] Linux custom title bars: combine the main menus and themed window chrome
@@ -390,7 +396,9 @@ not to pursue an item.
 - [x] Columns… dialog: pick columns from a grouped catalog, incl. single EXIF fields.
 - [x] Previews: audio/video details (ffprobe) and a video frame (ffmpeg).
 - [x] Search: the preview scrolls to a content hit's matching line.
-- [x] Previews: multi-page PDF navigation (poppler), EXIF data under images.
+- [x] Previews: multi-page PDF navigation (poppler); Properties owns image EXIF,
+      while image and video-frame previews show no metadata overlay. Audio keeps
+      its standalone format and tag details in View.
 - [x] Columns: created time, git status, xattrs, SELinux context.
 - [x] Lua plugins (`<config dir>/fyle/plugins/*.lua`) define tools (mlua, Lua 5.4 vendored).
 - [x] Search: regex option; content hits show their matching line.

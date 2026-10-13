@@ -32,10 +32,13 @@ that finish after invalidation.
 The Properties model retains the source `Location` separately from its listing
 `Entry`. Remote and archive entries show only source listing facts, never
 attributes of a downloaded cache copy. Its semantic groups, typed fields,
-nested groups and tables provide a shape for future format readers. The initial
-view renders listing, filesystem/symlink and EXIF sections. SQLite structure,
+nested groups and tables provide a shape for future format readers. The view
+renders listing facts and only relevant, non-empty filesystem, EXIF, and
+additional format groups. Unavailable or empty groups are hidden, while
+independent failures and truncated results remain visible. SQLite structure,
 Parquet schema/row-group details, and additional PDF/media metadata are not part
-of this implementation.
+of this implementation. Image and video-frame View previews contain no metadata
+overlay; audio retains its standalone format and tag details.
 
 ## Remaining work
 

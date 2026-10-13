@@ -81,6 +81,17 @@ pub enum Section<T> {
     Truncated { value: T, limit: u64 },
 }
 
+impl<T> Section<Vec<T>> {
+    /// Whether this collection has useful values or an informative read status.
+    pub fn is_visible(&self) -> bool {
+        match self {
+            Self::Available(values) => !values.is_empty(),
+            Self::Unavailable(_) => false,
+            Self::Failed(_) | Self::Truncated { .. } => true,
+        }
+    }
+}
+
 /// A stable semantic EXIF field.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExifField {
@@ -153,6 +164,24 @@ pub struct PropertyGroup {
     pub groups: Vec<PropertyGroup>,
     /// Structured tables, such as row-group summaries.
     pub tables: Vec<PropertyTable>,
+}
+
+impl PropertyGroup {
+    /// Whether this group has data, a visible child, or an informative status.
+    pub fn is_visible(&self) -> bool {
+        match &self.status {
+            GroupStatus::Unavailable(_) => false,
+            GroupStatus::Failed(_) | GroupStatus::Truncated { .. } => true,
+            GroupStatus::Available => {
+                !self.fields.is_empty()
+                    || self.groups.iter().any(Self::is_visible)
+                    || self
+                        .tables
+                        .iter()
+                        .any(|table| !table.columns.is_empty() || !table.rows.is_empty())
+            }
+        }
+    }
 }
 
 /// Load result for one extensible semantic group.
@@ -474,12 +503,74 @@ fn stat_facts(meta: &fs::Metadata) -> StatFacts {
 
 #[cfg(test)]
 mod tests {
-    use super::{PropertiesSession, Selection, State, inspect};
+    use super::{
+        GroupId, GroupStatus, PropertiesSession, PropertyField, PropertyGroup, PropertyTable,
+        Section, Selection, State, inspect,
+    };
     use crate::entry::{Attrs, Entry};
     use crate::location::Location;
     use std::path::PathBuf;
     use std::sync::atomic::AtomicBool;
     use tempfile::TempDir;
+
+    fn property_group(status: GroupStatus) -> PropertyGroup {
+        PropertyGroup {
+            id: GroupId("format".into()),
+            status,
+            fields: Vec::<PropertyField>::new(),
+            groups: Vec::new(),
+            tables: Vec::<PropertyTable>::new(),
+        }
+    }
+
+    #[test]
+    fn absent_empty_failed_and_truncated_sections_have_visibility_policy() {
+        assert!(!Section::<Vec<u8>>::Unavailable("not available".into()).is_visible());
+        assert!(!Section::<Vec<u8>>::Available(Vec::new()).is_visible());
+        assert!(Section::<Vec<u8>>::Failed("read failed".into()).is_visible());
+        assert!(
+            Section::<Vec<u8>>::Truncated {
+                value: Vec::<u8>::new(),
+                limit: 1024,
+            }
+            .is_visible()
+        );
+    }
+
+    #[test]
+    fn property_group_visibility_includes_nonempty_children_and_tables() {
+        assert!(!property_group(GroupStatus::Unavailable("not applicable".into())).is_visible());
+        assert!(!property_group(GroupStatus::Available).is_visible());
+        assert!(property_group(GroupStatus::Failed("reader failed".into())).is_visible());
+
+        let mut parent = property_group(GroupStatus::Available);
+        parent
+            .groups
+            .push(property_group(GroupStatus::Truncated { limit: 512 }));
+        assert!(parent.is_visible());
+
+        let mut table_group = property_group(GroupStatus::Available);
+        table_group.tables.push(PropertyTable {
+            id: "schema".into(),
+            columns: vec!["name".into()],
+            rows: Vec::new(),
+        });
+        assert!(table_group.is_visible());
+    }
+
+    #[test]
+    fn empty_exif_success_is_hidden_but_errors_and_truncation_are_visible() {
+        assert!(!Section::<Vec<super::ExifField>>::Available(Vec::new()).is_visible());
+        assert!(!Section::<Vec<super::ExifField>>::Unavailable("no EXIF".into()).is_visible());
+        assert!(Section::<Vec<super::ExifField>>::Failed("invalid EXIF".into()).is_visible());
+        assert!(
+            Section::<Vec<super::ExifField>>::Truncated {
+                value: Vec::new(),
+                limit: 4096,
+            }
+            .is_visible()
+        );
+    }
 
     fn selection(path: PathBuf) -> Selection {
         Selection {

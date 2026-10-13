@@ -126,12 +126,8 @@ pub enum Content {
         language: Option<&'static str>,
         truncated: bool,
     },
-    /// An image the view loads from `path` (a PDF's rendered first page),
-    /// with labelled details (EXIF data, media info).
-    Image {
-        path: PathBuf,
-        info: Vec<(String, String)>,
-    },
+    /// An image the view loads from `path` (a PDF's rendered first page).
+    Image { path: PathBuf },
     /// PDF pages rendered one at a time by the preview view. Metadata stays
     /// in the model for later use by file properties.
     Pdf {
