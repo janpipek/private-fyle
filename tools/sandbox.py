@@ -44,7 +44,14 @@ CONTAINERFILE_DIR = REPO / ".devcontainer"
 # Agent commands; the container is the boundary, so they run unattended.
 AGENTS = {
     "claude": ["claude", "--dangerously-skip-permissions"],
-    "codex": ["codex", "--yolo"],
+    # --yolo alone only sets the start-up permissions; also make full access the
+    # configured default, so a mid-session settings change is less likely to land
+    # on a bwrap profile (bwrap cannot mount /proc inside the container).
+    "codex": [
+        "codex", "--yolo",
+        "-c", 'sandbox_mode="danger-full-access"',
+        "-c", 'approval_policy="never"',
+    ],
     # Pi has no permission prompts to skip.
     "pi": ["pi"],
 }
