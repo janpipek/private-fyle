@@ -87,9 +87,6 @@ not to pursue an item.
       keep minimize, maximize and close clearly visible in both main and editor
       windows.
 - [ ] Archive follow-ups: nested archives; maybe write support.
-- [ ] Add a bounded SQLite structure reader as a separate Properties section;
-      keep it usable without content previews. See
-      [Properties plan](docs/properties-plan.md).
 - [ ] Add a single optional Duration column for local media files, formatted as
       `mm:ss` or `h:mm:ss`; use the bounded media reader and panel metadata queue.
 - [ ] Workspace layout follow-ups: test the current right/bottom inspector
@@ -145,6 +142,14 @@ not to pursue an item.
       right-click to show a menu etc.
 
 ## Done
+
+- [x] SQLite Properties: local regular databases show tables, views, columns
+      (including hidden/generated columns), indexes and foreign keys without
+      reading user rows. The read-only reader caps schema objects at 128,
+      detail rows at 1,024 and displayed text at 1,024 characters, with a
+      two-second deadline and cancellation. Reader failures preserve filesystem
+      facts; remote and archive contents remain listing-only. See
+      [Properties plan](docs/properties-plan.md).
 
 - [x] Media Properties: a shared bounded, timed `ffprobe` JSON reader shows
       Container, Video, Audio and Subtitles details for local regular media

@@ -13,6 +13,7 @@ use crate::location::Location;
 mod exif_reader;
 mod media;
 mod parquet;
+mod sqlite;
 
 /// A selected listing row paired with its source address.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -377,7 +378,7 @@ impl ExifFieldId {
 }
 
 /// Reads bounded properties for a selection; call from a background worker.
-pub fn inspect(selection: &Selection, cancel: &AtomicBool) -> io::Result<Inspection> {
+pub fn inspect(selection: &Selection, cancel: &Arc<AtomicBool>) -> io::Result<Inspection> {
     if cancel.load(Ordering::Relaxed) {
         return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
     }
@@ -430,6 +431,19 @@ pub fn inspect(selection: &Selection, cancel: &AtomicBool) -> io::Result<Inspect
                     Err(error) if error.kind() == io::ErrorKind::Interrupted => return Err(error),
                     Err(error) => additional_groups.push(PropertyGroup {
                         id: GroupId("parquet".into()),
+                        status: GroupStatus::Failed(error.to_string()),
+                        fields: Vec::new(),
+                        groups: Vec::new(),
+                        tables: Vec::new(),
+                    }),
+                }
+            }
+            if regular_file && sqlite::is_candidate(path.as_path()) {
+                match sqlite::read(path.as_path(), Arc::clone(cancel)) {
+                    Ok(group) => additional_groups.push(group),
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => return Err(error),
+                    Err(error) => additional_groups.push(PropertyGroup {
+                        id: GroupId("sqlite".into()),
                         status: GroupStatus::Failed(error.to_string()),
                         fields: Vec::new(),
                         groups: Vec::new(),
@@ -548,6 +562,7 @@ mod tests {
     use crate::entry::{Attrs, Entry};
     use crate::location::Location;
     use std::path::PathBuf;
+    use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
     use tempfile::TempDir;
 
@@ -635,7 +650,8 @@ mod tests {
         let temp = TempDir::new().expect("tempdir");
         let path = temp.path().join("a.txt");
         std::fs::write(&path, "hello").expect("write");
-        let result = inspect(&selection(path), &AtomicBool::new(false)).expect("inspection");
+        let result =
+            inspect(&selection(path), &Arc::new(AtomicBool::new(false))).expect("inspection");
         assert!(matches!(result.filesystem, super::Section::Available(_)));
         assert!(matches!(result.exif, super::Section::Unavailable(_)));
     }
@@ -648,7 +664,8 @@ mod tests {
         let path = temp.path().join("owned.txt");
         std::fs::write(&path, "hello").expect("write");
         let meta = std::fs::symlink_metadata(&path).expect("metadata");
-        let result = inspect(&selection(path), &AtomicBool::new(false)).expect("inspection");
+        let result =
+            inspect(&selection(path), &Arc::new(AtomicBool::new(false))).expect("inspection");
         let Section::Available(facts) = result.filesystem else {
             panic!("filesystem facts available");
         };
@@ -662,7 +679,7 @@ mod tests {
         let path = temp.path().join("missing.jpg");
         let mut selected = selection(path.clone());
         selected.entry.size = Some(17);
-        let result = inspect(&selected, &AtomicBool::new(false)).expect("partial result");
+        let result = inspect(&selected, &Arc::new(AtomicBool::new(false))).expect("partial result");
         assert_eq!(result.listing.size, Some(17));
         assert!(matches!(result.filesystem, super::Section::Failed(_)));
         assert!(matches!(result.exif, super::Section::Unavailable(_)));
@@ -673,7 +690,8 @@ mod tests {
         let temp = TempDir::new().expect("tempdir");
         let path = temp.path().join("bad.parquet");
         std::fs::write(&path, b"invalid parquet").expect("write fixture");
-        let result = inspect(&selection(path), &AtomicBool::new(false)).expect("inspection");
+        let result =
+            inspect(&selection(path), &Arc::new(AtomicBool::new(false))).expect("inspection");
         assert!(matches!(result.filesystem, super::Section::Available(_)));
         assert!(matches!(result.exif, super::Section::Unavailable(_)));
         assert_eq!(result.additional_groups.len(), 1);
@@ -684,10 +702,25 @@ mod tests {
     }
 
     #[test]
+    fn malformed_sqlite_keeps_filesystem_facts_and_reports_its_group_failure() {
+        let temp = TempDir::new().expect("tempdir");
+        let path = temp.path().join("bad.sqlite");
+        std::fs::write(&path, b"invalid database").expect("write fixture");
+        let result = inspect(&selection(path), &Arc::new(AtomicBool::new(false)))
+            .expect("partial inspection");
+        assert!(matches!(result.filesystem, Section::Available(_)));
+        assert!(matches!(
+            result.additional_groups[0].status,
+            GroupStatus::Failed(_)
+        ));
+        assert_eq!(result.additional_groups[0].id.0, "sqlite");
+    }
+
+    #[test]
     fn inspection_cancellation_is_reported_as_interrupted() {
         let temp = TempDir::new().expect("tempdir");
         let selected = selection(temp.path().join("photo.jpg"));
-        let cancel = AtomicBool::new(true);
+        let cancel = Arc::new(AtomicBool::new(true));
         assert_eq!(
             inspect(&selected, &cancel).expect_err("cancelled").kind(),
             std::io::ErrorKind::Interrupted
@@ -712,7 +745,8 @@ mod tests {
                 link: Default::default(),
             },
         };
-        let result = inspect(&selected, &AtomicBool::new(false)).expect("remote listing result");
+        let result =
+            inspect(&selected, &Arc::new(AtomicBool::new(false))).expect("remote listing result");
         assert_eq!(result.listing.size, Some(42));
         assert_eq!(result.listing.attrs, None);
         assert!(matches!(result.filesystem, super::Section::Unavailable(_)));
@@ -741,7 +775,8 @@ mod tests {
                 link: Default::default(),
             },
         };
-        let result = inspect(&selected, &AtomicBool::new(false)).expect("archive listing result");
+        let result =
+            inspect(&selected, &Arc::new(AtomicBool::new(false))).expect("archive listing result");
         assert_eq!(result.listing.size, Some(23));
         assert_eq!(result.listing.attrs, None);
         assert!(matches!(result.filesystem, super::Section::Unavailable(_)));
@@ -800,7 +835,8 @@ mod tests {
         .expect("writer");
         writer.close().expect("close");
         symlink(&target, &link).expect("symlink");
-        let result = inspect(&selection(link), &AtomicBool::new(false)).expect("inspection");
+        let result =
+            inspect(&selection(link), &Arc::new(AtomicBool::new(false))).expect("inspection");
         let filesystem = match result.filesystem {
             super::Section::Available(value) => value,
             _ => panic!("filesystem facts available"),

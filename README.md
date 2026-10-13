@@ -109,8 +109,14 @@ reader caps serialized metadata at 8 MiB, schema output at 256 leaf columns,
 row groups at 128, and displayed text at 1,024 characters. Footer decoding
 cannot be interrupted and decoded metadata may use more memory than its
 serialized size. Symlinks to regular local Parquet files show target metadata
-while Filesystem continues to describe the link object. SQLite structure
-remains open work. Local regular audio and video files show Container, Video,
+while Filesystem continues to describe the link object. Local regular SQLite
+databases show tables, views, columns (including generated and hidden columns),
+indexes and foreign keys without reading user rows. SQLite inspection is
+read-only, cancellable and limited to two seconds, 128 objects, 1,024 detail
+rows and 1,024 characters per displayed value. A 256-column SQLite read limit
+can make unusually wide schemas fail in this section while filesystem facts
+remain visible. Symlinks to regular databases inspect their targets. Local
+regular audio and video files show Container, Video,
 Audio and Subtitles groups from `ffprobe`; unavailable `ffprobe` and probe
 failures appear in Properties without hiding filesystem facts. The shared
 reader caps process output at 1 MiB, error output at 8 KiB, streams at 32,
@@ -638,7 +644,7 @@ Where things live (`src/`):
 | `remote.rs`, `remote/` | Remote providers: `Provider` trait; compatibility `Location` alias to `location::RemoteLocation`; Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `LocalCopy` keeps a typed source address separate from the cache path used at native I/O boundaries; `model/remote.rs` holds cached listings |
 | `archive.rs`, `archive/extraction.rs`, `dirsize.rs`, `links.rs` | Archive index; safe extraction; recursive sizes; symlink state |
 | `preview/`, `preview_view.rs`, `notebook_view.rs` | `Previewer`s and their `Registry` (including bounded nbformat 4 notebook parsing); one render arm per `Content`; notebooks render through a variable-height lazy list; `PreviewSession` owns target identity, reloads, navigation and stale-result acceptance; GUI resources stay in the pane |
-| `properties.rs`, `properties/`, `properties_view.rs` | UI-independent source facts and bounded local filesystem/EXIF inspection; format adapters map shared Parquet and media readers into semantic groups; cancellable `PropertiesSession`; GPUI controller limits inspection to one active worker with the latest selection queued; selectable text runs support cross-field copying and Ctrl-C takes priority over panel file yank while a text selection exists |
+| `properties.rs`, `properties/`, `properties_view.rs` | UI-independent source facts and bounded local filesystem/EXIF inspection; format adapters map shared Parquet and media readers into semantic groups, while `properties/sqlite.rs` reads database structure; cancellable `PropertiesSession`; GPUI controller limits inspection to one active worker with the latest selection queued; selectable text runs support cross-field copying and Ctrl-C takes priority over panel file yank while a text selection exists |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and separate editor windows |
 | `tools/`, `tools_view.rs` | Tool, Action and Registry model; `defaults.toml`; built-ins; Lua plugins; `exec.rs` runs them |
 | `search.rs`, `places.rs`, `breadcrumbs.rs`, `remote_labels.rs`, `rename.rs`, `openers.rs`, `terminal.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs`, `zoom.rs` | Further UI-independent models, each with tests |

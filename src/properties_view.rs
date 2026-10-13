@@ -218,11 +218,16 @@ fn render_listing(
 }
 
 fn render_group(group: &PropertyGroup, cx: &App, selection: &mut PropertiesText) -> AnyElement {
-    let mut content =
-        v_flex()
-            .w_full()
-            .gap_1()
-            .child(section_title(&humanize(&group.id.0), cx, selection));
+    let mut content = v_flex().w_full().gap_1().child(section_title(
+        if group.id.0 == "sqlite" {
+            "SQLite".into()
+        } else {
+            humanize(&group.id.0)
+        }
+        .as_str(),
+        cx,
+        selection,
+    ));
     match &group.status {
         GroupStatus::Available => {}
         GroupStatus::Unavailable(reason) => {
@@ -248,16 +253,13 @@ fn render_group(group: &PropertyGroup, cx: &App, selection: &mut PropertiesText)
             selection,
         ));
     }
-    for nested in &group.groups {
-        if nested.is_visible() {
-            content = content.child(render_group(nested, cx, selection));
-        }
-    }
     for table in &group.tables {
         if table.columns.is_empty() && table.rows.is_empty() {
             continue;
         }
-        content = content.child(section_title(&humanize(&table.id), cx, selection));
+        if table.id != group.id.0 {
+            content = content.child(section_title(&humanize(&table.id), cx, selection));
+        }
         let widths = table
             .columns
             .iter()
@@ -316,6 +318,11 @@ fn render_group(group: &PropertyGroup, cx: &App, selection: &mut PropertiesText)
                         .child(rows),
                 ),
         );
+    }
+    for nested in &group.groups {
+        if nested.is_visible() {
+            content = content.child(render_group(nested, cx, selection));
+        }
     }
     content.into_any_element()
 }
