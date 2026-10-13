@@ -52,7 +52,14 @@ and cannot be interrupted, and decoded metadata may use more memory than its
 serialized footer. Remote and archive contents are not read. A symlink to a
 regular local Parquet file is inspected through its target while Filesystem
 continues to describe the link object.
-SQLite structure and additional PDF/media metadata remain future work. Image
+Local regular audio and video files show bounded Container, Video, Audio and
+Subtitles groups from `ffprobe`. Probe failures leave filesystem and other
+format facts visible. The shared reader limits output to 1 MiB, streams to 32,
+text values to 1,024 characters, and execution to ten seconds; Properties
+passes its cancellation signal. Its requested stream analysis uses a 10 MB
+probe size and a five-second analysis window. Preview uses the reader for audio information
+and video detection, then extracts a video frame separately. SQLite structure
+and additional PDF metadata remain future work. Image
 and video-frame View previews contain no metadata overlay; audio retains its
 standalone format and tag details.
 

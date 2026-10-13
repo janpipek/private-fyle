@@ -90,10 +90,8 @@ not to pursue an item.
 - [ ] Add a bounded SQLite structure reader as a separate Properties section;
       keep it usable without content previews. See
       [Properties plan](docs/properties-plan.md).
-- [ ] Idea: add a bounded, timed `ffprobe` JSON reader for media Properties
-      (container and stream codecs/details), without frame extraction. Honor
-      cancellation and output bounds. Consider only a single optional Duration
-      column, one value per file formatted as `mm:ss` or `h:mm:ss`.
+- [ ] Add a single optional Duration column for local media files, formatted as
+      `mm:ss` or `h:mm:ss`; use the bounded media reader and panel metadata queue.
 - [ ] Workspace layout follow-ups: test the current right/bottom inspector
       arrangements across window sizes and UI scaling; decide whether to add
       a two-inspector layout. Properties remains a separate
@@ -147,6 +145,12 @@ not to pursue an item.
       right-click to show a menu etc.
 
 ## Done
+
+- [x] Media Properties: a shared bounded, timed `ffprobe` JSON reader shows
+      Container, Video, Audio and Subtitles details for local regular media
+      files. The reader caps output, text and streams, enforces a ten-second
+      deadline, and supports cancellation. Preview shares the reader while
+      retaining video frame extraction and audio details.
 
 - [x] Parquet Properties metadata: local regular files show schema paths,
       physical/logical types, definition/repetition levels, row count, and

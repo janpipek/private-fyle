@@ -11,6 +11,7 @@ use crate::entry::{Attrs, Entry};
 use crate::location::Location;
 
 mod exif_reader;
+mod media;
 mod parquet;
 
 /// A selected listing row paired with its source address.
@@ -434,6 +435,13 @@ pub fn inspect(selection: &Selection, cancel: &AtomicBool) -> io::Result<Inspect
                         groups: Vec::new(),
                         tables: Vec::new(),
                     }),
+                }
+            }
+            if regular_file && media::is_candidate(path.as_path()) {
+                match media::read(path.as_path(), cancel) {
+                    Ok(groups) => additional_groups.extend(groups),
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => return Err(error),
+                    Err(error) => additional_groups.push(media::failure(&error)),
                 }
             }
             (fs, exif, additional_groups)
