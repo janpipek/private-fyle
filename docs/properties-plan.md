@@ -20,14 +20,22 @@ filesystem facts when a format reader fails. The controller permits one blocking
 inspection worker at a time and keeps only the newest replacement request
 queued until a cancelled worker exits.
 
+Properties labels, values, paths, tables and errors are selectable across
+separate text runs, so a drag can span fields and sections. Ctrl-C copies an
+active Properties text selection before the panel file-yank command. The
+selection is cleared when the inspected item changes or Properties is left, so
+it cannot shadow a later panel file selection.
+
 Workspace owns layout, active folder and folder roles. `InspectorPane` owns the
 selected tab and renders either the Preview or Properties child. `PreviewSession`
 continues to own PDF page, workbook sheet and target state. A switch to
 Properties invalidates an unfinished full Preview load and any pending page or
 sheet result while retaining a completed Preview for the same target; switching
-back restarts interrupted work. Closing the inspector clears its Preview target
-and releases notebook images. Each feature's request generations reject results
-that finish after invalidation.
+back restarts interrupted work. Workbook sheets are read on demand with a
+bounded sample, and generation checks discard results made obsolete by a sheet
+change. Closing the inspector clears its Preview target and releases notebook
+images. Each feature's request generations reject results that finish after
+invalidation.
 
 The Properties model retains the source `Location` separately from its listing
 `Entry`. Remote and archive entries show only source listing facts, never

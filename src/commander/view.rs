@@ -148,12 +148,13 @@ impl Commander {
                 location: entry.location.clone(),
                 entry: entry.entry,
             });
-            self.properties
-                .update(cx, |properties, cx| properties.set_target(selection, cx));
+            self.properties.update(cx, |properties, cx| {
+                properties.set_target(selection, window, cx)
+            });
             return;
         }
         self.properties
-            .update(cx, |properties, cx| properties.set_target(None, cx));
+            .update(cx, |properties, cx| properties.set_target(None, window, cx));
         let mut target = row.as_ref().and_then(|row| match &row.location {
             crate::location::Location::Local(local) => Some(local.as_path().to_path_buf()),
             crate::location::Location::Remote(_) => None,
@@ -386,13 +387,13 @@ impl Commander {
             self.preview
                 .update(cx, |preview, cx| preview.reload(window, cx));
             self.properties
-                .update(cx, |properties, cx| properties.set_target(None, cx));
+                .update(cx, |properties, cx| properties.set_target(None, window, cx));
         } else {
             self.preview.update(cx, |preview, cx| {
                 preview.set_location_target(None, None, None, window, cx)
             });
             self.properties
-                .update(cx, |properties, cx| properties.invalidate(cx));
+                .update(cx, |properties, cx| properties.invalidate(window, cx));
         }
         self.catalog_cache = None;
         self.open_with_catalog_loading = false;

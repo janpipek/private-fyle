@@ -1,6 +1,7 @@
 //! Properties perspective: schedules bounded inspection and renders semantic groups.
 
 use gpui_kit::base::StyledExt as _;
+use gpui_kit::base::{SelectableText, TextSelection};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::*;
@@ -30,8 +31,25 @@ impl PropertiesPane {
         }
     }
 
+    /// Returns the source identity currently shown by Properties.
+    pub fn target_selection(&self) -> Option<&Selection> {
+        match self.session.state() {
+            State::Empty => None,
+            State::Loading(request) => Some(&request.selection),
+            State::Ready { selection, .. } | State::Failed { selection, .. } => Some(selection),
+        }
+    }
+
     /// Selects a new entry and starts inspection on a background worker.
-    pub fn set_target(&mut self, selection: Option<Selection>, cx: &mut Context<Self>) {
+    pub fn set_target(
+        &mut self,
+        selection: Option<Selection>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.target_selection() != selection.as_ref() {
+            TextSelection::clear(window, cx);
+        }
         if let Some(request) = self.session.set_target(selection) {
             self.pending = Some(request);
         } else if matches!(self.session.state(), State::Empty) {
@@ -42,7 +60,8 @@ impl PropertiesPane {
     }
 
     /// Invalidates the current inspection after a refresh or editor save.
-    pub fn invalidate(&mut self, cx: &mut Context<Self>) {
+    pub fn invalidate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        TextSelection::clear(window, cx);
         self.pending = self.session.invalidate();
         self.start_pending(cx);
         cx.notify();
@@ -79,13 +98,27 @@ impl PropertiesPane {
 
 impl Render for PropertiesPane {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let mut text = PropertiesText { next_order: 0 };
         let content = match self.session.state() {
             State::Empty => message("Select a file or directory", cx),
             State::Loading(request) => message(&request.selection.entry.name, cx),
-            State::Failed { error, .. } => message(error, cx),
-            State::Ready { inspection, .. } => render_inspection(inspection, cx),
+            State::Failed { error, .. } => selectable_message(error, cx, &mut text),
+            State::Ready { inspection, .. } => render_inspection(inspection, cx, &mut text),
         };
         div().size_full().overflow_y_scrollbar().child(content)
+    }
+}
+
+struct PropertiesText {
+    next_order: u64,
+}
+
+impl PropertiesText {
+    fn run(&mut self, text: &str) -> SelectableText {
+        let order = self.next_order;
+        self.next_order = self.next_order.wrapping_add(1);
+        SelectableText::new(format!("properties-text-{order}"), text.to_owned())
+            .document_order(order)
     }
 }
 
@@ -100,26 +133,45 @@ fn message(text: &str, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-fn render_inspection(inspection: &Inspection, cx: &App) -> AnyElement {
+fn selectable_message(text: &str, cx: &App, selection: &mut PropertiesText) -> AnyElement {
+    div()
+        .size_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_color(cx.theme().muted_foreground)
+        .child(selection.run(text))
+        .into_any_element()
+}
+
+fn render_inspection(
+    inspection: &Inspection,
+    cx: &App,
+    selection: &mut PropertiesText,
+) -> AnyElement {
     let listing = &inspection.listing;
     let mut body = v_flex().w_full().gap_2().p_2();
     if let Location::Local(path) = &inspection.location {
-        if let Some(filesystem) =
-            render_filesystem(path.as_path(), listing, &inspection.filesystem, cx)
-        {
+        if let Some(filesystem) = render_filesystem(
+            path.as_path(),
+            listing,
+            &inspection.filesystem,
+            cx,
+            selection,
+        ) {
             body = body.child(filesystem);
         }
     } else {
-        body = body.child(render_listing(listing, &inspection.location, cx));
+        body = body.child(render_listing(listing, &inspection.location, cx, selection));
     }
     if inspection.exif.is_visible()
-        && let Some(exif) = render_exif(&inspection.exif, cx)
+        && let Some(exif) = render_exif(&inspection.exif, cx, selection)
     {
         body = body.child(exif);
     }
     for group in &inspection.additional_groups {
         if group.is_visible() {
-            body = body.child(render_group(group, cx));
+            body = body.child(render_group(group, cx, selection));
         }
     }
     body.into_any_element()
@@ -129,49 +181,63 @@ fn render_listing(
     listing: &crate::properties::ListingFacts,
     location: &Location,
     cx: &App,
+    selection: &mut PropertiesText,
 ) -> AnyElement {
     let mut section = v_flex()
         .w_full()
         .gap_1()
-        .child(section_title("Source", cx))
-        .child(field("Name", &listing.name, cx))
+        .child(section_title("Source", cx, selection))
+        .child(field("Name", &listing.name, cx, selection))
         .child(field(
             "Location",
             &location.panel_path().display().to_string(),
             cx,
+            selection,
         ))
         .child(field(
             "Type",
             if listing.is_dir { "Directory" } else { "File" },
             cx,
+            selection,
         ));
     if let Some(size) = listing.size {
-        section = section.child(field("Size", &format_size(size), cx));
+        section = section.child(field("Size", &format_size(size), cx, selection));
     }
     if let Some(modified) = listing.modified {
-        section = section.child(field("Modified", &crate::fs_ops::format_time(modified), cx));
+        section = section.child(field(
+            "Modified",
+            &crate::fs_ops::format_time(modified),
+            cx,
+            selection,
+        ));
     }
     if let Some(link) = listing.link.tooltip_with_resolved(None) {
-        section = section.child(field("Link", &link, cx));
+        section = section.child(field("Link", &link, cx, selection));
     }
     section.into_any_element()
 }
 
-fn render_group(group: &PropertyGroup, cx: &App) -> AnyElement {
-    let mut content = v_flex()
-        .w_full()
-        .gap_1()
-        .child(section_title(&humanize(&group.id.0), cx));
+fn render_group(group: &PropertyGroup, cx: &App, selection: &mut PropertiesText) -> AnyElement {
+    let mut content =
+        v_flex()
+            .w_full()
+            .gap_1()
+            .child(section_title(&humanize(&group.id.0), cx, selection));
     match &group.status {
         GroupStatus::Available => {}
         GroupStatus::Unavailable(reason) => {
-            content = content.child(field("Status", reason, cx));
+            content = content.child(field("Status", reason, cx, selection));
         }
         GroupStatus::Failed(error) => {
-            content = content.child(field("Status", &format!("Unavailable: {error}"), cx));
+            content = content.child(field(
+                "Status",
+                &format!("Unavailable: {error}"),
+                cx,
+                selection,
+            ));
         }
         GroupStatus::Truncated { reason } => {
-            content = content.child(field("Status", reason, cx));
+            content = content.child(field("Status", reason, cx, selection));
         }
     }
     for property_field in &group.fields {
@@ -179,18 +245,19 @@ fn render_group(group: &PropertyGroup, cx: &App) -> AnyElement {
             &humanize(&property_field.id),
             &format_value(&property_field.value),
             cx,
+            selection,
         ));
     }
     for nested in &group.groups {
         if nested.is_visible() {
-            content = content.child(render_group(nested, cx));
+            content = content.child(render_group(nested, cx, selection));
         }
     }
     for table in &group.tables {
         if table.columns.is_empty() && table.rows.is_empty() {
             continue;
         }
-        content = content.child(section_title(&humanize(&table.id), cx));
+        content = content.child(section_title(&humanize(&table.id), cx, selection));
         let widths = table
             .columns
             .iter()
@@ -216,7 +283,7 @@ fn render_group(group: &PropertyGroup, cx: &App) -> AnyElement {
                         .text_xs()
                         .font_semibold()
                         .truncate()
-                        .child(humanize(column))
+                        .child(selection.run(&humanize(column)))
                 }));
         let rows = v_flex()
             .w(table_width)
@@ -232,7 +299,7 @@ fn render_group(group: &PropertyGroup, cx: &App) -> AnyElement {
                             .px_1()
                             .text_sm()
                             .truncate()
-                            .child(format_value(value))
+                            .child(selection.run(&format_value(value)))
                     }))
             }));
         content = content.child(
@@ -258,17 +325,22 @@ fn render_filesystem(
     listing: &crate::properties::ListingFacts,
     value: &Section<crate::properties::FilesystemFacts>,
     cx: &App,
+    selection: &mut PropertiesText,
 ) -> Option<AnyElement> {
     match value {
-        Section::Available(value) => Some(render_filesystem_facts(path, listing, value, cx)),
+        Section::Available(value) => {
+            Some(render_filesystem_facts(path, listing, value, cx, selection))
+        }
         Section::Unavailable(_) => None,
-        Section::Failed(error) => Some(render_filesystem_fallback(path, listing, error, cx)),
+        Section::Failed(error) => Some(render_filesystem_fallback(
+            path, listing, error, cx, selection,
+        )),
         Section::Truncated { value, limit } => Some(
             v_flex()
                 .w_full()
                 .gap_1()
-                .child(render_filesystem_facts(path, listing, value, cx))
-                .child(field("Read limit", &format_size(*limit), cx))
+                .child(render_filesystem_facts(path, listing, value, cx, selection))
+                .child(field("Read limit", &format_size(*limit), cx, selection))
                 .into_any_element(),
         ),
     }
@@ -279,31 +351,35 @@ fn render_filesystem_fallback(
     listing: &crate::properties::ListingFacts,
     error: &str,
     cx: &App,
+    selection: &mut PropertiesText,
 ) -> AnyElement {
     let mut section = v_flex()
         .w_full()
         .gap_1()
-        .child(section_title("Filesystem", cx))
-        .child(field("Name", &listing.name, cx))
-        .child(field("Path", &path.display().to_string(), cx))
+        .child(section_title("Filesystem", cx, selection))
+        .child(field("Name", &listing.name, cx, selection))
+        .child(field("Path", &path.display().to_string(), cx, selection))
         .child(field(
             "Status",
             &format!("Native stat unavailable: {error}"),
             cx,
+            selection,
         ))
         .child(field(
             "Listed type",
             if listing.is_dir { "Directory" } else { "File" },
             cx,
+            selection,
         ));
     if let Some(size) = listing.size {
-        section = section.child(field("Listed size", &format_size(size), cx));
+        section = section.child(field("Listed size", &format_size(size), cx, selection));
     }
     if let Some(modified) = listing.modified {
         section = section.child(field(
             "Listed modified",
             &crate::fs_ops::format_time(modified),
             cx,
+            selection,
         ));
     }
     if let Some(attrs) = listing.attrs {
@@ -311,14 +387,16 @@ fn render_filesystem_fallback(
             "Listed permissions",
             &attrs.permissions(listing.is_dir),
             cx,
+            selection,
         ));
         if let Some(uid) = attrs.uid {
-            section = section.child(field("Listed owner ID", &uid.to_string(), cx));
+            section = section.child(field("Listed owner ID", &uid.to_string(), cx, selection));
         }
         section = section.child(field(
             "Listed read only",
             if attrs.readonly { "Yes" } else { "No" },
             cx,
+            selection,
         ));
     }
     section.into_any_element()
@@ -329,14 +407,15 @@ fn render_filesystem_facts(
     listing: &crate::properties::ListingFacts,
     facts: &crate::properties::FilesystemFacts,
     cx: &App,
+    selection: &mut PropertiesText,
 ) -> AnyElement {
     let stat = &facts.link_object;
     let mut section = v_flex()
         .w_full()
         .gap_1()
-        .child(section_title("Filesystem", cx))
-        .child(field("Name", &listing.name, cx))
-        .child(field("Path", &path.display().to_string(), cx))
+        .child(section_title("Filesystem", cx, selection))
+        .child(field("Name", &listing.name, cx, selection))
+        .child(field("Path", &path.display().to_string(), cx, selection))
         .child(field(
             "Object",
             object_type(
@@ -345,69 +424,95 @@ fn render_filesystem_facts(
                 stat.is_file,
             ),
             cx,
+            selection,
         ));
     if let Some(size) = stat.size {
-        section = section.child(field("Size", &format_size(size), cx));
+        section = section.child(field("Size", &format_size(size), cx, selection));
     }
     if let Some(time) = stat.modified {
-        section = section.child(field("Modified", &crate::fs_ops::format_time(time), cx));
+        section = section.child(field(
+            "Modified",
+            &crate::fs_ops::format_time(time),
+            cx,
+            selection,
+        ));
     }
     if let Some(time) = stat.created {
-        section = section.child(field("Created", &crate::fs_ops::format_time(time), cx));
+        section = section.child(field(
+            "Created",
+            &crate::fs_ops::format_time(time),
+            cx,
+            selection,
+        ));
     }
     section = section.child(field(
         "Permissions",
         &stat.attrs.permissions(stat.is_dir),
         cx,
+        selection,
     ));
     if let Some(uid) = stat.attrs.uid {
-        section = section.child(field("Owner ID", &uid.to_string(), cx));
+        section = section.child(field("Owner ID", &uid.to_string(), cx, selection));
     }
     if stat.attrs.readonly {
-        section = section.child(field("Read only", "Yes", cx));
+        section = section.child(field("Read only", "Yes", cx, selection));
     } else {
-        section = section.child(field("Read only", "No", cx));
+        section = section.child(field("Read only", "No", cx, selection));
     }
     if facts.symlink_target.is_some() || facts.target_error.is_some() {
         let mut link = v_flex()
             .w_full()
             .gap_1()
-            .child(section_title("Symlink", cx));
+            .child(section_title("Symlink", cx, selection));
         if let Some(target) = &facts.symlink_target {
-            link = link.child(field("Target path", &target.display().to_string(), cx));
+            link = link.child(field(
+                "Target path",
+                &target.display().to_string(),
+                cx,
+                selection,
+            ));
         }
         if let Some(target) = &facts.target {
             link = link.child(field(
                 "Target type",
                 object_type(false, target.is_dir, target.is_file),
                 cx,
+                selection,
             ));
             if let Some(size) = target.size {
-                link = link.child(field("Target size", &format_size(size), cx));
+                link = link.child(field("Target size", &format_size(size), cx, selection));
             }
             if let Some(modified) = target.modified {
                 link = link.child(field(
                     "Target modified",
                     &crate::fs_ops::format_time(modified),
                     cx,
+                    selection,
                 ));
             }
             link = link.child(field(
                 "Target permissions",
                 &target.attrs.permissions(target.is_dir),
                 cx,
+                selection,
             ));
             if let Some(uid) = target.attrs.uid {
-                link = link.child(field("Target owner ID", &uid.to_string(), cx));
+                link = link.child(field("Target owner ID", &uid.to_string(), cx, selection));
             }
             link = link.child(field(
                 "Target read only",
                 if target.attrs.readonly { "Yes" } else { "No" },
                 cx,
+                selection,
             ));
         }
         if let Some(error) = &facts.target_error {
-            link = link.child(field("Target status", &format!("Unavailable: {error}"), cx));
+            link = link.child(field(
+                "Target status",
+                &format!("Unavailable: {error}"),
+                cx,
+                selection,
+            ));
         }
         section = section.child(link);
     }
@@ -426,42 +531,60 @@ fn object_type(is_symlink: bool, is_dir: bool, is_file: bool) -> &'static str {
     }
 }
 
-fn render_exif(value: &Section<Vec<crate::properties::ExifField>>, cx: &App) -> Option<AnyElement> {
+fn render_exif(
+    value: &Section<Vec<crate::properties::ExifField>>,
+    cx: &App,
+    selection: &mut PropertiesText,
+) -> Option<AnyElement> {
     match value {
         Section::Available(fields) => {
             if fields.is_empty() {
                 return None;
             }
-            let mut section = v_flex().w_full().gap_1().child(section_title("EXIF", cx));
+            let mut section = v_flex()
+                .w_full()
+                .gap_1()
+                .child(section_title("EXIF", cx, selection));
             for item in fields {
-                section = section.child(field(exif_label(item.id), &item.value, cx));
+                section = section.child(field(exif_label(item.id), &item.value, cx, selection));
             }
             Some(section.into_any_element())
         }
         Section::Unavailable(_) => None,
-        Section::Failed(error) => {
-            Some(status_section("EXIF", &format!("Unavailable: {error}"), cx))
-        }
+        Section::Failed(error) => Some(status_section(
+            "EXIF",
+            &format!("Unavailable: {error}"),
+            cx,
+            selection,
+        )),
         Section::Truncated { value, limit } => {
-            let mut section = v_flex().w_full().gap_1().child(section_title("EXIF", cx));
+            let mut section = v_flex()
+                .w_full()
+                .gap_1()
+                .child(section_title("EXIF", cx, selection));
             for item in value {
-                section = section.child(field(exif_label(item.id), &item.value, cx));
+                section = section.child(field(exif_label(item.id), &item.value, cx, selection));
             }
             Some(
                 section
-                    .child(field("Read limit", &format_size(*limit), cx))
+                    .child(field("Read limit", &format_size(*limit), cx, selection))
                     .into_any_element(),
             )
         }
     }
 }
 
-fn status_section(title: &str, message: &str, cx: &App) -> AnyElement {
+fn status_section(
+    title: &str,
+    message: &str,
+    cx: &App,
+    selection: &mut PropertiesText,
+) -> AnyElement {
     v_flex()
         .w_full()
         .gap_1()
-        .child(section_title(title, cx))
-        .child(field("Status", message, cx))
+        .child(section_title(title, cx, selection))
+        .child(field("Status", message, cx, selection))
         .into_any_element()
 }
 
@@ -499,7 +622,7 @@ fn humanize(value: &str) -> String {
         .join(" ")
 }
 
-fn section_title(title: &str, cx: &App) -> impl IntoElement {
+fn section_title(title: &str, cx: &App, selection: &mut PropertiesText) -> impl IntoElement {
     div()
         .mt_2()
         .pb_1()
@@ -507,10 +630,10 @@ fn section_title(title: &str, cx: &App) -> impl IntoElement {
         .border_color(cx.theme().border)
         .text_sm()
         .font_semibold()
-        .child(title.to_owned())
+        .child(selection.run(title))
 }
 
-fn field(label: &str, value: &str, cx: &App) -> impl IntoElement {
+fn field(label: &str, value: &str, cx: &App, selection: &mut PropertiesText) -> impl IntoElement {
     h_flex()
         .w_full()
         .gap_2()
@@ -519,9 +642,15 @@ fn field(label: &str, value: &str, cx: &App) -> impl IntoElement {
                 .w(px(120.))
                 .flex_none()
                 .text_color(cx.theme().muted_foreground)
-                .child(label.to_owned()),
+                .child(selection.run(label)),
         )
-        .child(div().flex_1().min_w_0().text_sm().child(value.to_owned()))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_sm()
+                .child(selection.run(value)),
+        )
 }
 
 fn format_value(value: &PropertyValue) -> String {

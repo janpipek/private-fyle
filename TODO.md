@@ -159,8 +159,13 @@ not to pursue an item.
 
 - [x] Show spreadsheet sheet names as tabs in F3, replacing Previous/Next
       sheet navigation while preserving the bounded per-sheet sample. Sheet
-      reads remain on demand, bounded, cancellable and guarded against stale
-      completions.
+      reads remain on demand and bounded; generation checks ignore obsolete
+      completions after another sheet is selected.
+
+- [x] Make Properties text selectable and copyable, including paths, values,
+      labels, tables and errors. Ctrl-C copies selected Properties text before
+      the panel file-yank action; changing the inspected item or leaving
+      Properties clears the selection.
 
 - [x] Properties and View tabs in one inspector: Alt-Enter / File › Properties
       opens Properties, while F3 opens/selects View or closes the inspector when

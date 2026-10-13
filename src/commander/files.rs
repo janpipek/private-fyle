@@ -88,7 +88,12 @@ impl Commander {
         }
     }
 
-    pub fn yank_files(&mut self, _: &YankFiles, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn yank_files(&mut self, _: &YankFiles, window: &mut Window, cx: &mut Context<Self>) {
+        if gpui_kit::base::TextSelection::has_selection(window, cx) {
+            let text = gpui_kit::base::TextSelection::selected_text(window, cx);
+            cx.write_to_clipboard(ClipboardItem::new_string(text));
+            return;
+        }
         self.set_yank(false, cx);
     }
 
@@ -373,14 +378,15 @@ impl Commander {
                                     this.preview
                                         .update(cx, |preview, cx| preview.reload(window, cx));
                                     this.properties.update(cx, |properties, cx| {
-                                        properties.set_target(None, cx)
+                                        properties.set_target(None, window, cx)
                                     });
                                 } else {
                                     this.preview.update(cx, |preview, cx| {
                                         preview.set_location_target(None, None, None, window, cx)
                                     });
-                                    this.properties
-                                        .update(cx, |properties, cx| properties.invalidate(cx));
+                                    this.properties.update(cx, |properties, cx| {
+                                        properties.invalidate(window, cx)
+                                    });
                                 }
                             });
                         });

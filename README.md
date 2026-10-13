@@ -108,6 +108,11 @@ serialized size. Symlinks to regular local Parquet files show target metadata
 while Filesystem continues to describe the link object. SQLite structure
 remains open work.
 
+Text in Properties, including labels, paths, values, table contents and errors,
+can be selected with the mouse and copied with Ctrl-C. When Properties text is
+selected, Ctrl-C copies it instead of yanking panel files. Changing the
+inspected item or leaving Properties clears the text selection.
+
 Symbolic links keep their target's file icon with a small badge: a curved
 arrow for a working link, a crossed circle (and a muted name) for a broken
 one (missing target or a loop). Hover the name for `→ target` and the
@@ -622,7 +627,7 @@ Where things live (`src/`):
 | `remote.rs`, `remote/` | Remote providers: `Provider` trait; compatibility `Location` alias to `location::RemoteLocation`; Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `LocalCopy` keeps a typed source address separate from the cache path used at native I/O boundaries; `model/remote.rs` holds cached listings |
 | `archive.rs`, `archive/extraction.rs`, `dirsize.rs`, `links.rs` | Archive index; safe extraction; recursive sizes; symlink state |
 | `preview/`, `preview_view.rs`, `notebook_view.rs` | `Previewer`s and their `Registry` (including bounded nbformat 4 notebook parsing); one render arm per `Content`; notebooks render through a variable-height lazy list; `PreviewSession` owns target identity, reloads, navigation and stale-result acceptance; GUI resources stay in the pane |
-| `properties.rs`, `properties/`, `properties_view.rs` | UI-independent source facts and bounded local filesystem/EXIF inspection; `properties/parquet.rs` maps shared Parquet footer metadata into bounded schema and row-group groups; cancellable `PropertiesSession`; GPUI controller limits inspection to one active worker with the latest selection queued |
+| `properties.rs`, `properties/`, `properties_view.rs` | UI-independent source facts and bounded local filesystem/EXIF inspection; `properties/parquet.rs` maps shared Parquet footer metadata into bounded schema and row-group groups; cancellable `PropertiesSession`; GPUI controller limits inspection to one active worker with the latest selection queued; selectable text runs support cross-field copying and Ctrl-C takes priority over panel file yank while a text selection exists |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and separate editor windows |
 | `tools/`, `tools_view.rs` | Tool, Action and Registry model; `defaults.toml`; built-ins; Lua plugins; `exec.rs` runs them |
 | `search.rs`, `places.rs`, `breadcrumbs.rs`, `remote_labels.rs`, `rename.rs`, `openers.rs`, `terminal.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs`, `zoom.rs` | Further UI-independent models, each with tests |
