@@ -92,6 +92,10 @@ setting for the inspector.
 Properties shows source listing facts for local, remote and archive entries.
 For local entries, a single Filesystem group combines source identity with
 fresh native attributes; symlink target facts appear in a separate subgroup.
+On Unix, fresh filesystem facts show owner and group names when found in the
+local account files, alongside their numeric UID and GID. Symlink objects and
+their targets each show their own ownership. Numeric IDs remain visible when
+a name cannot be resolved.
 If native stat fails, listing facts remain visible with a status. The view also
 shows supported EXIF fields for regular image files. Empty or inapplicable
 metadata groups are hidden; independent failures and truncated results remain

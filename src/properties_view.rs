@@ -452,7 +452,16 @@ fn render_filesystem_facts(
         selection,
     ));
     if let Some(uid) = stat.attrs.uid {
+        if let Some(name) = &stat.owner_name {
+            section = section.child(field("Owner", name, cx, selection));
+        }
         section = section.child(field("Owner ID", &uid.to_string(), cx, selection));
+    }
+    if let Some(gid) = stat.gid {
+        if let Some(name) = &stat.group_name {
+            section = section.child(field("Group", name, cx, selection));
+        }
+        section = section.child(field("Group ID", &gid.to_string(), cx, selection));
     }
     if stat.attrs.readonly {
         section = section.child(field("Read only", "Yes", cx, selection));
@@ -497,7 +506,16 @@ fn render_filesystem_facts(
                 selection,
             ));
             if let Some(uid) = target.attrs.uid {
+                if let Some(name) = &target.owner_name {
+                    link = link.child(field("Target owner", name, cx, selection));
+                }
                 link = link.child(field("Target owner ID", &uid.to_string(), cx, selection));
+            }
+            if let Some(gid) = target.gid {
+                if let Some(name) = &target.group_name {
+                    link = link.child(field("Target group", name, cx, selection));
+                }
+                link = link.child(field("Target group ID", &gid.to_string(), cx, selection));
             }
             link = link.child(field(
                 "Target read only",

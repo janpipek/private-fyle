@@ -54,6 +54,12 @@ pub struct StatFacts {
     pub created: Option<SystemTime>,
     /// Platform attributes.
     pub attrs: Attrs,
+    /// Unix owner name, when available in the local account database.
+    pub owner_name: Option<String>,
+    /// Unix group ID.
+    pub gid: Option<u32>,
+    /// Unix group name, when available in the local account database.
+    pub group_name: Option<String>,
 }
 
 /// Local filesystem facts distinguish the link object from its target.
@@ -484,6 +490,7 @@ fn filesystem_facts(path: &std::path::Path, cancel: &AtomicBool) -> io::Result<F
 #[cfg(unix)]
 fn stat_facts(meta: &fs::Metadata) -> StatFacts {
     use std::os::unix::fs::MetadataExt;
+    let (owner_name, group_name) = crate::fs_ops::account_names(meta.uid(), meta.gid());
     let attrs = Attrs {
         mode: Some(meta.mode()),
         uid: Some(meta.uid()),
@@ -497,6 +504,9 @@ fn stat_facts(meta: &fs::Metadata) -> StatFacts {
         modified: meta.modified().ok(),
         created: meta.created().ok(),
         attrs,
+        owner_name,
+        gid: Some(meta.gid()),
+        group_name,
     }
 }
 
@@ -515,6 +525,9 @@ fn stat_facts(meta: &fs::Metadata) -> StatFacts {
         modified: meta.modified().ok(),
         created: meta.created().ok(),
         attrs,
+        owner_name: None,
+        gid: None,
+        group_name: None,
     }
 }
 
@@ -617,6 +630,22 @@ mod tests {
         let result = inspect(&selection(path), &AtomicBool::new(false)).expect("inspection");
         assert!(matches!(result.filesystem, super::Section::Available(_)));
         assert!(matches!(result.exif, super::Section::Unavailable(_)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_inspection_retains_native_owner_and_group_ids() {
+        use std::os::unix::fs::MetadataExt;
+        let temp = TempDir::new().expect("tempdir");
+        let path = temp.path().join("owned.txt");
+        std::fs::write(&path, "hello").expect("write");
+        let meta = std::fs::symlink_metadata(&path).expect("metadata");
+        let result = inspect(&selection(path), &AtomicBool::new(false)).expect("inspection");
+        let Section::Available(facts) = result.filesystem else {
+            panic!("filesystem facts available");
+        };
+        assert_eq!(facts.link_object.attrs.uid, Some(meta.uid()));
+        assert_eq!(facts.link_object.gid, Some(meta.gid()));
     }
 
     #[test]
@@ -723,6 +752,25 @@ mod tests {
         assert_eq!(facts.symlink_target, Some(PathBuf::from("missing")));
         assert!(facts.target.is_none());
         assert!(facts.target_error.is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_and_target_keep_their_own_native_ownership() {
+        use std::os::unix::fs::{MetadataExt, symlink};
+        let temp = TempDir::new().expect("tempdir");
+        let target = temp.path().join("target");
+        let link = temp.path().join("link");
+        std::fs::write(&target, "data").expect("target");
+        symlink(&target, &link).expect("link");
+        let link_meta = std::fs::symlink_metadata(&link).expect("link metadata");
+        let target_meta = std::fs::metadata(&link).expect("target metadata");
+        let facts = super::filesystem_facts(&link, &AtomicBool::new(false)).expect("facts");
+        assert_eq!(facts.link_object.attrs.uid, Some(link_meta.uid()));
+        assert_eq!(facts.link_object.gid, Some(link_meta.gid()));
+        let followed = facts.target.expect("target facts");
+        assert_eq!(followed.attrs.uid, Some(target_meta.uid()));
+        assert_eq!(followed.gid, Some(target_meta.gid()));
     }
 
     #[cfg(unix)]

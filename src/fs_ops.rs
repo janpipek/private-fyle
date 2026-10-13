@@ -2,6 +2,8 @@
 
 use std::fs;
 use std::io;
+#[cfg(unix)]
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::time::SystemTime;
@@ -35,31 +37,74 @@ pub fn attrs_from_metadata(meta: &fs::Metadata) -> Attrs {
 /// Resolves a user id from `/etc/passwd`, falling back to its number or empty.
 pub fn owner_name(uid: Option<u32>) -> String {
     match uid {
-        Some(uid) => user_name(uid).unwrap_or_else(|| uid.to_string()),
+        Some(uid) => account_name(uid, AccountKind::User).unwrap_or_else(|| uid.to_string()),
         None => String::new(),
     }
 }
 
-/// User names by uid, read once from /etc/passwd.
-fn user_name(uid: u32) -> Option<String> {
+/// Resolves Unix account names for a user and group ID on a background worker.
+pub fn account_names(uid: u32, gid: u32) -> (Option<String>, Option<String>) {
+    (
+        account_name(uid, AccountKind::User),
+        account_name(gid, AccountKind::Group),
+    )
+}
+
+#[derive(Clone, Copy)]
+enum AccountKind {
+    User,
+    Group,
+}
+
+fn account_name(id: u32, kind: AccountKind) -> Option<String> {
     use std::collections::HashMap;
     use std::sync::OnceLock;
     static USERS: OnceLock<HashMap<u32, String>> = OnceLock::new();
-    USERS
-        .get_or_init(|| {
-            fs::read_to_string("/etc/passwd")
-                .unwrap_or_default()
-                .lines()
-                .filter_map(|line| {
-                    let mut fields = line.split(':');
-                    let name = fields.next()?.to_string();
-                    let uid = fields.nth(1)?.parse().ok()?;
-                    Some((uid, name))
-                })
-                .collect()
+    static GROUPS: OnceLock<HashMap<u32, String>> = OnceLock::new();
+    let names = match kind {
+        AccountKind::User => USERS.get_or_init(|| read_accounts("/etc/passwd")),
+        AccountKind::Group => GROUPS.get_or_init(|| read_accounts("/etc/group")),
+    };
+    names.get(&id).cloned()
+}
+
+fn read_accounts(path: &str) -> std::collections::HashMap<u32, String> {
+    #[cfg(unix)]
+    {
+        const MAX_ACCOUNT_FILE_BYTES: u64 = 1024 * 1024;
+        let mut data = String::new();
+        let Ok(file) = fs::File::open(path) else {
+            return Default::default();
+        };
+        if file
+            .take(MAX_ACCOUNT_FILE_BYTES + 1)
+            .read_to_string(&mut data)
+            .is_err()
+            || data.len() as u64 > MAX_ACCOUNT_FILE_BYTES
+        {
+            return Default::default();
+        }
+        parse_accounts(&data)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Default::default()
+    }
+}
+
+fn parse_accounts(data: &str) -> std::collections::HashMap<u32, String> {
+    data.lines()
+        .filter_map(|line| {
+            let mut fields = line.split(':');
+            let name = fields.next()?;
+            if name.is_empty() {
+                return None;
+            }
+            let id = fields.nth(1)?;
+            Some((id.parse::<u32>().ok()?, name.to_string()))
         })
-        .get(&uid)
-        .cloned()
+        .collect()
 }
 /// The directory ".." leads to. On Windows a drive root leads to the drive
 /// list, represented by an empty path.
@@ -325,6 +370,20 @@ mod tests {
     #[test]
     fn missing_owner_has_empty_fallback() {
         assert_eq!(owner_name(None), "");
+    }
+
+    #[test]
+    fn account_parser_uses_correct_id_field_and_ignores_invalid_rows() {
+        let users = parse_accounts(
+            "alice:x:1001:2001:Alice:/home/alice:/bin/sh\ninvalid:x:oops:2002::/:/bin/sh\n:x:1003:2003::/:/bin/sh\n",
+        );
+        assert_eq!(users.get(&1001).map(String::as_str), Some("alice"));
+        assert!(!users.contains_key(&2001));
+        assert!(!users.contains_key(&1003));
+
+        let groups = parse_accounts("staff:x:2001:alice\ninvalid:x:nope:\n");
+        assert_eq!(groups.get(&2001).map(String::as_str), Some("staff"));
+        assert_eq!(groups.len(), 1);
     }
 
     #[test]
