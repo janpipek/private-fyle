@@ -150,7 +150,10 @@ return {
 - **New way to run things** (e.g. open a terminal, show a dialog): add an
   `Action` variant and handle it in `exec.rs` / the UI.
 
-## Decisions and open questions
+## Current constraints and follow-ups
+
+These constraints describe the current tools design. Check [TODO.md](../TODO.md)
+for the status of follow-up work before implementing it.
 
 - **No shell.** Commands are argv lists, so file names never need quoting. A
   tool that wants a shell runs `sh -c` explicitly. Exception to watch:

@@ -1,8 +1,9 @@
 # Navigation lifecycle extraction
 
-Status: steps 6b, 6c and 6d are implemented. `navigation.rs` owns `PanelNavigation`; active
-Commander paths use it. The scope below records the preserved boundaries.
-Linux live validation remains unverified in the Windows development environment.
+Status: steps 6b, 6c and 6d are implemented. `navigation.rs` owns
+`PanelNavigation`; active Commander paths use it. This document records the
+boundary and regression cases for future navigation changes. Linux live
+validation was unverified when the implementation was recorded.
 
 ## Problem
 

@@ -1,5 +1,14 @@
 # TODO
 
+## Open
+
+This section is the backlog, not approval to implement every item. Items
+marked *idea*, *parked*, *later*, *paused* or *undecided*, and items that say
+*decide* or *choose* about their design, need an owner decision before
+implementation. Keep unfinished follow-ups here; move completed items to
+**Done**. **Later** holds deferred goals, and **Dropped** records decisions
+not to pursue an item.
+
 - [ ] Menus and selection, remaining parts: output/history in Tools.
       Implement missing actions as separate features.
 - [ ] Idea: replace the Git status column's `git` subprocess with a Rust

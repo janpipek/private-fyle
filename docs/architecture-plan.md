@@ -1,10 +1,14 @@
 # Architecture refactoring plan
 
-Status: in progress; migration steps 1, 2a, 2b, 3a, 4a, 4b, 6a, 6b, 6c, 6d, 7a and 7b are complete.
+Status: the listed migration slices (1, 2a, 2b, 3a, 4a, 4b, 6a, 6b,
+6c, 6d, 7a and 7b) are complete. The remaining steps are conditional
+guidance for future features, not work authorized by this plan alone.
 
-This document records the architecture decision and an incremental migration
-plan. [README.md](../README.md#architecture) describes the current architecture;
-[TODO.md](../TODO.md) remains the backlog and the place for open feature decisions.
+This document records the architecture decision, the completed migration and
+boundaries for future work. [README.md](../README.md#architecture) describes
+the current architecture; [TODO.md](../TODO.md) is the source of truth for
+open work and owner decisions. Read the relevant ownership section here when
+changing one of those boundaries.
 
 ## Decision
 
@@ -16,9 +20,6 @@ Keep the existing binary crate. Extract specific shared contracts and readers,
 then regroup files as their ownership becomes clear. Feature-specific logic
 stays together: preview state belongs with preview, and transfer conflict policy
 belongs with transfers.
-
-The investigation used Luna for module inspection, Sol for intermediate analysis
-and a challenge of the proposed boundaries, and Astra for the overall decision.
 
 ### Alternatives considered
 
@@ -75,7 +76,7 @@ Readers and services may perform bounded I/O using Rust and third-party library
 APIs; they run off the UI thread. A universal wrapper around all filesystem
 access is not required.
 
-## Current boundaries to repair
+## Boundaries established by the migration
 
 ### Shared entry data inside filesystem operations
 
@@ -227,7 +228,7 @@ the localization TODO should plan that work explicitly. A bounded text-output
 model may serve both tool logs and follow mode if its needs match. An embedded
 terminal needs its own PTY and input/rendering design, as already noted in TODO.
 
-## Migration plan
+## Migration record and conditional next steps
 
 Each slice is independently reviewable and can contain several focused commits.
 Preserve behavior while changing ownership; avoid combining the migration with
@@ -293,9 +294,9 @@ new features or dependency changes.
    shared visuals where useful. Keep composition and command wiring in Commander.
    Update the README architecture map as each boundary lands.
 
-Start with entry values and listing contracts: these foundations are used across
-the application. Preview session extraction follows as a contained feature step.
-Create module files using the existing `foo.rs` plus `foo/` convention.
+Steps 1–4 and 6a–7b above record work already done. For future approved work,
+use the relevant boundary and validation criteria below; module files follow
+the existing `foo.rs` plus `foo/` convention.
 
 ## Validation and acceptance
 
@@ -333,8 +334,8 @@ where the corresponding slice changes wiring.
 
 ## Scope
 
-This is a refactoring proposal. It does not start the undecided Properties,
-generalized format detection, conversion, continuous PDF scrolling or sheet-tab
-features in TODO.md. Retain existing Windows compilation without extending its
-support. New crates, dependencies and a general-purpose filesystem or process
-framework are not part of this plan.
+This record does not authorize the undecided Properties, generalized format
+detection, conversion, continuous PDF scrolling or sheet-tab features in
+TODO.md. Retain existing Windows compilation without extending its support.
+New crates, dependencies and a general-purpose filesystem or process
+framework are outside this plan.

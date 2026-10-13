@@ -1,8 +1,16 @@
 # AGENTS.md
 
-Instructions for coding agents working on fyle. `README.md` covers usage,
-settings and architecture (with the module map); `TODO.md` is the backlog
-and the place for open decisions; `docs/tools.md` covers the tools design.
+Instructions for coding agents working on fyle. Read the document that matches
+the work before editing:
+
+| Work | Read |
+| --- | --- |
+| Choosing a feature or resolving its scope | [`TODO.md`](TODO.md): open work, decisions, parked work and completed work |
+| Changing user behavior, settings or module ownership | [`README.md`](README.md): current behavior and architecture map |
+| Changing tools, tool discovery or plugins | [`docs/tools.md`](docs/tools.md): planning and execution contracts |
+| Continuing the architecture migration | [`docs/architecture-plan.md`](docs/architecture-plan.md): decision, completed slices and remaining conditional work |
+| Changing navigation request handling | [`docs/navigation-lifecycle-plan.md`](docs/navigation-lifecycle-plan.md): implemented boundary and regression cases |
+| Changing Google Drive setup guidance | [`HOWTO.md`](HOWTO.md): user setup steps |
 
 ## Project
 
@@ -13,12 +21,15 @@ GPL-3.0-or-later. Linux first; Windows is paused, macOS comes later.
 ## Working with the owner
 
 - Keep answers short, precise and honest. Say when you are unsure.
-- Ask before starting anything parked or undecided in `TODO.md`.
+- Check `TODO.md` before choosing work. Ask before implementing an item marked
+  as an idea, parked, later, paused or undecided, or one that requires a named
+  design decision. A documentation edit may clarify these items without
+  implementing them.
 - One feature per commit, with a concise imperative subject. Commit; never
   push and never open a PR unless asked.
 - Others may edit the tree at the same time. Stage only your own changes.
 - When you finish a TODO item, move it to "Done" in `TODO.md` and update
-  `README.md`.
+  `README.md` with the resulting user behavior and architecture.
 
 ## Code rules
 

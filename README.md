@@ -2,7 +2,8 @@
 
 A minimal two-panel file manager in the spirit of Krusader / Midnight Commander,
 built with [GPUI Kit](https://gpui-kit.com) (GPUI + gpui-component's `DataTable`).
-Targets Linux and Windows (macOS later, see `TODO.md`).
+Linux is the active target. Existing Windows support is retained, but further
+Windows work is paused; macOS comes later (see [`TODO.md`](TODO.md)).
 
 ```sh
 cargo run --release -- [LEFT_DIR] [RIGHT_DIR]
@@ -472,13 +473,17 @@ dev container.
 
 ## Architecture
 
+This is the current module map. The
+[`architecture refactoring record`](docs/architecture-plan.md) explains the
+ownership boundaries and completed migration slices.
+
 Model first: `src/model.rs` holds each panel's state (`Folder`: typed
 `PanelContent` with `Directory(Location)`, `Search { root, title }` and
 `Places` modes, rows, cursor, marks, sort, hidden files, tree expansion) with
 no UI code and its own unit tests. Navigation destinations use `PanelTarget`,
 which keeps the places overview separate from file addresses.
-`src/panel.rs` is a `DataTable` view on top of a `Folder`; it only renders the
-model and forwards cursor moves, sorting and double-clicks to it. The
+`src/panel.rs` manages the panel view, input and focus on top of a `Folder`;
+`panel/table_view.rs` renders the `DataTable` and forwards its events. The
 UI-independent `src/listing.rs` service owns local, archive and remote listing
 I/O; `src/listing/contracts.rs` owns the request and result values shared with
 `Folder`. Pure remote and archive address semantics live in
