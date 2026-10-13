@@ -125,7 +125,8 @@ impl MenuBar {
 }
 
 impl Render for MenuBar {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let custom_titlebar = crate::window_chrome_view::uses_custom_titlebar(window);
         div()
             .id("fyle-menu-bar")
             .role(Role::MenuBar)
@@ -135,9 +136,9 @@ impl Render for MenuBar {
             .on_action(cx.listener(Self::cancel))
             .h_flex()
             .h_full()
-            .when(!cfg!(windows), |bar| bar.w_full())
-            .when(cfg!(windows), |bar| {
-                // Only the intrinsic menu bounds occlude the title bar's native drag hitbox.
+            .when(!custom_titlebar, |bar| bar.w_full())
+            .when(custom_titlebar, |bar| {
+                // Keep menu clicks out of the custom title bar's window drag region.
                 bar.occlude()
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             })

@@ -201,10 +201,14 @@ impl EditorPane {
 }
 
 impl Render for EditorPane {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        #[cfg(windows)]
-        let header = crate::window_chrome_view::editor_title_bar(
+        #[cfg(not(target_os = "linux"))]
+        let _ = window;
+        #[cfg(any(windows, target_os = "linux"))]
+        let weak_pane = cx.entity().downgrade();
+        #[cfg(any(windows, target_os = "linux"))]
+        let titlebar = crate::window_chrome_view::editor_title_bar(
             crate::window_title::editor_title(
                 &self.doc.path().display().to_string(),
                 self.modified,
@@ -215,10 +219,15 @@ impl Render for EditorPane {
                 .xsmall()
                 .disabled(!self.modified)
                 .on_click(cx.listener(|this, _, w, cx| this.save(&SaveFile, w, cx))),
+            move |_, window, cx| {
+                let _ = weak_pane.update(cx, |pane, cx| pane.close(&CloseEditor, window, cx));
+            },
             cx,
         );
+        #[cfg(windows)]
+        let header = titlebar;
         #[cfg(not(windows))]
-        let header = h_flex()
+        let native_header = h_flex()
             .gap_2()
             .px_2()
             .py_0p5()
@@ -249,6 +258,14 @@ impl Render for EditorPane {
                     .xsmall()
                     .on_click(cx.listener(|this, _, w, cx| this.close(&CloseEditor, w, cx))),
             );
+        #[cfg(target_os = "linux")]
+        let header = if crate::window_chrome_view::uses_custom_titlebar(window) {
+            titlebar.into_any_element()
+        } else {
+            native_header.into_any_element()
+        };
+        #[cfg(not(any(windows, target_os = "linux")))]
+        let header = native_header;
         v_flex()
             .key_context(CONTEXT)
             .on_action(cx.listener(Self::save))

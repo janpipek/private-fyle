@@ -149,6 +149,10 @@ not to pursue an item.
 
 ## Done
 
+- [x] Linux custom title bars: combine the main menus and themed window chrome
+      in one row, use GPUI client decorations and controls when supported, and
+      preserve server-decoration fallback and the editor's unsaved-change prompt.
+
 - [x] Windows custom title bars: combine the main menus and themed window chrome
       in one row; use a matching editor title bar, native window controls and
       resizing, and preserve the editor's unsaved-change close prompt.

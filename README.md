@@ -309,11 +309,14 @@ destructive buttons retain red backgrounds.
 
 ### Window title bars
 
-On Windows, the main window combines its menus and themed title bar in one row.
-Drag the title or empty space to move the window; double-click it to maximize or
-restore. Minimize, maximize, close, and edge resizing use Windows window handling.
-Editor windows use a matching title bar, and closing a modified document still
-asks whether to save it. Other platforms retain their existing window decorations.
+On Windows and Linux, the main window combines its menus and themed title bar
+in one row. Drag the title or empty space to move the window; double-click it to
+maximize or restore. Minimize, maximize, close, and edge resizing use the
+platform window controls. Linux requests client decorations from the window
+manager and keeps the existing menu row if the manager selects server
+decorations. Editor windows use a matching title bar, and closing a modified
+document still asks whether to save it. macOS retains its existing window
+decorations.
 
 ## Build dependencies
 

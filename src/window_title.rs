@@ -1,4 +1,4 @@
-//! Window titles shared by native decorations and the themed Windows header.
+//! Window titles shared by native decorations and themed headers.
 
 /// Formats an editor title, keeping unsaved changes visible in the header.
 pub fn editor_title(name: &str, modified: bool) -> String {

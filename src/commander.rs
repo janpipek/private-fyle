@@ -714,24 +714,30 @@ impl Render for Commander {
             .bg(bg)
             .text_color(fg)
             .text_sm()
-            .when(cfg!(windows), |root| {
-                #[cfg(windows)]
-                let root = root.child(crate::window_chrome_view::menu_title_bar(
-                    self.menu_bar.clone(),
-                    cx,
-                ));
-                root
-            })
-            // On other platforms the menu bar keeps its own row below native decorations.
-            .when(!cfg!(windows), |root| {
-                root.child(
-                    div()
-                        .w_full()
-                        .h_8()
-                        .flex_none()
-                        .child(self.menu_bar.clone()),
-                )
-            })
+            .when(
+                crate::window_chrome_view::uses_custom_titlebar(window),
+                |root| {
+                    #[cfg(any(windows, target_os = "linux"))]
+                    let root = root.child(crate::window_chrome_view::menu_title_bar(
+                        self.menu_bar.clone(),
+                        cx,
+                    ));
+                    root
+                },
+            )
+            // Native platforms and Linux window managers with server decorations keep this row.
+            .when(
+                !crate::window_chrome_view::uses_custom_titlebar(window),
+                |root| {
+                    root.child(
+                        div()
+                            .w_full()
+                            .h_8()
+                            .flex_none()
+                            .child(self.menu_bar.clone()),
+                    )
+                },
+            )
             .when_some(self.open_with_menu.clone(), |root, menu| {
                 root.child(deferred(
                     anchored()

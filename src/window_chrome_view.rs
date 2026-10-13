@@ -1,14 +1,37 @@
-//! Window decoration options and themed Windows title bars.
+//! Window decoration options and themed title bars.
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 use gpui_kit::component::{ActiveTheme as _, TitleBar, h_flex};
 use gpui_kit::*;
 
-/// Keeps native decorations outside Windows and enables the themed Windows bar.
+/// Reports whether the platform selected the client-decorated title bar.
+#[cfg(windows)]
+pub fn uses_custom_titlebar(_: &Window) -> bool {
+    true
+}
+
+/// Reports whether Linux's window manager selected client decorations.
+#[cfg(target_os = "linux")]
+pub fn uses_custom_titlebar(window: &Window) -> bool {
+    matches!(window.window_decorations(), Decorations::Client { .. })
+}
+
+/// Reports that other platforms retain their native title bar.
+#[cfg(not(any(windows, target_os = "linux")))]
+pub fn uses_custom_titlebar(_: &Window) -> bool {
+    false
+}
+
+/// Selects client decorations for themed bars on Windows and Linux.
 pub fn window_options(title: String) -> WindowOptions {
     #[cfg(windows)]
     let mut options = TitleBar::window_options();
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    let mut options = WindowOptions {
+        window_decorations: Some(WindowDecorations::Client),
+        ..TitleBar::window_options()
+    };
+    #[cfg(not(any(windows, target_os = "linux")))]
     let mut options = WindowOptions::default();
     let titlebar = options
         .titlebar
@@ -17,8 +40,8 @@ pub fn window_options(title: String) -> WindowOptions {
     options
 }
 
-/// Combines the application title, menus and native Windows controls in one row.
-#[cfg(windows)]
+/// Combines the application title, menus and window controls in one row.
+#[cfg(any(windows, target_os = "linux"))]
 pub fn menu_title_bar(menu: Entity<crate::menu_bar::MenuBar>, cx: &App) -> impl IntoElement {
     TitleBar::new()
         .bg(cx.theme().title_bar)
@@ -36,10 +59,15 @@ pub fn menu_title_bar(menu: Entity<crate::menu_bar::MenuBar>, cx: &App) -> impl 
         .child(div().flex_none().w(px(48.)).h_full())
 }
 
-/// Gives the editor a draggable title and native Windows controls beside Save.
-#[cfg(windows)]
-pub fn editor_title_bar(title: String, save: impl IntoElement, cx: &App) -> impl IntoElement {
-    TitleBar::new()
+/// Gives the editor a draggable title and window controls beside Save.
+#[cfg(any(windows, target_os = "linux"))]
+pub fn editor_title_bar(
+    title: String,
+    save: impl IntoElement,
+    on_close: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> impl IntoElement {
+    let title_bar = TitleBar::new()
         .bg(cx.theme().title_bar)
         .text_color(cx.theme().foreground)
         .child(
@@ -60,5 +88,13 @@ pub fn editor_title_bar(title: String, save: impl IntoElement, cx: &App) -> impl
                 .occlude()
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(save),
-        )
+        );
+    #[cfg(target_os = "linux")]
+    let title_bar = title_bar.on_close_window(on_close);
+    #[cfg(windows)]
+    let title_bar = {
+        let _ = on_close;
+        title_bar
+    };
+    title_bar
 }
