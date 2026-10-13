@@ -14,7 +14,7 @@ use super::Commander;
 use super::jobs::first_of;
 use super::keys::{
     CalculateSizes, ClearSelection, Collapse, Expand, Filter, InvertSelection, Refresh, SelectAll,
-    SelectPattern, ToggleHidden, ToggleMark, TogglePreview, ToggleTree, Unmark,
+    SelectPattern, ShowProperties, ToggleHidden, ToggleMark, TogglePreview, ToggleTree, Unmark,
 };
 use super::location::ListingCommit;
 use crate::dirsize::{self, DirSize};
@@ -23,7 +23,7 @@ use crate::grid::ViewMode;
 use crate::menus::Cmd;
 use crate::model::Folder;
 use crate::settings;
-use crate::workspace::{LayoutMode, PanelSide, Perspective};
+use crate::workspace::{LayoutMode, Perspective};
 
 impl Commander {
     pub fn filter(&mut self, _: &Filter, window: &mut Window, cx: &mut Context<Self>) {
@@ -36,9 +36,38 @@ impl Commander {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.workspace.toggle_inspector();
-        self.workspace.set_perspective(Perspective::Preview);
-        self.queue_layout_save(cx);
+        if self.workspace.toggle_preview() {
+            self.queue_layout_save(cx);
+        }
+        self.inspector.update(cx, |inspector, cx| {
+            inspector.set_perspective(self.workspace.perspective(), cx)
+        });
+        self.update_preview(window, cx);
+        cx.notify();
+    }
+
+    /// Opens the inspector on Properties for the current entry.
+    pub fn show_properties(
+        &mut self,
+        _: &ShowProperties,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.folders[self.active]
+            .read(cx)
+            .current()
+            .is_none_or(|entry| entry.is_parent)
+        {
+            self.status = "Select a file or directory".into();
+            cx.notify();
+            return;
+        }
+        if self.workspace.show_properties() {
+            self.queue_layout_save(cx);
+        }
+        self.inspector.update(cx, |inspector, cx| {
+            inspector.set_perspective(Perspective::Properties, cx)
+        });
         self.update_preview(window, cx);
         cx.notify();
     }
@@ -54,8 +83,10 @@ impl Commander {
             return;
         }
         self.workspace.set_mode(mode);
-        self.workspace.set_perspective(Perspective::Preview);
         self.queue_layout_save(cx);
+        self.inspector.update(cx, |inspector, cx| {
+            inspector.set_perspective(self.workspace.perspective(), cx)
+        });
         self.update_preview(window, cx);
         self.focus_active(window, cx);
         cx.notify();
@@ -89,25 +120,40 @@ impl Commander {
     /// Points the quick view at the active panel's cursor entry, at the
     /// matching line for a content search hit.
     pub fn update_preview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.inspector_target_dirty = false;
         let row = self.folders[self.active]
             .read(cx)
             .current()
             .filter(|row| !row.is_parent)
             .cloned();
-        self.workspace.set_selection(
-            if self.active == 0 {
-                PanelSide::Left
-            } else {
-                PanelSide::Right
-            },
-            row.as_ref().map(|row| row.location.clone()),
-        );
         let row = self
             .workspace
             .mode()
             .has_inspector()
             .then_some(row)
             .flatten();
+        if self.workspace.perspective() == Perspective::Properties {
+            self.pause_remote_preview();
+            let target_identity = row.as_ref().map(|entry| entry.location.clone());
+            let preview_identity = self.preview.read(cx).target_identity();
+            if preview_identity != target_identity {
+                self.clear_remote_preview();
+                self.preview.update(cx, |preview, cx| {
+                    preview.set_location_target(None, None, None, window, cx)
+                });
+            }
+            self.preview
+                .update(cx, |preview, cx| preview.suspend(window, cx));
+            let selection = row.map(|entry| crate::properties::Selection {
+                location: entry.location.clone(),
+                entry: entry.entry,
+            });
+            self.properties
+                .update(cx, |properties, cx| properties.set_target(selection, cx));
+            return;
+        }
+        self.properties
+            .update(cx, |properties, cx| properties.set_target(None, cx));
         let mut target = row.as_ref().and_then(|row| match &row.location {
             crate::location::Location::Local(local) => Some(local.as_path().to_path_buf()),
             crate::location::Location::Remote(_) => None,
@@ -126,12 +172,14 @@ impl Commander {
             // Never read a remote path from the disk: show its downloaded
             // copy once there is one (small files only).
             target = if folder {
-                self.remote_preview = Default::default();
+                self.clear_remote_preview();
                 identity = None;
                 None
             } else {
                 self.remote_preview_target(location, size, window, cx)
             };
+        } else {
+            self.clear_remote_preview();
         }
         self.preview.update(cx, |preview, cx| {
             preview.set_location_target(target, identity, line, window, cx)
@@ -334,6 +382,18 @@ impl Commander {
     /// Ctrl-R: reloads both panels and forgets computed folder sizes
     /// (stopping the scans that would recompute them).
     pub fn refresh(&mut self, _: &Refresh, window: &mut Window, cx: &mut Context<Self>) {
+        if self.workspace.perspective() == Perspective::Preview {
+            self.preview
+                .update(cx, |preview, cx| preview.reload(window, cx));
+            self.properties
+                .update(cx, |properties, cx| properties.set_target(None, cx));
+        } else {
+            self.preview.update(cx, |preview, cx| {
+                preview.set_location_target(None, None, None, window, cx)
+            });
+            self.properties
+                .update(cx, |properties, cx| properties.invalidate(cx));
+        }
         self.catalog_cache = None;
         self.open_with_catalog_loading = false;
         self.menu_state = None;

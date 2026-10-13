@@ -27,6 +27,7 @@ mod icon_view;
 mod icons;
 #[cfg_attr(windows, allow(dead_code))]
 mod ini;
+mod inspector_view;
 mod jobs;
 mod keymap;
 mod link_badge;
@@ -52,6 +53,8 @@ mod panels;
 mod places;
 mod preview;
 mod preview_view;
+pub mod properties;
+mod properties_view;
 mod raw_preview;
 mod remote;
 mod remote_labels;

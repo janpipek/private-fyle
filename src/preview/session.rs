@@ -86,6 +86,13 @@ impl PreviewSession {
         &self.state
     }
 
+    /// Original typed source for the currently retained Preview target.
+    pub fn identity(&self) -> Option<&Location> {
+        self.target
+            .as_ref()
+            .and_then(|target| target.identity.as_ref())
+    }
+
     /// Search-hit line to reveal without changing the target.
     pub fn line(&self) -> Option<u64> {
         self.line
@@ -138,6 +145,50 @@ impl PreviewSession {
             return TargetChange::Unchanged;
         }
         self.reset()
+    }
+
+    /// Invalidates an in-flight full load while retaining a completed preview and its target.
+    pub fn suspend(&mut self) -> TargetChange {
+        if !matches!(self.state, State::Loading) {
+            return TargetChange::Unchanged;
+        }
+        self.generation = self.generation.wrapping_add(1);
+        self.pdf_generation = self.pdf_generation.wrapping_add(1);
+        self.sheet_generation = self.sheet_generation.wrapping_add(1);
+        self.state = State::Empty;
+        TargetChange::Reset(None)
+    }
+
+    /// Restarts the retained target after its perspective becomes active again.
+    pub fn resume(&mut self) -> TargetChange {
+        if matches!(self.state, State::Empty) {
+            self.reload()
+        } else {
+            TargetChange::Unchanged
+        }
+    }
+
+    /// Invalidates pending PDF and workbook subreads without discarding completed data.
+    pub fn suspend_navigation(&mut self) {
+        self.pdf_generation = self.pdf_generation.wrapping_add(1);
+        self.sheet_generation = self.sheet_generation.wrapping_add(1);
+    }
+
+    /// Reloads the selected workbook sheet after an interrupted background read.
+    pub fn reload_sheet(&mut self) -> Option<Request> {
+        let State::Ready(preview) = &self.state else {
+            return None;
+        };
+        let Content::Spreadsheet { path, .. } = &preview.content else {
+            return None;
+        };
+        self.sheet_generation = self.sheet_generation.wrapping_add(1);
+        self.sheet = None;
+        Some(Request {
+            path: path.clone(),
+            index: self.sheet_index,
+            generation: self.sheet_generation,
+        })
     }
 
     fn reset(&mut self) -> TargetChange {
@@ -414,6 +465,29 @@ mod tests {
         assert_eq!(session.pdf_page(), 1);
         assert!(session.pdf_result().is_none());
         assert!(!session.complete_pdf(&back, Err("obsolete".into())));
+    }
+
+    #[test]
+    fn suspending_preview_rejects_pending_pdf_and_sheet_work_then_resumes() {
+        let mut pdf_session = PreviewSession::default();
+        let load = select(&mut pdf_session, "pdf");
+        assert!(pdf_session.complete(&load, Ok(pdf())));
+        let pending_page = pdf_session.render_pdf().unwrap();
+        pdf_session.suspend_navigation();
+        assert!(!pdf_session.complete_pdf(&pending_page, Ok("stale.png".into())));
+        let resumed_page = pdf_session.render_pdf().unwrap();
+        assert_ne!(pending_page.generation, resumed_page.generation);
+        assert!(pdf_session.complete_pdf(&resumed_page, Ok("current.png".into())));
+
+        let mut sheet_session = PreviewSession::default();
+        let load = select(&mut sheet_session, "workbook");
+        assert!(sheet_session.complete(&load, Ok(workbook())));
+        let pending_sheet = sheet_session.change_sheet(1).unwrap();
+        sheet_session.suspend_navigation();
+        assert!(!sheet_session.complete_sheet(&pending_sheet, Ok(Sheet::default())));
+        let resumed_sheet = sheet_session.reload_sheet().unwrap();
+        assert_eq!(resumed_sheet.index, pending_sheet.index);
+        assert!(sheet_session.complete_sheet(&resumed_sheet, Ok(Sheet::default())));
     }
 
     #[test]

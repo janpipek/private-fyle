@@ -63,6 +63,7 @@ palette. The bottom area shows status messages and running jobs.
 | Ctrl-D              | Add or remove the current directory's bookmark (saved in `config.toml`); the star in the location bar shows and toggles it |
 | F9                  | Open a terminal in the panel directory (`[terminal]` in `config.toml`) |
 | F3                  | Toggle Preview in the inspector; it follows the active panel's cursor and does not replace the inactive folder panel |
+| Alt-Enter           | Open Properties for the cursor entry in the inspector |
 | F4                  | Open the cursor file (UTF-8 text, up to 8 MiB) in its own editor window; each file gets its own window. Ctrl-S saves, Esc/Ctrl-W closes (with unsaved changes it asks: Save, Discard or Cancel); saving asks before overwriting a file changed on disk. `[editor] command` in `config.toml` uses an external editor instead |
 | Ctrl-P              | Command palette: all commands with their keys, filtered by typing |
 | Ctrl-K Ctrl-T       | Theme picker: arrows preview live, Enter keeps and saves to `config.toml`, Esc restores |
@@ -76,13 +77,25 @@ palette. The bottom area shows status messages and running jobs.
 | F10 / Ctrl-Q        | Quit                                      |
 
 The View menu offers three workspace layouts: both folder panels, both panels
-with a Preview inspector, or the active panel with Preview. In the one-panel
-layout, the other panel remains the destination for copy and move commands and
-is identified by its destination label. F3 opens or closes the inspector. The
-selected layout is saved in `config.toml` and restored at startup; set
+with an inspector, or the active panel with an inspector. The inspector has
+View and Properties tabs. F3 opens/selects View, closes the inspector when View
+is already selected, and switches from Properties to View. Alt-Enter and File
+› Properties open the inspector on Properties; the same command is available
+from the file context menu. The active tab stays selected when the layout
+changes and for the current app session. In the one-panel layout, the other
+panel remains the destination for copy and move commands and is identified by
+its destination label. The selected layout is saved in `config.toml` and restored at startup; set
 `[workspace] layout` to `"two_panels"`, `"two_panels_inspector"` or
 `"one_panel_inspector"` to choose it directly. This is the only startup
 setting for the inspector.
+
+Properties shows source listing facts for local, remote and archive entries.
+For local entries it also reads filesystem attributes, symlink target details
+and supported EXIF fields for regular image files. Remote and archive
+Properties does not download or extract entries; only facts already present in
+the listing are shown. A Properties inspection does not depend on View or on
+optional preview programs. SQLite structure and Parquet schema remain future
+format readers.
 
 Symbolic links keep their target's file icon with a small badge: a curved
 arrow for a working link, a crossed circle (and a muted name) for a broken
@@ -591,12 +604,13 @@ Where things live (`src/`):
 | `panel.rs`, `panel/header_view.rs`, `panel/table_view.rs`, `panel/metadata.rs`, `panel/metadata/` | `FolderView` owns input/menu lifecycle, focus and list/icon coordination; `header_view.rs` renders breadcrumbs, location editing and header buttons; `table_view.rs` owns `FileTable` rendering and forwarding to `Folder`; `metadata/model.rs` owns bounded request/cache policy; `metadata/reader.rs` reads optional local values; `metadata.rs` schedules GPUI workers shared by list and icon views; `metadata/exif.rs` composes semantic EXIF values into stable column keys |
 | `thumbnails.rs`, `thumb_queue.rs`, `raw_preview.rs` | Icon view thumbnails: the freedesktop cache (URI and MD5 names, validity by `Thumb::MTime`, atomic writes, failure records), RAW preview cache identity and atomic JPEG materialization, and the load scheduler with its LRU, all UI-independent and tested |
 | `grid.rs`, `icon_view.rs`, `glyphs.rs`, `context_menu.rs` | Icon view: `ViewMode`, icon sizes, `Layout` (columns for a width) and cursor moves (UI-independent, tested); the lazy `IconGrid` view; the `FileIcon` → glyph table and the right-click menu shared with the list |
-| `workspace.rs` | UI-independent workspace state for two panels, two panels plus Preview, or one panel plus Preview; tracks source/destination, selection-following requests and feasible dock positions. |
+| `workspace.rs`, `inspector_view.rs` | Workspace layout and active panel roles; the inspector tab controller retains View/Properties selection while the inspector is closed or dock layout changes. |
 | `columns.rs` | `ColumnKind` catalog, grouped, ids like `exif.iso`. A new column is a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |
 | `fs_ops.rs`, `transfer.rs`, `jobs.rs` | Native metadata/account adapters and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
 | `remote.rs`, `remote/` | Remote providers: `Provider` trait; compatibility `Location` alias to `location::RemoteLocation`; Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `LocalCopy` keeps a typed source address separate from the cache path used at native I/O boundaries; `model/remote.rs` holds cached listings |
 | `archive.rs`, `archive/extraction.rs`, `dirsize.rs`, `links.rs` | Archive index; safe extraction; recursive sizes; symlink state |
 | `preview/`, `preview_view.rs`, `notebook_view.rs` | `Previewer`s and their `Registry` (including bounded nbformat 4 notebook parsing); one render arm per `Content`; notebooks render through a variable-height lazy list; `PreviewSession` owns target identity, reloads, navigation and stale-result acceptance; GUI resources stay in the pane |
+| `properties.rs`, `properties/`, `properties_view.rs` | UI-independent source facts and bounded local filesystem/EXIF inspection; cancellable `PropertiesSession`; GPUI controller limits inspection to one active worker with the latest selection queued; grouped data supports future format readers |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and separate editor windows |
 | `tools/`, `tools_view.rs` | Tool, Action and Registry model; `defaults.toml`; built-ins; Lua plugins; `exec.rs` runs them |
 | `search.rs`, `places.rs`, `breadcrumbs.rs`, `remote_labels.rs`, `rename.rs`, `openers.rs`, `terminal.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs`, `zoom.rs` | Further UI-independent models, each with tests |

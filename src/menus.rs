@@ -36,6 +36,7 @@ pub enum Cmd {
     ClearSelection,
     Filter,
     TogglePreview,
+    ShowProperties,
     LayoutTwoPanels,
     LayoutTwoPanelsInspector,
     LayoutOnePanelInspector,
@@ -122,6 +123,8 @@ pub struct State {
     pub icon_size: u32,
     pub hidden: bool,
     pub preview: bool,
+    /// Whether the Properties perspective is selected in the inspector.
+    pub properties: bool,
     /// The selected folder/inspector arrangement.
     pub workspace_layout: LayoutMode,
     pub jobs_running: bool,
@@ -144,7 +147,7 @@ pub struct State {
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 71] = [
+    pub const ALL: [Cmd; 72] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::OpenInBrowser,
@@ -174,6 +177,7 @@ impl Cmd {
         Cmd::EditFile,
         Cmd::NewFile,
         Cmd::TogglePreview,
+        Cmd::ShowProperties,
         Cmd::LayoutTwoPanels,
         Cmd::LayoutTwoPanelsInspector,
         Cmd::LayoutOnePanelInspector,
@@ -245,6 +249,7 @@ impl Cmd {
             Cmd::ClearSelection => "Clear Selection",
             Cmd::Filter => "Filter…",
             Cmd::TogglePreview => "Preview",
+            Cmd::ShowProperties => "Properties",
             Cmd::LayoutTwoPanels => "Two Panels",
             Cmd::LayoutTwoPanelsInspector => "Two Panels + Preview",
             Cmd::LayoutOnePanelInspector => "One Panel + Preview",
@@ -308,6 +313,7 @@ impl Cmd {
             Cmd::Rename => "Rename (bulk when several are marked)",
             Cmd::ExtractArchive => "Extract archive into a folder in the other panel",
             Cmd::TogglePreview => "Toggle preview",
+            Cmd::ShowProperties => "Show Properties",
             Cmd::ToggleCustomTitlebar => "Custom Title Bar (restart required)",
             Cmd::LayoutTwoPanels => "Show both folder panels",
             Cmd::LayoutTwoPanelsInspector => "Show both panels and preview",
@@ -352,6 +358,7 @@ impl Cmd {
     pub fn checked(self, state: &State) -> Option<bool> {
         match self {
             Cmd::TogglePreview => Some(state.preview),
+            Cmd::ShowProperties => Some(state.properties),
             Cmd::LayoutTwoPanels => Some(state.workspace_layout == LayoutMode::TwoPanels),
             Cmd::LayoutTwoPanelsInspector => {
                 Some(state.workspace_layout == LayoutMode::TwoPanelsInspector)
@@ -468,6 +475,7 @@ impl Cmd {
             Cmd::OpenWith if state.open_with_path.is_none() => Some("Select a file or directory"),
             Cmd::EditFile if !state.cursor_on_file => Some("Select a file"),
             Cmd::CopyName if !state.cursor_on_entry => Some("Select a file or directory"),
+            Cmd::ShowProperties if !state.cursor_on_entry => Some("Select a file or directory"),
             Cmd::CopyFullPath if state.selected_path_available => None,
             Cmd::CopyFullPath if !state.cursor_on_entry => Some("Select a file or directory"),
             Cmd::CopyFullPath => Some("No standard address is available for this entry"),
@@ -531,6 +539,7 @@ pub fn context_menu() -> Vec<Item> {
         Command(Open),
         OpenWith,
         Command(EditFile),
+        Command(ShowProperties),
         Separator,
         Command(CutFiles),
         Command(YankFiles),
@@ -579,7 +588,7 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
         }
         items
     };
-    let mut file = items(&[&[Open]]);
+    let mut file = items(&[&[Open, ShowProperties]]);
     file.push(Item::OpenWith);
     file.extend(items(&[
         &[OpenInBrowser, EditFile],

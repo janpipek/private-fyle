@@ -50,6 +50,30 @@ pub struct RemotePreview {
 type Resolved = (Arc<dyn Provider>, RemoteLocation);
 
 impl Commander {
+    /// Cancels and forgets a pending quick-view copy when Preview is inactive.
+    pub(super) fn clear_remote_preview(&mut self) {
+        if let Some(cancel) = self.remote_preview.cancel.take() {
+            cancel.store(true, Ordering::Relaxed);
+        }
+        self.remote_preview = Default::default();
+    }
+
+    /// Stops a pending remote materialization but keeps an already cached copy.
+    pub(super) fn pause_remote_preview(&mut self) {
+        if let Some(cancel) = self.remote_preview.cancel.take() {
+            cancel.store(true, Ordering::Relaxed);
+        }
+        self.remote_preview.task = None;
+        if self
+            .remote_preview
+            .shown
+            .as_ref()
+            .is_some_and(|(_, copy)| copy.is_none())
+        {
+            self.remote_preview.shown = None;
+        }
+    }
+
     /// Looks for configured remotes in the background; the Locations list
     /// shows what was known meanwhile. Problems go to the status line once.
     pub fn discover_remotes(&mut self, window: &mut Window, cx: &mut Context<Self>) {

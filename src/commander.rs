@@ -41,6 +41,7 @@ use self::keys::CONTEXT;
 use self::tools::load_tools;
 use crate::editor_view::EditorPane;
 use crate::grid::ViewMode;
+use crate::inspector_view::{InspectorEvent, InspectorPane};
 use crate::jobs::Yank;
 use crate::location::Location;
 use crate::menu_bar::MenuBar;
@@ -51,6 +52,7 @@ use crate::panel::{Activate, FolderView, HeaderEvent, PanelDrop, TreeExpansionCh
 use crate::places::History;
 use crate::preview::Registry as PreviewRegistry;
 use crate::preview_view::PreviewPane;
+use crate::properties_view::PropertiesPane;
 use crate::remote;
 use crate::settings::Settings;
 use crate::tools::{Programs, Registry};
@@ -69,6 +71,8 @@ pub struct Commander {
     views: [Entity<FolderView>; 2],
     /// Content pane used by the inspector.
     preview: Entity<PreviewPane>,
+    properties: Entity<PropertiesPane>,
+    inspector: Entity<InspectorPane>,
     workspace: Workspace,
     layout_saves: crate::places::history_save::Queue<LayoutMode>,
     _layout_save_task: Task<()>,
@@ -174,6 +178,7 @@ pub struct Commander {
     inspector_split: f32,
     dragging_inspector_split: bool,
     inspector_split_horizontal: bool,
+    inspector_target_dirty: bool,
     status: SharedString,
     _subscriptions: Vec<Subscription>,
     _mkdir_subscription: Option<Subscription>,
@@ -235,8 +240,19 @@ impl Commander {
         let preview = cx.new(|cx| PreviewPane::new(registry, window, cx));
         let mut workspace = Workspace::default();
         workspace.set_mode(settings.workspace.layout);
+        let properties = cx.new(|_| PropertiesPane::new());
+        let inspector = cx.new(|_| {
+            InspectorPane::new(workspace.perspective(), preview.clone(), properties.clone())
+        });
 
         let mut subscriptions = Vec::new();
+        subscriptions.push(
+            cx.subscribe(&inspector, |this, _, event: &InspectorEvent, cx| {
+                this.workspace.set_perspective(event.0);
+                this.inspector_target_dirty = true;
+                cx.notify();
+            }),
+        );
         for folder in &folders {
             subscriptions.push(cx.observe_in(folder, window, |this, folder, window, cx| {
                 this.update_preview(window, cx);
@@ -325,6 +341,8 @@ impl Commander {
             folders,
             views,
             preview,
+            properties,
+            inspector,
             workspace,
             layout_saves: Default::default(),
             _layout_save_task: Task::ready(()),
@@ -400,6 +418,7 @@ impl Commander {
             inspector_split: 0.68,
             dragging_inspector_split: false,
             inspector_split_horizontal: true,
+            inspector_target_dirty: true,
             status: settings_error.map_or(status, Into::into),
             _subscriptions: subscriptions,
             _mkdir_subscription: None,
@@ -462,6 +481,7 @@ impl Commander {
 
     fn set_active(&mut self, ix: usize, cx: &mut Context<Self>) {
         self.active = ix;
+        self.inspector_target_dirty = true;
         self.workspace.set_active_panel(if ix == 0 {
             PanelSide::Left
         } else {
@@ -559,6 +579,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::toggle_hidden))
             .on_action(cx.listener(Self::toggle_tree))
             .on_action(cx.listener(Self::toggle_preview))
+            .on_action(cx.listener(Self::show_properties))
             .on_action(cx.listener(|this, _: &keys::LayoutTwoPanels, window, cx| {
                 this.set_workspace_layout(LayoutMode::TwoPanels, window, cx)
             }))

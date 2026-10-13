@@ -85,20 +85,9 @@ not to pursue an item.
       and Ctrl-P worked. Not yet known whether only the test setup or real
       sessions are affected; check F3 on a normal desktop first.
 - [ ] Archive follow-ups: nested archives; maybe write support.
-- [ ] File inspection: separate Properties and View as two perspectives.
-      Properties shows filesystem attributes and format metadata; View (F3)
-      shows file content when there is a useful representation. An image has
-      EXIF properties and an image view; a SQLite database can offer its
-      structure (tables, columns, indexes and relationships) as properties
-      without a content viewer. Parquet schema and row-group metadata also
-      belong in Properties. Reuse a UI-independent inspection model, load in
-      the background with cancellation and bounded reads, and allow either
-      perspective independently. The agreed architecture uses sibling View
-      and Properties tabs in one inspector, with room for a third perspective;
-      see [Properties plan](docs/properties-plan.md). F3 opens/selects View,
-      or closes the inspector when View is already active; layout changes
-      preserve the selected tab. Properties command placement/shortcut, tab
-      persistence and initial metadata scope remain to be decided.
+- [ ] Properties format readers: add SQLite structure and Parquet schema/row-group
+      metadata as independent Properties sections. Keep readers bounded and
+      usable without content previews; see [Properties plan](docs/properties-plan.md).
 - [ ] Workspace layout follow-ups: test the current right/bottom inspector
       arrangements across window sizes and UI scaling; decide whether to add
       a two-inspector layout. Properties remains a separate
@@ -152,6 +141,15 @@ not to pursue an item.
       right-click to show a menu etc.
 
 ## Done
+
+- [x] Properties and View tabs in one inspector: Alt-Enter / File › Properties
+      opens Properties, while F3 opens/selects View or closes the inspector when
+      View is active. Layout changes retain the selected tab for the app session.
+      Properties shows listing facts for local, remote and archive entries plus
+      local filesystem/symlink facts and supported EXIF metadata; remote/archive
+      inspection does not download or extract data. Inspection runs independently
+      from Preview with cancellation, stale-result rejection and bounded reads.
+      See [Properties plan](docs/properties-plan.md).
 
 - [x] Linux custom title bars: combine the main menus and themed window chrome
       in one row, use GPUI client decorations and controls when supported, and

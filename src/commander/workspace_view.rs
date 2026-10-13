@@ -15,6 +15,10 @@ impl Commander {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        if self.inspector_target_dirty {
+            self.inspector_target_dirty = false;
+            self.update_preview(window, cx);
+        }
         let theme = cx.theme();
         let viewport = window.viewport_size();
         let scale = f32::from(theme.font_size) / 16.0;
@@ -160,7 +164,7 @@ impl Commander {
                                 .flex_1()
                                 .min_w_0()
                                 .h_full()
-                                .child(self.preview.clone()),
+                                .child(self.inspector.clone()),
                         )
                         .into_any_element()
                 }
@@ -185,7 +189,7 @@ impl Commander {
                                 .flex_1()
                                 .min_h_0()
                                 .w_full()
-                                .child(self.preview.clone()),
+                                .child(self.inspector.clone()),
                         )
                         .into_any_element()
                 }

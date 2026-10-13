@@ -367,8 +367,21 @@ impl Commander {
                         let _ = main_window.update(cx, |_, window, cx| {
                             let _ = commander.update(cx, |this, cx| {
                                 this.reload_all(window, cx);
-                                this.preview
-                                    .update(cx, |preview, cx| preview.reload(window, cx));
+                                if this.workspace.perspective()
+                                    == crate::workspace::Perspective::Preview
+                                {
+                                    this.preview
+                                        .update(cx, |preview, cx| preview.reload(window, cx));
+                                    this.properties.update(cx, |properties, cx| {
+                                        properties.set_target(None, cx)
+                                    });
+                                } else {
+                                    this.preview.update(cx, |preview, cx| {
+                                        preview.set_location_target(None, None, None, window, cx)
+                                    });
+                                    this.properties
+                                        .update(cx, |properties, cx| properties.invalidate(cx));
+                                }
                             });
                         });
                     });

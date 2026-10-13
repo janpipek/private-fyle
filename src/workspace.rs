@@ -1,7 +1,6 @@
 //! UI-independent workspace state: visible panels, inspector perspective,
-//! selection-following requests, and whether a viewport can fit each layout.
+//! visible panel roles, retained inspector perspective, and feasible layouts.
 
-use crate::location::Location;
 use serde::Deserialize;
 
 /// Which folder panel is the source of commands and inspector selection.
@@ -20,13 +19,6 @@ impl PanelSide {
         match self {
             Self::Left => Self::Right,
             Self::Right => Self::Left,
-        }
-    }
-
-    fn index(self) -> usize {
-        match self {
-            Self::Left => 0,
-            Self::Right => 1,
         }
     }
 }
@@ -77,32 +69,6 @@ pub enum Perspective {
     Properties,
 }
 
-/// A load request identified by its selected item and monotonically increasing generation.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Request {
-    /// Rejects a completion from an earlier selection or perspective.
-    pub generation: u64,
-    /// The folder panel whose selection produced this request.
-    pub panel: PanelSide,
-    /// The selected item, retaining its local, remote, or archive identity.
-    pub location: Location,
-    /// The content this request asks for.
-    pub perspective: Perspective,
-}
-
-/// Whether the active inspector request has finished.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum InspectorLoad {
-    /// There is no inspector or no selected item to inspect.
-    Empty,
-    /// The view may start this request in the background.
-    Pending(Request),
-    /// The current request has completed successfully.
-    Ready(Request),
-    /// The current request failed; the view owns the error text.
-    Failed(Request),
-}
-
 /// State shared by the layout chooser and whichever inspector view is shown.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Workspace {
@@ -110,9 +76,6 @@ pub struct Workspace {
     last_inspector_mode: LayoutMode,
     perspective: Perspective,
     active: PanelSide,
-    selections: [Option<Location>; 2],
-    generation: u64,
-    load: InspectorLoad,
 }
 
 impl Default for Workspace {
@@ -122,9 +85,6 @@ impl Default for Workspace {
             last_inspector_mode: LayoutMode::TwoPanelsInspector,
             perspective: Perspective::Preview,
             active: PanelSide::Left,
-            selections: [None, None],
-            generation: 0,
-            load: InspectorLoad::Empty,
         }
     }
 }
@@ -161,23 +121,14 @@ impl Workspace {
         }
     }
 
-    /// The inspector's current load state.
-    pub fn inspector_load(&self) -> &InspectorLoad {
-        &self.load
-    }
-
     /// Chooses one of the three layouts without discarding either panel's selection.
     pub fn set_mode(&mut self, mode: LayoutMode) {
         if self.mode == mode {
             return;
         }
-        let inspector_changed = self.mode.has_inspector() != mode.has_inspector();
         self.mode = mode;
         if mode.has_inspector() {
             self.last_inspector_mode = mode;
-        }
-        if inspector_changed {
-            self.restart_request();
         }
     }
 
@@ -190,11 +141,34 @@ impl Workspace {
         }
     }
 
-    /// Changes the inspector content; an old perspective's result becomes stale.
+    /// Applies F3 behavior and returns whether the persisted layout changed.
+    pub fn toggle_preview(&mut self) -> bool {
+        if self.perspective == Perspective::Preview && self.mode.has_inspector() {
+            self.toggle_inspector();
+            return true;
+        }
+        let opened = !self.mode.has_inspector();
+        if opened {
+            self.toggle_inspector();
+        }
+        self.set_perspective(Perspective::Preview);
+        opened
+    }
+
+    /// Opens the inspector on Properties and reports whether the layout opened.
+    pub fn show_properties(&mut self) -> bool {
+        let opened = !self.mode.has_inspector();
+        if opened {
+            self.toggle_inspector();
+        }
+        self.set_perspective(Perspective::Properties);
+        opened
+    }
+
+    /// Selects which inspector tab is visible.
     pub fn set_perspective(&mut self, perspective: Perspective) {
         if self.perspective != perspective {
             self.perspective = perspective;
-            self.restart_request();
         }
     }
 
@@ -202,62 +176,12 @@ impl Workspace {
     pub fn set_active_panel(&mut self, panel: PanelSide) {
         if self.active != panel {
             self.active = panel;
-            self.restart_request();
         }
     }
 
     /// Switches command source; in the one-panel layout this also switches the visible folder.
     pub fn switch_panel(&mut self) {
         self.set_active_panel(self.active.other());
-    }
-
-    /// Remembers a panel's current item; `None` covers `..` and empty listings.
-    pub fn set_selection(&mut self, panel: PanelSide, location: Option<Location>) {
-        let slot = &mut self.selections[panel.index()];
-        if *slot == location {
-            return;
-        }
-        *slot = location;
-        if panel == self.active {
-            self.restart_request();
-        }
-    }
-
-    /// Starts a fresh load for the active item after its contents change in place.
-    pub fn refresh_inspector(&mut self) {
-        self.restart_request();
-    }
-
-    /// Accepts only a completion for the current pending request.
-    pub fn complete_request(&mut self, request: &Request, succeeded: bool) -> bool {
-        if !matches!(&self.load, InspectorLoad::Pending(current) if current == request) {
-            return false;
-        }
-        self.load = if succeeded {
-            InspectorLoad::Ready(request.clone())
-        } else {
-            InspectorLoad::Failed(request.clone())
-        };
-        true
-    }
-
-    fn restart_request(&mut self) {
-        self.generation = self.generation.wrapping_add(1);
-        self.load = if self.mode.has_inspector() {
-            self.selections[self.active.index()]
-                .clone()
-                .map(|location| {
-                    InspectorLoad::Pending(Request {
-                        generation: self.generation,
-                        panel: self.active,
-                        location,
-                        perspective: self.perspective,
-                    })
-                })
-                .unwrap_or(InspectorLoad::Empty)
-        } else {
-            InspectorLoad::Empty
-        };
     }
 }
 
@@ -342,53 +266,25 @@ pub fn fit(mode: LayoutMode, viewport: Viewport, minimum: MinSizes) -> Option<Fi
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
-    use super::{
-        Fit, InspectorLoad, LayoutMode, MinSizes, PanelSide, Perspective, Viewport, Workspace, fit,
-    };
-    use crate::location::Location;
-
-    fn local(path: &str) -> Location {
-        #[cfg(unix)]
-        let path = PathBuf::from(path);
-        #[cfg(windows)]
-        let path = PathBuf::from(format!("C:{}", path.replace('/', "\\")));
-        Location::local(path).expect("test paths are absolute")
-    }
-
-    fn pending(workspace: &Workspace) -> super::Request {
-        match workspace.inspector_load() {
-            InspectorLoad::Pending(request) => request.clone(),
-            state => panic!("expected pending inspector request, got {state:?}"),
-        }
-    }
+    use super::{Fit, LayoutMode, MinSizes, PanelSide, Perspective, Viewport, Workspace, fit};
 
     #[test]
-    fn layouts_keep_both_panel_roles_and_selections() {
+    fn layouts_keep_both_panel_roles_and_active_side() {
         let mut workspace = Workspace::default();
-        workspace.set_selection(PanelSide::Left, Some(local("/left/file")));
-        workspace.set_selection(PanelSide::Right, Some(local("/right/file")));
         assert_eq!(workspace.visible_panels(), [true, true]);
-        assert_eq!(workspace.inspector_load(), &InspectorLoad::Empty);
 
         workspace.set_mode(LayoutMode::OnePanelInspector);
         assert_eq!(workspace.visible_panels(), [true, false]);
         assert_eq!(workspace.destination_panel(), PanelSide::Right);
-        assert_eq!(pending(&workspace).location, local("/left/file"));
 
         workspace.switch_panel();
         assert_eq!(workspace.visible_panels(), [false, true]);
         assert_eq!(workspace.destination_panel(), PanelSide::Left);
-        assert_eq!(pending(&workspace).location, local("/right/file"));
 
         workspace.set_mode(LayoutMode::TwoPanelsInspector);
         assert_eq!(workspace.visible_panels(), [true, true]);
-        assert_eq!(pending(&workspace).location, local("/right/file"));
         workspace.set_mode(LayoutMode::TwoPanels);
-        assert_eq!(workspace.inspector_load(), &InspectorLoad::Empty);
         workspace.set_mode(LayoutMode::OnePanelInspector);
-        assert_eq!(pending(&workspace).location, local("/right/file"));
     }
 
     #[test]
@@ -404,41 +300,31 @@ mod tests {
     }
 
     #[test]
-    fn perspective_and_selection_changes_reject_late_results() {
+    fn f3_selects_view_from_properties_and_only_closes_active_view() {
         let mut workspace = Workspace::default();
-        workspace.set_selection(PanelSide::Left, Some(local("/left/first")));
-        workspace.set_mode(LayoutMode::TwoPanelsInspector);
-        let first = pending(&workspace);
-        workspace.set_selection(PanelSide::Right, Some(local("/right/hidden")));
-        assert_eq!(pending(&workspace), first);
+        assert!(workspace.show_properties());
+        assert_eq!(workspace.mode(), LayoutMode::TwoPanelsInspector);
+        assert_eq!(workspace.perspective(), Perspective::Properties);
 
-        workspace.set_selection(PanelSide::Left, Some(local("/left/second")));
-        let second = pending(&workspace);
-        assert!(!workspace.complete_request(&first, true));
-        workspace.set_perspective(Perspective::Properties);
-        let properties = pending(&workspace);
-        assert_eq!(properties.perspective, Perspective::Properties);
-        assert!(!workspace.complete_request(&second, false));
-        assert!(workspace.complete_request(&properties, true));
-        assert_eq!(
-            workspace.inspector_load(),
-            &InspectorLoad::Ready(properties)
-        );
+        assert!(!workspace.toggle_preview());
+        assert_eq!(workspace.mode(), LayoutMode::TwoPanelsInspector);
+        assert_eq!(workspace.perspective(), Perspective::Preview);
+
+        assert!(workspace.toggle_preview());
+        assert_eq!(workspace.mode(), LayoutMode::TwoPanels);
+        assert!(workspace.toggle_preview());
+        assert_eq!(workspace.mode(), LayoutMode::TwoPanelsInspector);
+        assert_eq!(workspace.perspective(), Perspective::Preview);
     }
 
     #[test]
-    fn closing_or_refreshing_invalidates_pending_work() {
+    fn layout_changes_keep_the_selected_perspective() {
         let mut workspace = Workspace::default();
-        workspace.set_selection(PanelSide::Left, Some(local("/left/file")));
+        workspace.show_properties();
         workspace.set_mode(LayoutMode::OnePanelInspector);
-        let before_refresh = pending(&workspace);
-        workspace.refresh_inspector();
-        let after_refresh = pending(&workspace);
-        assert_ne!(before_refresh.generation, after_refresh.generation);
-        assert!(!workspace.complete_request(&before_refresh, true));
-        workspace.set_selection(PanelSide::Left, None);
-        assert_eq!(workspace.inspector_load(), &InspectorLoad::Empty);
-        assert!(!workspace.complete_request(&after_refresh, true));
+        assert_eq!(workspace.perspective(), Perspective::Properties);
+        workspace.set_mode(LayoutMode::TwoPanels);
+        assert_eq!(workspace.perspective(), Perspective::Properties);
     }
 
     fn minimum() -> MinSizes {

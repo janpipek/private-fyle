@@ -125,6 +125,8 @@ impl Commander {
             icon_size: view.icon_size(cx),
             hidden: self.show_hidden,
             preview: self.workspace.mode().has_inspector(),
+            properties: self.workspace.mode().has_inspector()
+                && self.workspace.perspective() == crate::workspace::Perspective::Properties,
             workspace_layout: self.workspace.mode(),
             jobs_running: !self.jobs.is_empty(),
             sort: folder.sort(),

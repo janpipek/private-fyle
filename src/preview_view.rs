@@ -41,6 +41,8 @@ pub struct PreviewPane {
     _sheet_load: Task<()>,
     _load: Task<()>,
     _reveal: Task<()>,
+    resume_pdf: bool,
+    resume_sheet: bool,
 }
 
 impl PreviewPane {
@@ -62,7 +64,14 @@ impl PreviewPane {
             _sheet_load: Task::ready(()),
             _load: Task::ready(()),
             _reveal: Task::ready(()),
+            resume_pdf: false,
+            resume_sheet: false,
         }
+    }
+
+    /// Returns the original source identity for the retained Preview target.
+    pub fn target_identity(&self) -> Option<crate::location::Location> {
+        self.session.identity().cloned()
     }
 
     /// Shows local bytes while retaining the typed item they represent.
@@ -74,8 +83,52 @@ impl PreviewPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let change = self.session.set_target(path, identity, line);
+        match self.session.set_target(path, identity, line) {
+            TargetChange::Reset(request) => {
+                self.resume_pdf = false;
+                self.resume_sheet = false;
+                self.apply_target_change(TargetChange::Reset(request), window, cx);
+            }
+            change => {
+                let resume = self.session.resume();
+                if matches!(resume, TargetChange::Reset(_)) {
+                    self.apply_target_change(resume, window, cx);
+                } else {
+                    self.apply_target_change(change, window, cx);
+                    self.resume_navigation(window, cx);
+                }
+            }
+        }
+    }
+
+    /// Cancels an unfinished full preview read while retaining completed view state.
+    pub fn suspend(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let State::Ready(preview) = self.session.state() {
+            self.resume_pdf = matches!(&preview.content, Content::Pdf { .. })
+                && self.session.pdf_result().is_none();
+            self.resume_sheet = matches!(&preview.content, Content::Spreadsheet { .. })
+                && self.session.sheet().is_none();
+            self.session.suspend_navigation();
+            self._pdf_render = Task::ready(());
+            self._sheet_load = Task::ready(());
+        }
+        let change = self.session.suspend();
         self.apply_target_change(change, window, cx);
+    }
+
+    fn resume_navigation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.resume_pdf {
+            self.resume_pdf = false;
+            if let Some(request) = self.session.render_pdf() {
+                self.render_pdf_page(request, window, cx);
+            }
+        }
+        if self.resume_sheet {
+            self.resume_sheet = false;
+            if let Some(request) = self.session.reload_sheet() {
+                self.load_sheet(request, window, cx);
+            }
+        }
     }
 
     fn apply_target_change(
@@ -233,6 +286,10 @@ impl PreviewPane {
         let Some(request) = self.session.change_sheet(delta) else {
             return;
         };
+        self.load_sheet(request, window, cx);
+    }
+
+    fn load_sheet(&mut self, request: Request, window: &mut Window, cx: &mut Context<Self>) {
         let path = request.path.clone();
         let index = request.index;
         self.table_scroll.set_offset(point(px(0.), px(0.)));

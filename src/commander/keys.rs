@@ -31,6 +31,7 @@ actions!(
         LargerIcons,
         SmallerIcons,
         TogglePreview,
+        ShowProperties,
         LayoutTwoPanels,
         LayoutTwoPanelsInspector,
         LayoutOnePanelInspector,
@@ -275,6 +276,7 @@ pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("f1", Help, ctx),
         KeyBinding::new("f3", TogglePreview, ctx),
+        KeyBinding::new("alt-enter", ShowProperties, ctx),
         KeyBinding::new("ctrl-k ctrl-t", SelectTheme, ctx),
         KeyBinding::new("secondary-p", CommandPalette, ctx),
         KeyBinding::new("secondary-shift-p", CommandPalette, ctx),
@@ -313,6 +315,7 @@ pub fn action_for(cmd: Cmd) -> Box<dyn Action> {
         Cmd::ClearSelection => Box::new(ClearSelection),
         Cmd::Filter => Box::new(Filter),
         Cmd::TogglePreview => Box::new(TogglePreview),
+        Cmd::ShowProperties => Box::new(ShowProperties),
         Cmd::LayoutTwoPanels => Box::new(LayoutTwoPanels),
         Cmd::LayoutTwoPanelsInspector => Box::new(LayoutTwoPanelsInspector),
         Cmd::LayoutOnePanelInspector => Box::new(LayoutOnePanelInspector),
