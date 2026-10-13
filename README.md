@@ -455,14 +455,14 @@ just sandbox                    # bash shell
 just sandbox --claude           # Claude Code with permissions skipped
 just sandbox --codex            # interactive Codex (default permissions)
 just sandbox --gui --mount ~/   # Wayland + GPU, extra dirs read-only
-just sandbox -- cargo test      # one-shot command
+just sandbox --exec 'cargo test'  # one-shot command
 ```
 
 `.devcontainer/` uses the same image for VS Code, JetBrains and Zed.
 
 After adding Codex to an existing setup, run `just sandbox-build` (or rebuild
 your IDE's dev container). Sign in once with
-`just sandbox -- codex login --device-auth`, then run `just sandbox --codex`.
+`just sandbox --exec 'codex login --device-auth'`, then run `just sandbox --codex`.
 Follow the browser link and enter the code; device code login must be enabled
 in your ChatGPT security settings or workspace permissions
 ([OpenAI authentication docs](https://developers.openai.com/codex/auth#login-on-headless-devices)).

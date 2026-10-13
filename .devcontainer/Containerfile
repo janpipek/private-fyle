@@ -37,17 +37,29 @@ RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile mini
     && chmod -R a+rwX "$CARGO_HOME"
 
 # Coding agents, global so they are on PATH for any runtime user.
-RUN npm install -g @anthropic-ai/claude-code @openai/codex
+RUN npm install -g @anthropic-ai/claude-code @openai/codex \
+    @earendil-works/pi-coding-agent
+# RUN claude plugin install mattpocock-skills@claude-plugins-official
 
 # The bind-mounted repo has host ownership; without this git refuses to operate
 # on it ("dubious ownership"). System-wide so it holds for every user/IDE.
 RUN git config --system --add safe.directory '*'
 
 # A world-writable HOME that works whatever UID we run as.
-RUN install -d -m 0777 /home/dev /home/dev/.cache /home/dev/.npm /home/dev/.codex
+RUN install -d -m 0777 /home/dev /home/dev/.cache /home/dev/.npm /home/dev/.codex \
+    /home/dev/.pi
 ENV HOME=/home/dev \
     XDG_CACHE_HOME=/home/dev/.cache \
     npm_config_cache=/home/dev/.npm
+
+# Seed new Codex volumes in the runtime user's home. Existing volumes are
+# initialized by the entrypoint, since mounting one hides the image contents.
+RUN codex plugin marketplace add mattpocock/skills \
+    && codex plugin add mattpocock-skills@mattpocock \
+    && chmod -R a+rwX /home/dev/.codex
+COPY codex-entrypoint.sh /usr/local/bin/codex-entrypoint
+RUN chmod +x /usr/local/bin/codex-entrypoint
+ENTRYPOINT ["/usr/local/bin/codex-entrypoint"]
 
 # Headless by default; tools/sandbox.py --gui adds the Wayland/GPU wiring.
 CMD ["bash"]

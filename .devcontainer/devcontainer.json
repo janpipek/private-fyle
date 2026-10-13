@@ -17,8 +17,11 @@
   "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind",
   "workspaceFolder": "${localWorkspaceFolder}",
 
-  // Share Codex login/config with the CLI launcher, including after rebuilds.
-  "mounts": ["source=fyle-codex,target=/home/dev/.codex,type=volume"],
+  // Share Codex and Pi login/config with the CLI launcher, including after rebuilds.
+  "mounts": [
+    "source=fyle-codex,target=/home/dev/.codex,type=volume",
+    "source=fyle-pi,target=/home/dev/.pi,type=volume"
+  ],
 
   // keep-id: run as the host UID so files stay host-owned and editable.
   // label=disable: access the bind mount under enforcing SELinux without

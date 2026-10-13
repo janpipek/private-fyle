@@ -10,9 +10,22 @@ run:
 sandbox-build:
     uv run tools/sandbox.py build
 
-# Run the dev sandbox (bash shell); pass --claude or --codex, plus --gui, --mount DIR
+# Run codex agent in a sandbox
+codex:
+    just sandbox --codex
+
+# Run claude agent in a sandbox
+claude:
+    just sandbox --claude
+
+# Run pi agent in a sandbox
+pi:
+    just sandbox --pi
+
+# Run the dev sandbox (bash shell); pass --claude, --codex, --pi or --exec CMD, plus --gui, --mount DIR
+[positional-arguments]
 sandbox *args:
-    uv run tools/sandbox.py run {{args}}
+    uv run tools/sandbox.py run "$@"
 
 # Build a release binary and package it as a Fedora RPM in dist/fedora
 [linux]
