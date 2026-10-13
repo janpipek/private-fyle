@@ -119,9 +119,9 @@ repeated, list or map columns show an unsupported-format message.
 
 F3 previews XLSX, XLSM, XLS, XLSB and ODS workbooks as tables using the pure-Rust
 `calamine` reader (no external programs). One sheet shows at a time with
-Previous/Next buttons and a "Sheet name (n of m)" label; other sheets are read
-on demand. Columns are headed by letters (the sheet's used range keeps its
-absolute letters and a row-number column), formulas show their cached values,
+sheet-name tabs; other sheets are read on demand. Columns are headed by letters
+(the sheet's used range keeps its absolute letters and a row-number column),
+formulas show their cached values,
 dates appear as ISO text and errors as codes. The sample is limited to 500
 rows and 40 columns with cells capped at 1,024 characters; files over 32 MiB or
 declaring over 256 MiB uncompressed are refused. Corrupt or password-protected
@@ -635,7 +635,8 @@ archive, notebook, table and detail previews show scrollbars. `src/preview_view.
 keeps debounce, background tasks, focus and editor/notebook image resources,
 with one render arm per `Content` variant. `src/preview/session.rs` owns typed
 target identity, line-only changes, reload resets, PDF page and workbook sheet
-selection, and generation checks for full loads, page renders and sheet reads. A new file
+selection (with sheet tabs in the view), and generation checks for full loads,
+page renders and sheet reads. A new file
 type is a new `Previewer` registered before the fallbacks; only a new kind of
 display needs a new `Content` variant and render arm.
 

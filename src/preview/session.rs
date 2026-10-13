@@ -278,19 +278,15 @@ impl PreviewSession {
         true
     }
 
-    /// Moves within workbook bounds and invalidates earlier sheet reads.
-    pub fn change_sheet(&mut self, delta: isize) -> Option<Request> {
+    /// Selects a workbook sheet within bounds and invalidates earlier sheet reads.
+    pub fn select_sheet(&mut self, index: usize) -> Option<Request> {
         let State::Ready(preview) = &self.state else {
             return None;
         };
         let Content::Spreadsheet { path, sheets, .. } = &preview.content else {
             return None;
         };
-        let index = self
-            .sheet_index
-            .saturating_add_signed(delta)
-            .min(sheets.len().saturating_sub(1));
-        if index == self.sheet_index {
+        if index >= sheets.len() || index == self.sheet_index {
             return None;
         }
         self.sheet_index = index;
@@ -482,7 +478,7 @@ mod tests {
         let mut sheet_session = PreviewSession::default();
         let load = select(&mut sheet_session, "workbook");
         assert!(sheet_session.complete(&load, Ok(workbook())));
-        let pending_sheet = sheet_session.change_sheet(1).unwrap();
+        let pending_sheet = sheet_session.select_sheet(1).unwrap();
         sheet_session.suspend_navigation();
         assert!(!sheet_session.complete_sheet(&pending_sheet, Ok(Sheet::default())));
         let resumed_sheet = sheet_session.reload_sheet().unwrap();
@@ -493,19 +489,20 @@ mod tests {
     #[test]
     fn workbook_bounds_samples_and_stale_reads_are_model_decisions() {
         let mut session = PreviewSession::default();
-        assert!(session.change_sheet(1).is_none());
+        assert!(session.select_sheet(1).is_none());
         let load = select(&mut session, "workbook");
         assert!(session.complete(&load, Ok(workbook())));
         assert_eq!(session.sheet(), &Some(Ok(Sheet::default())));
-        assert!(session.change_sheet(-1).is_none());
-        let second = session.change_sheet(1).unwrap();
+        assert!(session.select_sheet(0).is_none());
+        assert!(session.select_sheet(3).is_none());
+        let second = session.select_sheet(1).unwrap();
         assert!(session.sheet().is_none());
-        let last = session.change_sheet(isize::MAX).unwrap();
+        let last = session.select_sheet(2).unwrap();
         assert_eq!(last.index, 2);
-        assert!(session.change_sheet(1).is_none());
+        assert!(session.select_sheet(3).is_none());
         assert!(!session.complete_sheet(&second, Ok(Sheet::default())));
         assert!(session.complete_sheet(&last, Err("sheet failed".into())));
-        let back = session.change_sheet(isize::MIN).unwrap();
+        let back = session.select_sheet(0).unwrap();
         assert_eq!(back.index, 0);
         assert!(session.complete_sheet(&back, Ok(Sheet::default())));
         let next = select(&mut session, "other");
@@ -513,7 +510,7 @@ mod tests {
         assert!(session.sheet().is_none());
         assert!(!session.complete_sheet(&back, Err("obsolete".into())));
         assert!(session.complete(&next, Ok(pdf())));
-        assert!(session.change_sheet(1).is_none());
+        assert!(session.select_sheet(1).is_none());
     }
 
     #[test]

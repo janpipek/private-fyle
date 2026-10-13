@@ -70,8 +70,6 @@ not to pursue an item.
 - [ ] Make PDF previews scroll continuously through pages instead of requiring
       Previous/Next page navigation. Keep page rendering bounded and load
       pages as they enter view.
-- [ ] Show spreadsheet sheet names as tabs in F3, replacing Previous/Next
-      sheet navigation while preserving the bounded per-sheet sample.
 - [ ] Idea: follow a growing local text file in F3, with an appendable,
       bounded view that pauses auto-scroll when the user scrolls up and handles
       truncation or rotation. Reuse the view for live tool output if suitable.
@@ -84,6 +82,10 @@ not to pursue an item.
       action, as if Alt were held) and F2, F3 and F4 did nothing, while Down
       and Ctrl-P worked. Not yet known whether only the test setup or real
       sessions are affected; check F3 on a normal desktop first.
+- [ ] Bug: custom title bar window controls appear almost invisible. Reproduce
+      in the affected desktop/theme session, identify the contrast issue, and
+      keep minimize, maximize and close clearly visible in both main and editor
+      windows.
 - [ ] Archive follow-ups: nested archives; maybe write support.
 - [ ] Properties format readers: add SQLite structure and Parquet schema/row-group
       metadata as independent Properties sections. Keep readers bounded and
@@ -145,6 +147,11 @@ not to pursue an item.
       right-click to show a menu etc.
 
 ## Done
+
+- [x] Show spreadsheet sheet names as tabs in F3, replacing Previous/Next
+      sheet navigation while preserving the bounded per-sheet sample. Sheet
+      reads remain on demand, bounded, cancellable and guarded against stale
+      completions.
 
 - [x] Properties and View tabs in one inspector: Alt-Enter / File › Properties
       opens Properties, while F3 opens/selects View or closes the inspector when

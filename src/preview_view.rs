@@ -281,9 +281,9 @@ impl PreviewPane {
         }
     }
 
-    /// Shows another sheet of the workbook, read in the background.
-    fn change_sheet(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(request) = self.session.change_sheet(delta) else {
+    /// Shows the selected workbook sheet, read in the background.
+    fn select_sheet(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(request) = self.session.select_sheet(index) else {
             return;
         };
         self.load_sheet(request, window, cx);
@@ -574,32 +574,20 @@ impl PreviewPane {
             }
             Content::Spreadsheet { sheets, .. } => {
                 let index = self.session.sheet_index();
-                let count = sheets.len();
-                let name = sheets.get(index).cloned().unwrap_or_default();
-                let controls =
-                    h_flex()
-                        .flex_none()
-                        .items_center()
-                        .justify_center()
-                        .gap_3()
-                        .p_2()
-                        .child(
-                            Button::new("sheet-previous")
-                                .label("Previous")
-                                .disabled(index == 0)
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.change_sheet(-1, window, cx)
-                                })),
-                        )
-                        .child(format!("{name} ({} of {count})", index + 1))
-                        .child(
-                            Button::new("sheet-next")
-                                .label("Next")
-                                .disabled(index + 1 >= count)
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.change_sheet(1, window, cx)
-                                })),
-                        );
+                let controls = h_flex()
+                    .flex_none()
+                    .items_center()
+                    .gap_1()
+                    .px_2()
+                    .overflow_x_scrollbar()
+                    .children(sheets.iter().enumerate().map(|(sheet_index, name)| {
+                        Button::new(format!("sheet-tab-{sheet_index}"))
+                            .label(name.clone())
+                            .toggled(sheet_index == index)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.select_sheet(sheet_index, window, cx)
+                            }))
+                    }));
                 let body = match self.session.sheet() {
                     Some(Ok(sheet)) => {
                         self.render_table(&sheet.header, &sheet.rows, sheet.summary(), true, cx)
