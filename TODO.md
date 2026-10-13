@@ -93,8 +93,12 @@ not to pursue an item.
       without a content viewer. Parquet schema and row-group metadata also
       belong in Properties. Reuse a UI-independent inspection model, load in
       the background with cancellation and bounded reads, and allow either
-      perspective independently. Properties command placement/shortcut and
-      the presentation of structured metadata remain to be decided.
+      perspective independently. The agreed architecture uses sibling View
+      and Properties tabs in one inspector, with room for a third perspective;
+      see [Properties plan](docs/properties-plan.md). F3 opens/selects View,
+      or closes the inspector when View is already active; layout changes
+      preserve the selected tab. Properties command placement/shortcut, tab
+      persistence and initial metadata scope remain to be decided.
 - [ ] Workspace layout follow-ups: test the current right/bottom inspector
       arrangements across window sizes and UI scaling; decide whether to add
       a two-inspector layout. Properties remains a separate

@@ -261,8 +261,10 @@ new features or dependency changes.
    preserved.
 5. **Make later feature seams ready without prebuilding them.** If Properties is
    approved, define its independent structured inspection result before adding
-   another renderer. If large-file preview or conversions are approved, design
-   bounded incremental reader contracts before extending samples. If remote
+   another renderer. The agreed [Properties plan](properties-plan.md) records
+   sibling inspector tabs, lifecycle ownership and remaining product decisions;
+   implementation remains pending. If large-file preview or conversions are
+   approved, design bounded incremental reader contracts before extending samples. If remote
    writeback or grouped assets are approved, settle freshness/capability and
    action-target rules before changing transfer execution.
 6. **Clarify remaining service ownership.** Slice 6a is complete:
