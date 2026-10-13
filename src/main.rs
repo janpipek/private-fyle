@@ -118,6 +118,9 @@ fn main() {
         .with_assets(gpui_kit::assets::Assets)
         .run(move |cx| {
             gpui_kit::init(cx);
+            cx.set_global(window_chrome_view::StartupCustomTitlebar(
+                settings.window.custom_titlebar,
+            ));
             commander::bind_keys(cx);
             editor_view::bind_keys(cx);
             panel::bind_keys(cx);
@@ -133,7 +136,7 @@ fn main() {
             let bounds = Bounds::centered(None, size, cx);
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
-                ..window_chrome_view::window_options("Fyle".into())
+                ..window_chrome_view::window_options("Fyle".into(), cx)
             };
             let mut errors: Vec<String> = settings_error.into_iter().collect();
             if let Err(keymap_errors) = commander::validate_user_keys(&settings.keymap, cx) {

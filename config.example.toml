@@ -39,6 +39,7 @@ bookmarks = []
 [window]
 width = 1200
 height = 760
+custom_titlebar = true     # themed title bar; false requests native (restart)
 
 [panels]
 # Start directories; "~" expands to the home directory.

@@ -12,7 +12,9 @@ use gpui_kit::component::{
 use gpui_kit::*;
 
 use super::Commander;
-use super::keys::{About, OpenConfig, SelectColumns, SelectTheme, ZoomIn, ZoomOut, ZoomReset};
+use super::keys::{
+    About, OpenConfig, SelectColumns, SelectTheme, ToggleCustomTitlebar, ZoomIn, ZoomOut, ZoomReset,
+};
 use crate::columns::ColumnKind;
 use crate::editor::Document;
 use crate::settings::{self};
@@ -31,6 +33,42 @@ pub fn set_font_size(cx: &mut App, f: impl FnOnce(f32) -> f32) -> f32 {
 }
 
 impl Commander {
+    /// Saves the requested title bar mode for the next application start.
+    pub fn toggle_custom_titlebar(
+        &mut self,
+        _: &ToggleCustomTitlebar,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.custom_titlebar_saving || cfg!(target_os = "macos") {
+            return;
+        }
+        let enabled = !self.custom_titlebar;
+        self.custom_titlebar_saving = true;
+        cx.notify();
+        self._custom_titlebar_save_task = cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { settings::persistence::save_custom_titlebar(enabled) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.custom_titlebar_saving = false;
+                match result {
+                    Ok(_) => {
+                        this.custom_titlebar = enabled;
+                        this.status = format!(
+                            "Custom title bar {} saved; restart Fyle to apply",
+                            if enabled { "enabled" } else { "disabled" }
+                        )
+                        .into();
+                    }
+                    Err(error) => this.status = error.into(),
+                }
+                cx.notify();
+            });
+        });
+    }
+
     /// Opens the theme picker; the highlighted theme is previewed live.
     /// Columns…: the column catalog, grouped, as checkboxes. Changes apply
     /// to both panels at once and are saved to the settings file.

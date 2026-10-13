@@ -158,6 +158,11 @@ pub struct Commander {
     shortcut_entries: Vec<crate::settings::KeymapEntry>,
     /// Config write for shortcut edits.
     _keymap_save_task: Task<()>,
+    /// Config write for the custom title bar preference.
+    _custom_titlebar_save_task: Task<()>,
+    /// Whether custom title bars are requested at the next application start.
+    custom_titlebar: bool,
+    custom_titlebar_saving: bool,
     /// Built-in editor windows owned by this commander.
     editor_windows: Vec<EditorWindow>,
     /// The `theme` setting currently in effect.
@@ -384,6 +389,9 @@ impl Commander {
             terminal_command: settings.terminal.command.clone(),
             shortcut_entries: settings.keymap.clone(),
             _keymap_save_task: Task::ready(()),
+            _custom_titlebar_save_task: Task::ready(()),
+            custom_titlebar: settings.window.custom_titlebar,
+            custom_titlebar_saving: false,
             theme: settings.theme.clone(),
             active: 0,
             show_hidden: settings.show_hidden,
@@ -568,6 +576,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::edit_file))
             .on_action(cx.listener(Self::new_file))
             .on_action(cx.listener(Self::select_theme))
+            .on_action(cx.listener(Self::toggle_custom_titlebar))
             .on_action(cx.listener(Self::command_palette))
             .on_action(cx.listener(Self::help))
             .on_action(cx.listener(Self::tools_menu))
@@ -715,7 +724,7 @@ impl Render for Commander {
             .text_color(fg)
             .text_sm()
             .when(
-                crate::window_chrome_view::uses_custom_titlebar(window),
+                crate::window_chrome_view::uses_custom_titlebar(window, cx),
                 |root| {
                     #[cfg(any(windows, target_os = "linux"))]
                     let root = root.child(crate::window_chrome_view::menu_title_bar(
@@ -727,7 +736,7 @@ impl Render for Commander {
             )
             // Native platforms and Linux window managers with server decorations keep this row.
             .when(
-                !crate::window_chrome_view::uses_custom_titlebar(window),
+                !crate::window_chrome_view::uses_custom_titlebar(window, cx),
                 |root| {
                     root.child(
                         div()

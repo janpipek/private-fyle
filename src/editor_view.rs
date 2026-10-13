@@ -6,7 +6,6 @@ use gpui_kit::component::input::{Editor, EditorState, InputEvent};
 use gpui_kit::component::{
     ActiveTheme as _, Disableable as _, Sizable as _, WindowExt as _, h_flex, v_flex,
 };
-#[cfg(not(windows))]
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -36,7 +35,7 @@ pub fn open_window(doc: Document, cx: &mut App) -> Result<(AnyWindowHandle, Enti
     let bounds = Bounds::centered(None, size(px(900.), px(700.)), cx);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
-        ..crate::window_chrome_view::window_options(title)
+        ..crate::window_chrome_view::window_options(title, cx)
     };
     gpui_kit::open_window(options, cx, move |window, cx| {
         let pane = cx.new(|cx| EditorPane::new(doc, window, cx));
@@ -203,7 +202,7 @@ impl EditorPane {
 impl Render for EditorPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(windows, target_os = "linux")))]
         let _ = window;
         #[cfg(any(windows, target_os = "linux"))]
         let weak_pane = cx.entity().downgrade();
@@ -224,9 +223,6 @@ impl Render for EditorPane {
             },
             cx,
         );
-        #[cfg(windows)]
-        let header = titlebar;
-        #[cfg(not(windows))]
         let native_header = h_flex()
             .gap_2()
             .px_2()
@@ -258,8 +254,8 @@ impl Render for EditorPane {
                     .xsmall()
                     .on_click(cx.listener(|this, _, w, cx| this.close(&CloseEditor, w, cx))),
             );
-        #[cfg(target_os = "linux")]
-        let header = if crate::window_chrome_view::uses_custom_titlebar(window) {
+        #[cfg(any(windows, target_os = "linux"))]
+        let header = if crate::window_chrome_view::uses_custom_titlebar(window, cx) {
             titlebar.into_any_element()
         } else {
             native_header.into_any_element()

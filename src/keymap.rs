@@ -250,6 +250,7 @@ fn action_id(cmd: Cmd) -> &'static str {
         Cmd::SortDescending => "SortDescending",
         Cmd::SelectColumns => "SelectColumns",
         Cmd::SelectTheme => "SelectTheme",
+        Cmd::ToggleCustomTitlebar => "ToggleCustomTitlebar",
         Cmd::Refresh => "Refresh",
         Cmd::CalculateSizes => "CalculateSizes",
         Cmd::GoBack => "GoBack",

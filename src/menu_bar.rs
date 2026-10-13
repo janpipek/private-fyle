@@ -126,7 +126,7 @@ impl MenuBar {
 
 impl Render for MenuBar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let custom_titlebar = crate::window_chrome_view::uses_custom_titlebar(window);
+        let custom_titlebar = crate::window_chrome_view::uses_custom_titlebar(window, cx);
         div()
             .id("fyle-menu-bar")
             .role(Role::MenuBar)

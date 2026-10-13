@@ -152,6 +152,7 @@ not to pursue an item.
 - [x] Linux custom title bars: combine the main menus and themed window chrome
       in one row, use GPUI client decorations and controls when supported, and
       preserve server-decoration fallback and the editor's unsaved-change prompt.
+      View › Custom Title Bar saves the default-on preference for the next start.
 
 - [x] Windows custom title bars: combine the main menus and themed window chrome
       in one row; use a matching editor title bar, native window controls and

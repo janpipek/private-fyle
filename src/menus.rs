@@ -54,6 +54,7 @@ pub enum Cmd {
     SortDescending,
     SelectColumns,
     SelectTheme,
+    ToggleCustomTitlebar,
     Refresh,
     CalculateSizes,
     GoBack,
@@ -135,11 +136,15 @@ pub struct State {
     pub copy_blocked: Option<&'static str>,
     /// Likewise for Move.
     pub move_blocked: Option<&'static str>,
+    /// Custom title bar preference for the next application start.
+    pub custom_titlebar: bool,
+    /// Whether a custom title bar preference save is underway.
+    pub custom_titlebar_saving: bool,
 }
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 70] = [
+    pub const ALL: [Cmd; 71] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::OpenInBrowser,
@@ -191,6 +196,7 @@ impl Cmd {
         Cmd::ZoomOut,
         Cmd::ZoomReset,
         Cmd::SelectTheme,
+        Cmd::ToggleCustomTitlebar,
         Cmd::SelectColumns,
         Cmd::ToolsMenu,
         Cmd::FindFiles,
@@ -257,6 +263,7 @@ impl Cmd {
             Cmd::SortDescending => "Descending",
             Cmd::SelectColumns => "Columns…",
             Cmd::SelectTheme => "Theme…",
+            Cmd::ToggleCustomTitlebar => "Custom Title Bar",
             Cmd::Refresh => "Refresh",
             Cmd::CalculateSizes => "Calculate Sizes",
             Cmd::GoBack => "Back",
@@ -301,6 +308,7 @@ impl Cmd {
             Cmd::Rename => "Rename (bulk when several are marked)",
             Cmd::ExtractArchive => "Extract archive into a folder in the other panel",
             Cmd::TogglePreview => "Toggle preview",
+            Cmd::ToggleCustomTitlebar => "Custom Title Bar (restart required)",
             Cmd::LayoutTwoPanels => "Show both folder panels",
             Cmd::LayoutTwoPanelsInspector => "Show both panels and preview",
             Cmd::LayoutOnePanelInspector => "Show the active panel and preview",
@@ -356,6 +364,7 @@ impl Cmd {
             Cmd::IconView => Some(state.view == ViewMode::Icons),
             Cmd::ToggleHidden => Some(state.hidden),
             Cmd::ToggleBookmark => Some(state.bookmarked),
+            Cmd::ToggleCustomTitlebar => Some(state.custom_titlebar),
             Cmd::SortDescending => Some(state.sort.descending),
             cmd => cmd.sort_key().map(|key| state.sort.key == key),
         }
@@ -407,6 +416,14 @@ impl Cmd {
 
     /// Why the command cannot run now, if it cannot.
     pub fn unavailable(self, state: &State) -> Option<&'static str> {
+        if self == Cmd::ToggleCustomTitlebar {
+            if cfg!(target_os = "macos") {
+                return Some("Custom title bars are not available on macOS");
+            }
+            if state.custom_titlebar_saving {
+                return Some("Saving custom title bar preference");
+            }
+        }
         if let Some(caps) = &state.remote
             && let Some(reason) = self.remote_unavailable(caps)
         {
@@ -607,7 +624,7 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
             view.extend(items(&[
                 &[],
                 &[ZoomIn, ZoomOut, ZoomReset],
-                &[SelectColumns, SelectTheme],
+                &[SelectColumns, SelectTheme, ToggleCustomTitlebar],
                 &[CalculateSizes, Refresh],
             ]));
             view
@@ -665,6 +682,42 @@ mod tests {
                     assert!(in_menus.insert(cmd), "{cmd:?} in two menus");
                 }
             }
+        }
+    }
+
+    #[test]
+    fn custom_titlebar_command_shows_saved_state_and_busy_availability() {
+        let view = menu_bar()
+            .into_iter()
+            .find_map(|(name, items)| (name == "View").then_some(items))
+            .expect("View menu exists");
+        assert!(view.contains(&Item::Cmd(Cmd::ToggleCustomTitlebar)));
+        assert_eq!(Cmd::ToggleCustomTitlebar.label(), "Custom Title Bar");
+        assert!(
+            Cmd::ToggleCustomTitlebar
+                .palette_label()
+                .contains("restart")
+        );
+        assert_eq!(
+            Cmd::ToggleCustomTitlebar.checked(&State {
+                custom_titlebar: false,
+                ..State::default()
+            }),
+            Some(false)
+        );
+        if cfg!(target_os = "macos") {
+            assert_eq!(
+                Cmd::ToggleCustomTitlebar.unavailable(&State::default()),
+                Some("Custom title bars are not available on macOS")
+            );
+        } else {
+            assert_eq!(
+                Cmd::ToggleCustomTitlebar.unavailable(&State {
+                    custom_titlebar_saving: true,
+                    ..State::default()
+                }),
+                Some("Saving custom title bar preference")
+            );
         }
     }
 

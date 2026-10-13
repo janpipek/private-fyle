@@ -87,6 +87,8 @@ pub enum KeyContext {
 pub struct WindowSettings {
     pub width: f32,
     pub height: f32,
+    /// Use a themed title bar with window controls when supported.
+    pub custom_titlebar: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -149,6 +151,7 @@ impl Default for WindowSettings {
         Self {
             width: 1200.,
             height: 760.,
+            custom_titlebar: true,
         }
     }
 }
@@ -306,6 +309,13 @@ mod tests {
         let settings = Settings::parse("[window]\nwidth = 900").unwrap();
         assert_eq!(settings.window.width, 900.);
         assert_eq!(settings.window.height, 760.);
+        assert!(settings.window.custom_titlebar);
+    }
+
+    #[test]
+    fn parses_custom_titlebar_preference() {
+        let settings = Settings::parse("[window]\ncustom_titlebar = false").unwrap();
+        assert!(!settings.window.custom_titlebar);
     }
 
     #[test]

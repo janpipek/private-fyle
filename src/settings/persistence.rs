@@ -67,6 +67,64 @@ pub fn save_theme_to(path: &Path, name: &str) -> Result<(), String> {
     std::fs::write(path, doc.to_string()).map_err(|e| error(&e))
 }
 
+/// Saves the custom title bar preference while keeping other settings intact.
+pub fn save_custom_titlebar(enabled: bool) -> Result<PathBuf, String> {
+    let path = path().ok_or("No config directory on this platform")?;
+    save_custom_titlebar_to(&path, enabled)?;
+    Ok(path)
+}
+
+/// Saves the custom title bar preference at a supplied config path.
+pub fn save_custom_titlebar_to(path: &Path, enabled: bool) -> Result<(), String> {
+    let error = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(error(&e)),
+    };
+    let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| error(&e))?;
+    match doc.get_mut("window") {
+        Some(item) => {
+            if let Some(window) = item.as_table_mut() {
+                set_table_bool(window, "custom_titlebar", enabled);
+            } else if let Some(window) = item
+                .as_value_mut()
+                .and_then(toml_edit::Value::as_inline_table_mut)
+            {
+                if let Some(value) = window.get_mut("custom_titlebar") {
+                    replace_bool_value(value, enabled);
+                } else {
+                    window.insert("custom_titlebar", enabled.into());
+                }
+            } else {
+                return Err(error(&"window settings must be a table"));
+            }
+        }
+        None => {
+            doc["window"] = toml_edit::table();
+            doc["window"]["custom_titlebar"] = toml_edit::value(enabled);
+        }
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| error(&e))?;
+    }
+    std::fs::write(path, doc.to_string()).map_err(|e| error(&e))
+}
+
+fn set_table_bool(table: &mut toml_edit::Table, key: &str, enabled: bool) {
+    if let Some(value) = table.get_mut(key).and_then(toml_edit::Item::as_value_mut) {
+        replace_bool_value(value, enabled);
+    } else {
+        table[key] = toml_edit::value(enabled);
+    }
+}
+
+fn replace_bool_value(value: &mut toml_edit::Value, enabled: bool) {
+    let decor = value.decor().clone();
+    *value = enabled.into();
+    *value.decor_mut() = decor;
+}
+
 /// Writes the edited keymap to the config file, preserving unrelated settings.
 pub fn save_keymap(entries: &[KeymapEntry]) -> Result<PathBuf, String> {
     let path = path().ok_or("No config directory on this platform")?;
@@ -344,8 +402,9 @@ mod tests {
         let temp = tempfile::TempDir::new().unwrap();
         let path = temp.path().join("config.toml");
         type Save = fn(&Path) -> Result<(), String>;
-        let savers: [Save; 7] = [
+        let savers: [Save; 8] = [
             |path| save_theme_to(path, "dark"),
+            |path| save_custom_titlebar_to(path, false),
             |path| save_keymap_to(path, &[]),
             |path| save_font_size_to(path, 16.),
             |path| save_columns_to(path, &[]),
@@ -373,6 +432,49 @@ mod tests {
         let saved = std::fs::read_to_string(&path).unwrap();
         assert!(saved.contains(unrelated));
         assert!(saved.contains("theme = \"dark\""));
+    }
+
+    #[test]
+    fn saving_custom_titlebar_preserves_comments_and_other_window_settings() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            "# keep this\n[window]\nwidth = 900 # keep width comment\ncustom_titlebar = true # keep titlebar comment\n",
+        )
+        .expect("write config");
+        save_custom_titlebar_to(&path, false).expect("save preference");
+        let saved = std::fs::read_to_string(&path).expect("read config");
+        assert!(saved.contains("# keep this"));
+        assert!(saved.contains("width = 900 # keep width comment"));
+        assert!(saved.contains("custom_titlebar = false # keep titlebar comment"));
+        assert!(!load_from(&path).0.window.custom_titlebar);
+    }
+
+    #[test]
+    fn saving_custom_titlebar_supports_inline_window_tables() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "window = { width = 900, custom_titlebar = true }\n")
+            .expect("write config");
+        save_custom_titlebar_to(&path, false).expect("save preference");
+        let settings = load_from(&path).0;
+        assert_eq!(settings.window.width, 900.);
+        assert!(!settings.window.custom_titlebar);
+    }
+
+    #[test]
+    fn saving_custom_titlebar_rejects_non_table_window_without_changing_file() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("config.toml");
+        let contents = "window = \"invalid\" # retain this file\n";
+        std::fs::write(&path, contents).expect("write config");
+        let error = save_custom_titlebar_to(&path, false).expect_err("window is not a table");
+        assert!(error.starts_with(&format!("{}: ", path.display())));
+        assert_eq!(
+            std::fs::read_to_string(path).expect("read config"),
+            contents
+        );
     }
 
     #[test]

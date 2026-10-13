@@ -258,6 +258,11 @@ every key with its default. Errors (including unknown keys) are shown in the
 status line and the defaults are used. Settings are read at startup.
 The View menu's workspace layout choice is saved automatically in
 `[workspace] layout`.
+View › Custom Title Bar saves `window.custom_titlebar` (default `true`) for
+the next start on Windows and Linux. The current windows keep their startup
+decoration until Fyle restarts; the command is unavailable on macOS. On Linux,
+`false` requests native decorations; client-only compositors still use the
+themed title bar so their window controls remain available.
 
 Bookmarks still accept ordinary path strings in `config.toml`; newly saved
 bookmarks use a versioned location value so native path bytes and control
@@ -309,14 +314,17 @@ destructive buttons retain red backgrounds.
 
 ### Window title bars
 
-On Windows and Linux, the main window combines its menus and themed title bar
-in one row. Drag the title or empty space to move the window; double-click it to
-maximize or restore. Minimize, maximize, close, and edge resizing use the
-platform window controls. Linux requests client decorations from the window
-manager and keeps the existing menu row if the manager selects server
-decorations. Editor windows use a matching title bar, and closing a modified
-document still asks whether to save it. macOS retains its existing window
-decorations.
+On Windows and Linux, the main window can combine its menus and themed title
+bar in one row. This is on by default and can be changed in View › Custom Title
+Bar; the change applies after a restart. When enabled, drag the title or empty
+space to move the window and double-click to maximize or restore. Minimize,
+maximize, close, and edge resizing use the platform window controls. Linux
+requests client decorations from the window manager and keeps the existing menu
+row if the manager selects server decorations. If native decorations were
+requested but the compositor only supports client decorations, Fyle keeps the
+themed title bar and its controls. Editor windows use a matching title bar, and
+closing a modified document still asks whether to save it. macOS retains its
+existing window decorations, and the command is disabled there.
 
 ## Build dependencies
 
@@ -573,6 +581,7 @@ Where things live (`src/`):
 |---|---|
 | `bookmarks.rs` | Local and remote bookmark toggling in memory and in `config.toml` |
 | `main.rs` | Startup, settings, start directories, window |
+| `window_chrome_view.rs` | Applies the immutable startup title bar choice to window options and rendering; Commander keeps the saved next-start preference separate |
 | `commander.rs`, `commander/` | Main window: the two panels, actions, dialogs, jobs bar, tools orchestration. Split by area into `commander/` (keys, navigation, search, files, jobs, view, archives, remotes, tools, menus, appearance); new logic goes into its own module, only wiring here. |
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
 | `entry.rs`, `model.rs`, `location.rs`, `location/`, `location_codec.rs` | Shared `Entry`/`Attrs` and pure sort rules; `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; pure local, remote and archive address semantics; versioned lossless location persistence |

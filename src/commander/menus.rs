@@ -139,6 +139,8 @@ impl Commander {
             }),
             copy_blocked: blocked(true),
             move_blocked: blocked(false),
+            custom_titlebar: self.custom_titlebar,
+            custom_titlebar_saving: self.custom_titlebar_saving,
         }
     }
 
