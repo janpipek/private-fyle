@@ -17,6 +17,8 @@ not to pursue an item.
       performance before switching.
 - [ ] Add an image tool to set the selected image as the desktop wallpaper.
       Choose the Linux desktop integration and handle unsupported sessions.
+- [ ] Support GPX and FIT files. Decide which track and activity details belong
+      in Preview and Properties, and whether to show a route map.
 - [ ] Keymap presets: selectable fyle, Krusader, Midnight Commander and
       Finder-style presets beneath user overrides. Map only supported
       commands; Finder's Command-key conventions wait for macOS support.
