@@ -142,6 +142,13 @@ not to pursue an item.
 
 ## Done
 
+- [x] F3 previews GPX tracks/routes and FIT activities/courses with a summary
+      and offline route outline. Properties independently shows local GPX/FIT
+      metadata through the same bounded readers. FIT session totals take
+      precedence over distance inferred from GPS points; files without GPS
+      still show available activity facts. Readers cap files at 16 MiB and
+      outlines at 100,000 points.
+
 - [x] Add an optional Duration column (`duration`) for local audio and video
       files, formatted as `mm:ss` or `h:mm:ss` through the bounded media reader
       and panel metadata queue. Remote and archive rows remain blank.

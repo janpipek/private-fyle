@@ -214,10 +214,7 @@ impl Render for EditorPane {
         let weak_pane = cx.entity().downgrade();
         #[cfg(any(windows, target_os = "linux"))]
         let titlebar = crate::window_chrome_view::editor_title_bar(
-            editor_title(
-                &self.doc.path().display().to_string(),
-                self.modified,
-            ),
+            editor_title(&self.doc.path().display().to_string(), self.modified),
             Button::new("save")
                 .label("Save")
                 .ghost()

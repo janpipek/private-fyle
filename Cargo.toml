@@ -9,6 +9,7 @@ base64 = "0.22.1"
 dirs = "5"
 dunce = "1.0.5"
 flate2 = "1.1.10"
+fitparser = "0.11.0"
 globset = "0.4.20"
 html5ever = "0.27.0"
 gpui-kit = { version = "0.7.0", features = ["tree-sitter-languages"] }

@@ -16,6 +16,7 @@ mod archive;
 mod binary;
 mod directory;
 mod document;
+mod geo;
 mod image;
 mod markdown;
 mod media;
@@ -38,6 +39,7 @@ pub use archive::ArchivePreviewer;
 pub use binary::BinaryPreviewer;
 pub use directory::DirectoryPreviewer;
 pub use document::DocumentPreviewer;
+pub use geo::GeoPreviewer;
 pub use image::ImagePreviewer;
 pub use markdown::MarkdownPreviewer;
 pub use media::MediaPreviewer;
@@ -162,6 +164,11 @@ pub enum Content {
     },
     /// Labelled details only (e.g. an audio file's tags and format).
     Info { info: Vec<(String, String)> },
+    /// Route or activity summary and an optional locally rendered outline.
+    Geo {
+        info: Vec<(String, String)>,
+        outline: Option<PathBuf>,
+    },
     /// Contents of an archive.
     Archive {
         items: Vec<ArchiveItem>,
@@ -220,6 +227,7 @@ impl Registry {
         registry.register(MarkdownPreviewer);
         registry.register(NotebookPreviewer);
         registry.register(ParquetPreviewer);
+        registry.register(GeoPreviewer);
         registry.register(TablePreviewer);
         registry.register(TextPreviewer);
         registry.register(BinaryPreviewer);
