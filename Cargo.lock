@@ -2903,6 +2903,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aedcfb3409746eddb02b9e19ebda1c3394f759a152e48ee875a0844d1b955484"
 
 [[package]]
+name = "fitparser"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56a834aed7c01a500afb06ebcfde59a4dcfd1de7ce15ae501462934d59655376"
+dependencies = [
+ "chrono",
+ "nom 8.0.0",
+ "serde",
+]
+
+[[package]]
 name = "fixedbitset"
 version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3226,6 +3237,7 @@ dependencies = [
  "calamine",
  "dirs 5.0.1",
  "dunce",
+ "fitparser",
  "flate2",
  "globset",
  "gpui-kit",

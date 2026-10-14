@@ -9,6 +9,7 @@ base64 = "0.22.1"
 dirs = "5"
 dunce = "1.0.5"
 flate2 = "1.1.10"
+fitparser = "0.11.0"
 globset = "0.4.20"
 html5ever = "0.27.0"
 gpui-kit = { version = "0.7.0", features = ["tree-sitter-languages"] }
@@ -27,23 +28,34 @@ open = "5"
 parquet = { version = "59", default-features = false, features = ["snap", "flate2-zlib-rs", "lz4", "zstd", "brotli"] }
 png = "0.18"
 remotefs = "1"
-remotefs-aws-s3 = { version = "1", features = ["tokio"] }
-remotefs-ftp = { version = "1", features = ["rustls-ring"] }
-remotefs-ssh = { version = "1", default-features = false, features = ["russh", "find"] }
-remotefs-webdav = { version = "1", features = ["tokio"] }
-russh = "0.63"
+remotefs-aws-s3 = { version = "1", features = ["tokio"], optional = true }
+remotefs-ftp = { version = "1", features = ["rustls-ring"], optional = true }
+remotefs-ssh = { version = "1", default-features = false, features = ["russh", "find"], optional = true }
+remotefs-webdav = { version = "1", features = ["tokio"], optional = true }
+russh = { version = "0.63", optional = true }
 roxmltree = "0.21.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-ssh2-config = "0.8"
+ssh2-config = { version = "0.8", optional = true }
 tar = "0.4.46"
-tokio = { version = "1", default-features = false, features = ["rt-multi-thread"] }
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread"], optional = true }
 toml = "0.9"
 toml_edit = "0.25.15"
 trash = "5"
 zip = { version = "8.6.0", default-features = false, features = ["deflate-flate2"] }
 calamine = { version = "0.36.1", default-features = false, features = ["dates"] }
 rusqlite = { version = "0.40.2", default-features = false, features = ["bundled", "hooks", "limits"] }
+
+# Each remote protocol pulls in its own SDK (S3 and SSH are the heaviest); a
+# disabled one drops its crates and runtime support from the build. The
+# `remotes.toml` protocol field, parsing and UI stay unconditional, so a
+# configured but disabled protocol fails clearly at connect time.
+[features]
+default = ["sftp", "ftp", "webdav", "s3"]
+sftp = ["dep:remotefs-ssh", "dep:russh", "dep:ssh2-config", "dep:tokio"]
+ftp = ["dep:remotefs-ftp"]
+webdav = ["dep:remotefs-webdav", "dep:tokio"]
+s3 = ["dep:remotefs-aws-s3", "dep:tokio"]
 
 # Dependencies (gpui, tree-sitter grammars, ...) without debug info keep the
 # dev build small and fast to link; fyle's own code keeps it. They are

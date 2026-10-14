@@ -515,6 +515,38 @@ impl PreviewPane {
                 .p_4()
                 .child(details(info, cx))
                 .into_any_element(),
+            Content::Geo { info, outline } => v_flex()
+                .size_full()
+                .p_3()
+                .gap_2()
+                .child(
+                    div()
+                        .max_h(px(240.))
+                        .overflow_y_scrollbar()
+                        .child(details(info, cx)),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .when_some(outline.clone(), |view, path| {
+                            view.child(img(path).size_full().object_fit(ObjectFit::Contain))
+                        })
+                        .when(outline.is_none(), |view| {
+                            view.child(
+                                div()
+                                    .text_color(theme.muted_foreground)
+                                    .child("No GPS track"),
+                            )
+                        }),
+                )
+                .when(outline.is_some(), |view| {
+                    view.child(note("Green: start · red: end".into()))
+                })
+                .into_any_element(),
             Content::Directory {
                 dirs,
                 files,
@@ -837,7 +869,7 @@ impl Element for PreviewWheelCapture {
     }
 }
 
-/// Labelled details for standalone media information, one per line.
+/// Labelled summary details, one per line.
 fn details(info: &[(String, String)], cx: &Context<PreviewPane>) -> impl IntoElement {
     let muted = cx.theme().muted_foreground;
     v_flex()

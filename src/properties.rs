@@ -12,6 +12,7 @@ use crate::location::Location;
 
 mod exif_reader;
 mod filesystem;
+mod geo;
 mod media;
 mod parquet;
 mod sqlite;
@@ -242,6 +243,7 @@ impl Registry {
         registry.register(Box::new(parquet::Provider));
         registry.register(Box::new(sqlite::Provider));
         registry.register(Box::new(media::Provider));
+        registry.register(Box::new(geo::Provider));
         registry
     }
 
