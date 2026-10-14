@@ -579,6 +579,7 @@ impl PreviewPane {
                     .items_center()
                     .gap_1()
                     .px_2()
+                    .h(px(36.))
                     .overflow_x_scrollbar()
                     .children(sheets.iter().enumerate().map(|(sheet_index, name)| {
                         Button::new(format!("sheet-tab-{sheet_index}"))
