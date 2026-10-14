@@ -1,6 +1,8 @@
 //! Blocking reads of optional local metadata for panel rows.
 
+use crate::formats::media;
 use crate::fs_ops;
+use std::sync::atomic::Ordering;
 
 use super::exif;
 use super::model::{Field, Request, Values};
@@ -9,6 +11,14 @@ use super::model::{Field, Request, Values};
 pub fn read_metadata(request: &Request) -> Values {
     let path = request.path();
     let mut values = Values::default();
+    if request.fields.contains(&Field::Duration) {
+        values.duration = Some(
+            media::probe(path, || request.cancel.load(Ordering::Relaxed))
+                .ok()
+                .and_then(|metadata| metadata.duration.and_then(media::format_duration))
+                .unwrap_or_default(),
+        );
+    }
     if request.fields.contains(&Field::Xattrs) {
         values.xattrs = Some(crate::xattr::names(path).join(", "));
     }

@@ -36,6 +36,11 @@ impl MetadataState {
         self.queue.get(path, generation)
     }
 
+    /// Cancels obsolete reads as soon as the panel listing changes.
+    pub fn sync_generation(&mut self, generation: u64) {
+        self.queue.sync_generation(generation);
+    }
+
     /// Queues missing local metadata fields and starts bounded background work.
     pub fn request(
         &mut self,

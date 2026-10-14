@@ -57,6 +57,7 @@ right_view = "list"
 icon_size = 96
 # Columns, in order (Columns… in the command palette edits this list):
 #   file:       name, ext, size, modified, created
+#   media:      duration (local audio and video files)
 #   unix:       permissions, owner
 #   git:        git.status (runs `git status` per directory)
 #   attributes: xattrs, selinux

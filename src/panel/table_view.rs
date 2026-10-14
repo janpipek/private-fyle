@@ -211,15 +211,20 @@ impl TableDelegate for FileTable {
         let kind = self.columns[col_ix];
         if matches!(
             kind,
-            ColumnKind::Owner | ColumnKind::Xattrs | ColumnKind::Selinux | ColumnKind::Exif(_)
+            ColumnKind::Owner
+                | ColumnKind::Xattrs
+                | ColumnKind::Selinux
+                | ColumnKind::Exif(_)
+                | ColumnKind::Duration
         ) {
-            let (location, is_dir, is_parent, generation, uid, link) = {
+            let (location, name, is_dir, is_parent, generation, uid, link) = {
                 let folder = self.folder.read(cx);
                 let Some(row) = folder.entries().get(row_ix) else {
                     return div().into_any_element();
                 };
                 (
                     row.location.clone(),
+                    row.entry.name.clone(),
                     row.is_dir,
                     row.is_parent,
                     folder.generation(),
@@ -231,7 +236,7 @@ impl TableDelegate for FileTable {
                 return div().into_any_element();
             };
             let path = path.to_path_buf();
-            let fields = metadata::fields_for_row(&self.columns, is_dir, uid);
+            let fields = metadata::fields_for_row(&self.columns, &name, is_dir, uid);
             let text = self
                 .metadata
                 .read(cx)
@@ -418,7 +423,10 @@ impl TableDelegate for FileTable {
                     .when_some(mark, |d, mark| d.child(mark.symbol()))
                     .into_any_element()
             }
-            ColumnKind::Xattrs | ColumnKind::Selinux | ColumnKind::Exif(_) => {
+            ColumnKind::Xattrs
+            | ColumnKind::Selinux
+            | ColumnKind::Exif(_)
+            | ColumnKind::Duration => {
                 unreachable!("handled above")
             }
         }

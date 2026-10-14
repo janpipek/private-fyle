@@ -223,10 +223,13 @@ panel. Remote and archive entries do not yet offer outgoing desktop file data.
 Click a column's sort icon to sort (directories always stay on top); drag
 header borders to resize. Unknown file sizes show as `—`. Columns… (in the
 command palette) picks the columns from a grouped catalog: file, owner and permissions, Git status,
-extended attributes, and EXIF fields of photos (date taken, camera, lens,
-exposure, aperture, ISO, focal length, dimensions, GPS). These fields also load
-from supported camera RAW files when their metadata or embedded JPEG carries
-EXIF data. With the Ext column shown, names leave out their extension
+media (optional duration for local audio and video files), extended attributes,
+and EXIF fields of photos (date taken, camera, lens, exposure, aperture, ISO,
+focal length, dimensions, GPS). These fields also load from supported camera
+RAW files when their metadata or embedded JPEG carries EXIF data. Duration
+uses the bounded media reader and is loaded for visible local rows in the
+background; remote and archive rows stay blank. With the Ext column shown,
+names leave out their extension
 (`.gitignore` and other dotfiles stay whole). EXIF, owner, extended-attribute
 and SELinux values load for visible
 local rows in the background; remote and archive locations are never treated

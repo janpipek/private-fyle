@@ -180,6 +180,7 @@ impl FolderView {
                 cx,
             )
         });
+        let metadata_for_folder = metadata.clone();
         let subscriptions = vec![
             cx.subscribe(&grid, |this, _, event: &GridEvent, cx| match event {
                 GridEvent::Select(ix) => this.set_cursor(*ix, cx),
@@ -188,7 +189,9 @@ impl FolderView {
                     cx.emit(Activate);
                 }
             }),
-            cx.observe(&folder, |this, folder, cx| {
+            cx.observe(&folder, move |this, folder, cx| {
+                let generation = folder.read(cx).generation();
+                metadata_for_folder.update(cx, |metadata, _| metadata.sync_generation(generation));
                 let expanded = folder.read(cx).expanded_locations();
                 if expanded != this.expanded_snapshot {
                     this.expanded_snapshot = expanded;

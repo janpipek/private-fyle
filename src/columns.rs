@@ -18,6 +18,8 @@ pub enum ColumnKind {
     Modified,
     /// Creation (birth) time, where the file system records it.
     Created,
+    /// Length of a local audio or video file, when media probing succeeds.
+    Duration,
     /// `drwxr-xr-x` on Unix, read-only flag elsewhere.
     Permissions,
     /// File owner (Unix).
@@ -68,6 +70,7 @@ impl ExifField {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Group {
     File,
+    Media,
     Unix,
     Git,
     Attributes,
@@ -78,6 +81,7 @@ impl fmt::Display for Group {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::File => "File",
+            Self::Media => "Media",
             Self::Unix => "Owner and permissions",
             Self::Git => "Git",
             Self::Attributes => "Extended attributes",
@@ -90,12 +94,13 @@ impl ColumnKind {
     pub const DEFAULT: [ColumnKind; 4] = [Self::Name, Self::Ext, Self::Size, Self::Modified];
 
     /// Every column, in catalog order (grouped).
-    pub const ALL: [ColumnKind; 19] = [
+    pub const ALL: [ColumnKind; 20] = [
         Self::Name,
         Self::Ext,
         Self::Size,
         Self::Modified,
         Self::Created,
+        Self::Duration,
         Self::Permissions,
         Self::Owner,
         Self::GitStatus,
@@ -120,6 +125,7 @@ impl ColumnKind {
             Self::Size => "size",
             Self::Modified => "modified",
             Self::Created => "created",
+            Self::Duration => "duration",
             Self::Permissions => "permissions",
             Self::Owner => "owner",
             Self::GitStatus => "git.status",
@@ -150,6 +156,7 @@ impl ColumnKind {
     pub fn group(self) -> Group {
         match self {
             Self::Name | Self::Ext | Self::Size | Self::Modified | Self::Created => Group::File,
+            Self::Duration => Group::Media,
             Self::Permissions | Self::Owner => Group::Unix,
             Self::GitStatus => Group::Git,
             Self::Xattrs | Self::Selinux => Group::Attributes,
@@ -165,6 +172,7 @@ impl ColumnKind {
             Self::Size => "Size",
             Self::Modified => "Modified",
             Self::Created => "Created",
+            Self::Duration => "Duration",
             Self::Permissions => "Permissions",
             Self::Owner => "Owner",
             Self::GitStatus => "Git",
@@ -204,6 +212,7 @@ impl ColumnKind {
             Self::Ext => 60.,
             Self::Size => 90.,
             Self::Modified | Self::Created => 140.,
+            Self::Duration => 80.,
             Self::Permissions => 100.,
             Self::Owner => 90.,
             Self::GitStatus => 40.,
@@ -330,6 +339,7 @@ mod tests {
             names,
             [
                 Group::File,
+                Group::Media,
                 Group::Unix,
                 Group::Git,
                 Group::Attributes,
@@ -338,6 +348,6 @@ mod tests {
         );
         let total: usize = groups.iter().map(|(_, c)| c.len()).sum();
         assert_eq!(total, ColumnKind::ALL.len());
-        assert_eq!(groups[4].1.len(), 9);
+        assert_eq!(groups[5].1.len(), 9);
     }
 }

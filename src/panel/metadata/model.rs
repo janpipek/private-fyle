@@ -2,6 +2,8 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::columns::ColumnKind;
 use crate::links::LinkState;
@@ -14,6 +16,8 @@ const JOB_CAPACITY: usize = 4;
 /// One kind of optional metadata needed by a visible row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Field {
+    /// Duration of a candidate local media file.
+    Duration,
     /// Extended attribute names.
     Xattrs,
     /// SELinux security context.
@@ -42,6 +46,8 @@ pub struct Request {
     pub uid: Option<u32>,
     /// Symlink state captured from the listing.
     pub link: LinkState,
+    /// Cancellation shared by all reads from this listing generation.
+    pub cancel: Arc<AtomicBool>,
 }
 
 impl Request {
@@ -54,6 +60,8 @@ impl Request {
 /// Read results, including empty values for unavailable optional metadata.
 #[derive(Clone, Debug, Default)]
 pub struct Values {
+    /// Formatted duration or an empty string when unavailable.
+    pub duration: Option<String>,
     /// Formatted extended attribute names.
     pub xattrs: Option<String>,
     /// SELinux context or an empty string.
@@ -77,6 +85,7 @@ impl MetadataValues {
     /// Returns the formatted value for an optional metadata column when loaded.
     pub fn column(&self, kind: ColumnKind) -> Option<&str> {
         match kind {
+            ColumnKind::Duration => self.values.duration.as_deref(),
             ColumnKind::Owner => self.values.owner.as_deref(),
             ColumnKind::Xattrs => self.values.xattrs.as_deref(),
             ColumnKind::Selinux => self.values.selinux.as_deref(),
@@ -105,6 +114,7 @@ impl MetadataValues {
 #[derive(Default)]
 pub struct MetadataQueue {
     generation: Option<u64>,
+    generation_cancel: Option<Arc<AtomicBool>>,
     cached: HashMap<PathBuf, MetadataValues>,
     order: VecDeque<PathBuf>,
     pending: VecDeque<Request>,
@@ -112,6 +122,21 @@ pub struct MetadataQueue {
 }
 
 impl MetadataQueue {
+    /// Invalidates cached and queued values when a listing generation changes.
+    pub fn sync_generation(&mut self, generation: u64) {
+        if self.generation.is_some_and(|current| generation <= current) {
+            return;
+        }
+        if let Some(cancel) = &self.generation_cancel {
+            cancel.store(true, Ordering::Relaxed);
+        }
+        self.generation = Some(generation);
+        self.generation_cancel = Some(Arc::new(AtomicBool::new(false)));
+        self.cached.clear();
+        self.order.clear();
+        self.pending.clear();
+    }
+
     /// Requests fields for a local row. Duplicate work is merged or skipped.
     pub fn request(
         &mut self,
@@ -121,18 +146,16 @@ impl MetadataQueue {
         uid: Option<u32>,
         link: LinkState,
     ) {
+        self.sync_generation(generation);
+        if self.generation != Some(generation) {
+            return;
+        }
         if fields.is_empty() {
             return;
         }
         let Some(path) = location.as_local_path() else {
             return;
         };
-        if self.generation != Some(generation) {
-            self.generation = Some(generation);
-            self.cached.clear();
-            self.order.clear();
-            self.pending.clear();
-        }
         let key = Key {
             generation,
             path: path.to_path_buf(),
@@ -172,6 +195,11 @@ impl MetadataQueue {
             fields: missing,
             uid,
             link,
+            cancel: self
+                .generation_cancel
+                .as_ref()
+                .expect("generation token exists")
+                .clone(),
         });
     }
 
@@ -193,6 +221,9 @@ impl MetadataQueue {
             return false;
         }
         let cached = self.cached.entry(request.key.path.clone()).or_default();
+        if request.fields.contains(&Field::Duration) {
+            cached.values.duration = values.duration;
+        }
         if request.fields.contains(&Field::Xattrs) {
             cached.values.xattrs = values.xattrs;
         }
@@ -236,10 +267,24 @@ impl MetadataQueue {
 }
 
 /// Requests only the optional fields enabled for this row and panel.
-pub fn fields_for_row(columns: &[ColumnKind], is_dir: bool, uid: Option<u32>) -> Vec<Field> {
+pub fn fields_for_row(
+    columns: &[ColumnKind],
+    name: &str,
+    is_dir: bool,
+    uid: Option<u32>,
+) -> Vec<Field> {
     let mut fields = Vec::new();
     for column in columns {
         let field = match column {
+            ColumnKind::Duration
+                if !is_dir
+                    && matches!(
+                        crate::icons::icon_for(name, false, false, false),
+                        crate::icons::FileIcon::Audio | crate::icons::FileIcon::Video
+                    ) =>
+            {
+                Some(Field::Duration)
+            }
             ColumnKind::Owner if uid.is_some() => Some(Field::Owner),
             ColumnKind::Xattrs => Some(Field::Xattrs),
             ColumnKind::Selinux => Some(Field::Selinux),
@@ -284,6 +329,10 @@ mod tests {
             .collect();
         let path = Location::local(test_path("new")).unwrap();
         queue.request(&path, 2, &[Field::Exif], None, LinkState::NotLink);
+        assert!(
+            old.iter()
+                .all(|request| request.cancel.load(std::sync::atomic::Ordering::Relaxed))
+        );
         assert!(queue.take_next().is_none());
         let mut old = old.into_iter();
         assert!(!queue.complete(old.next().unwrap(), Values::default()));
@@ -296,6 +345,45 @@ mod tests {
         }
         assert!(queue.active.is_empty());
         assert_eq!(queue.cached.len(), 1);
+    }
+
+    #[test]
+    fn stale_duration_completion_cannot_replace_new_listing_values() {
+        let mut queue = MetadataQueue::default();
+        let path = Location::local(test_path("song.mp3")).unwrap();
+        queue.request(&path, 7, &[Field::Duration], None, LinkState::NotLink);
+        let old = queue.take_next().expect("duration request");
+        queue.sync_generation(8);
+        assert!(old.cancel.load(std::sync::atomic::Ordering::Relaxed));
+        queue.request(&path, 8, &[Field::Duration], None, LinkState::NotLink);
+        queue.request(&path, 7, &[Field::Duration], None, LinkState::NotLink);
+        assert_eq!(queue.pending.len(), 1);
+        assert!(!queue.complete(
+            old,
+            Values {
+                duration: Some("09:00".into()),
+                ..Values::default()
+            }
+        ));
+        assert!(
+            queue
+                .get(path.as_local_path().expect("local path"), 8)
+                .is_none()
+        );
+        let current = queue.take_next().expect("new duration request");
+        assert!(queue.complete(
+            current,
+            Values {
+                duration: Some("01:05".into()),
+                ..Values::default()
+            }
+        ));
+        assert_eq!(
+            queue
+                .get(path.as_local_path().expect("local path"), 8)
+                .and_then(|values| values.column(ColumnKind::Duration)),
+            Some("01:05")
+        );
     }
 
     #[test]
@@ -388,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_and_nonlocal_requests_do_not_invalidate_local_cache() {
+    fn empty_and_nonlocal_requests_advance_the_generation_without_queueing_work() {
         let mut queue = MetadataQueue::default();
         let path = Location::local(test_path("local")).unwrap();
         queue.request(&path, 1, &[Field::Xattrs], None, LinkState::NotLink);
@@ -399,7 +487,7 @@ mod tests {
         queue.request(&remote, 2, &[Field::Xattrs], None, LinkState::NotLink);
         let archive = Location::archive(path.clone(), "member").unwrap();
         queue.request(&archive, 2, &[Field::Exif], None, LinkState::NotLink);
-        assert!(queue.get(path.as_local_path().unwrap(), 1).is_some());
+        assert!(queue.get(path.as_local_path().unwrap(), 1).is_none());
         assert!(queue.get(path.as_local_path().unwrap(), 2).is_none());
         assert!(queue.pending.is_empty());
     }
@@ -415,6 +503,7 @@ mod tests {
                 ColumnKind::Exif(ExifField::Camera),
                 ColumnKind::Exif(ExifField::Iso),
             ],
+            "image.jpg",
             false,
             Some(1000),
         );
@@ -422,8 +511,22 @@ mod tests {
             fields,
             [Field::Owner, Field::Xattrs, Field::Selinux, Field::Exif]
         );
-        assert!(fields_for_row(&[ColumnKind::Exif(ExifField::Camera)], true, None).is_empty());
-        assert!(fields_for_row(&[ColumnKind::Owner], false, None).is_empty());
+        assert!(
+            fields_for_row(
+                &[ColumnKind::Exif(ExifField::Camera)],
+                "image.jpg",
+                true,
+                None
+            )
+            .is_empty()
+        );
+        assert!(fields_for_row(&[ColumnKind::Owner], "image.jpg", false, None).is_empty());
+        assert_eq!(
+            fields_for_row(&[ColumnKind::Duration], "song.mp3", false, None),
+            [Field::Duration]
+        );
+        assert!(fields_for_row(&[ColumnKind::Duration], "text.txt", false, None).is_empty());
+        assert!(fields_for_row(&[ColumnKind::Duration], "song.mp3", true, None).is_empty());
     }
 
     #[test]

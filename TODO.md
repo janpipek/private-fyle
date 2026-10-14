@@ -87,8 +87,6 @@ not to pursue an item.
       keep minimize, maximize and close clearly visible in both main and editor
       windows.
 - [ ] Archive follow-ups: nested archives; maybe write support.
-- [ ] Add a single optional Duration column for local media files, formatted as
-      `mm:ss` or `h:mm:ss`; use the bounded media reader and panel metadata queue.
 - [ ] Workspace layout follow-ups: test the current right/bottom inspector
       arrangements across window sizes and UI scaling; decide whether to add
       a two-inspector layout. Properties remains a separate
@@ -142,6 +140,10 @@ not to pursue an item.
       right-click to show a menu etc.
 
 ## Done
+
+- [x] Add an optional Duration column (`duration`) for local audio and video
+      files, formatted as `mm:ss` or `h:mm:ss` through the bounded media reader
+      and panel metadata queue. Remote and archive rows remain blank.
 
 - [x] SQLite Properties: local regular databases show user table names only.
       The read-only reader caps results at 128 names and 1,024 characters per
