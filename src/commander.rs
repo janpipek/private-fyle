@@ -51,7 +51,7 @@ use crate::navigation::PanelNavigation;
 use crate::panel::{Activate, FolderView, HeaderEvent, PanelDrop, TreeExpansionChanged};
 use crate::places::History;
 use crate::preview::Registry as PreviewRegistry;
-use crate::preview_view::PreviewPane;
+use crate::preview_view::{PreviewPane, PreviewZoom};
 use crate::properties_view::PropertiesPane;
 use crate::remote;
 use crate::settings::Settings;
@@ -246,6 +246,9 @@ impl Commander {
         });
 
         let mut subscriptions = Vec::new();
+        subscriptions.push(cx.subscribe(&preview, |this, _, event: &PreviewZoom, cx| {
+            this.zoom(cx, |size| zoom::step(size, event.0));
+        }));
         subscriptions.push(
             cx.subscribe(&inspector, |this, _, event: &InspectorEvent, cx| {
                 this.workspace.set_perspective(event.0);

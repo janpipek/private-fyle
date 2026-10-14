@@ -18,6 +18,9 @@ use crate::fs_ops;
 use crate::preview::session::{PreviewSession, Request, State, TargetChange};
 use crate::preview::{Content, Preview, Registry};
 
+/// A Ctrl-wheel gesture over preview content, forwarded to the window zoom.
+pub struct PreviewZoom(pub i32);
+
 struct LoadedPreview {
     preview: Preview,
     notebook_images: HashMap<(usize, usize), Arc<RenderImage>>,
@@ -46,6 +49,8 @@ pub struct PreviewPane {
     resume_pdf: bool,
     resume_sheet: bool,
 }
+
+impl EventEmitter<PreviewZoom> for PreviewPane {}
 
 impl PreviewPane {
     pub fn new(registry: Arc<Registry>, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -705,7 +710,7 @@ impl Render for PreviewPane {
             State::Failed(e) => center(e.clone()).into_any_element(),
         };
 
-        v_flex()
+        let content = v_flex()
             .size_full()
             .gap_1()
             .child(
@@ -744,7 +749,91 @@ impl Render for PreviewPane {
                     .border_color(theme.border)
                     .overflow_hidden()
                     .child(body),
-            )
+            );
+        PreviewWheelCapture {
+            content: content.into_any_element(),
+            view: cx.entity().downgrade(),
+        }
+    }
+}
+
+/// Captures Ctrl-wheel before nested preview scroll areas consume it.
+struct PreviewWheelCapture {
+    content: AnyElement,
+    view: WeakEntity<PreviewPane>,
+}
+
+impl IntoElement for PreviewWheelCapture {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for PreviewWheelCapture {
+    type RequestLayoutState = ();
+    type PrepaintState = Hitbox;
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
+        (self.content.request_layout(window, cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Hitbox {
+        self.content.prepaint(window, cx);
+        window.insert_hitbox(bounds, HitboxBehavior::Normal)
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        hitbox: &mut Hitbox,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let hitbox = hitbox.clone();
+        let view = self.view.clone();
+        window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, cx| {
+            if !phase.capture()
+                || !hitbox.should_handle_scroll(window)
+                || !(event.modifiers.control || event.modifiers.platform)
+            {
+                return;
+            }
+            let delta_y = match event.delta {
+                ScrollDelta::Pixels(delta) => f32::from(delta.y),
+                ScrollDelta::Lines(delta) => delta.y,
+            };
+            if let Some(steps) = crate::zoom::wheel_steps(delta_y) {
+                cx.stop_propagation();
+                let _ = view.update(cx, |_, cx| cx.emit(PreviewZoom(steps)));
+            }
+        });
+        self.content.paint(window, cx);
     }
 }
 
