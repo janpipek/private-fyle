@@ -4,7 +4,7 @@ use std::io;
 
 use image::{Rgba, RgbaImage};
 
-use super::{Content, Previewer, Probe, cache_file};
+use super::{Content, PreviewStyle, Previewer, Probe, cache_file};
 use crate::formats::geo::{self, GeoData, Point};
 
 const WIDTH: u32 = 960;
@@ -25,9 +25,13 @@ impl Previewer for GeoPreviewer {
     }
 
     fn load(&self, probe: &Probe) -> io::Result<Content> {
+        self.load_styled(probe, PreviewStyle::default())
+    }
+
+    fn load_styled(&self, probe: &Probe, style: PreviewStyle) -> io::Result<Content> {
         let data = geo::read(&probe.path, || false)?;
         let outline = if data.points > 0 {
-            Some(render_outline(&probe.path, &data)?)
+            Some(render_outline(&probe.path, &data, style)?)
         } else {
             None
         };
@@ -96,8 +100,20 @@ fn format_duration(seconds: f64) -> String {
     }
 }
 
-fn render_outline(path: &std::path::Path, data: &GeoData) -> io::Result<std::path::PathBuf> {
-    let cached = cache_file(path, "route.png")?;
+fn render_outline(
+    path: &std::path::Path,
+    data: &GeoData,
+    style: PreviewStyle,
+) -> io::Result<std::path::PathBuf> {
+    let colors = [style.foreground, style.background];
+    let colors_with_markers = [style.success, style.danger];
+    let key: String = colors
+        .into_iter()
+        .flatten()
+        .chain(colors_with_markers.into_iter().flatten())
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    let cached = cache_file(path, &format!("route-lines-{key}.png"))?;
     if cached.is_file() {
         return Ok(cached);
     }
@@ -149,10 +165,8 @@ fn render_outline(path: &std::path::Path, data: &GeoData) -> io::Result<std::pat
         .sum();
     let stride = total_lines.div_ceil(2048).max(1);
     let mut drawn_steps = 0;
+    let mut lines = Vec::new();
     for segment in &data.segments {
-        if let [single] = segment.as_slice() {
-            dot(&mut image, project(*single), 3, Rgba([20, 125, 164, 255]));
-        }
         let mut previous = None;
         for (index, location) in segment.iter().copied().enumerate() {
             if index % stride != 0 && index + 1 != segment.len() {
@@ -168,18 +182,28 @@ fn render_outline(path: &std::path::Path, data: &GeoData) -> io::Result<std::pat
                 break;
             }
             drawn_steps += steps;
-            line(&mut image, a, b, 4, Rgba([255, 255, 255, 220]));
-            line(&mut image, a, b, 2, Rgba([20, 125, 164, 255]));
+            lines.push((a, b));
         }
     }
+    // Finish the halo before drawing tracks so adjacent edges cannot erase them.
+    for &(a, b) in &lines {
+        line(&mut image, a, b, 6, opaque(style.background));
+    }
+    for &(a, b) in &lines {
+        line(&mut image, a, b, 4, opaque(style.foreground));
+    }
     if let Some(first) = points.first() {
-        dot(&mut image, project(*first), 6, Rgba([24, 148, 82, 255]));
+        dot(&mut image, project(*first), 6, opaque(style.success));
     }
     if let Some(last) = points.last() {
-        dot(&mut image, project(*last), 5, Rgba([213, 73, 57, 255]));
+        dot(&mut image, project(*last), 5, opaque(style.danger));
     }
     image.save(&cached).map_err(io::Error::other)?;
     Ok(cached)
+}
+
+fn opaque(rgb: [u8; 3]) -> Rgba<u8> {
+    Rgba([rgb[0], rgb[1], rgb[2], 255])
 }
 
 fn line(image: &mut RgbaImage, a: (i32, i32), b: (i32, i32), radius: i32, color: Rgba<u8>) {
@@ -203,5 +227,72 @@ fn dot(image: &mut RgbaImage, center: (i32, i32), radius: i32, color: Rgba<u8>) 
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GeoData, Point, PreviewStyle, render_outline};
+
+    #[test]
+    fn dense_track_remains_continuous() {
+        let dir = tempfile::TempDir::new().expect("temporary directory");
+        let source = dir.path().join("dense.gpx");
+        std::fs::write(&source, b"dense route").expect("source");
+        let segment: Vec<_> = (0..=1000)
+            .map(|index| Point {
+                latitude: 0.0,
+                longitude: f64::from(index) / 1000.0,
+            })
+            .collect();
+        let data = GeoData {
+            points: segment.len(),
+            segments: vec![segment],
+            ..GeoData::default()
+        };
+        let style = PreviewStyle::default();
+        let path = render_outline(&source, &data, style).expect("outline");
+        let image = image::open(path).expect("decode").into_rgba8();
+        for x in 40..920 {
+            assert_eq!(image.get_pixel(x, 270).0, [12, 20, 31, 255], "x={x}");
+        }
+    }
+
+    #[test]
+    fn route_line_uses_readable_theme_foreground() {
+        let dir = tempfile::TempDir::new().expect("temporary directory");
+        let source = dir.path().join("route.gpx");
+        std::fs::write(&source, b"route").expect("source");
+        let data = GeoData {
+            points: 2,
+            segments: vec![vec![
+                Point {
+                    latitude: 0.0,
+                    longitude: 0.0,
+                },
+                Point {
+                    latitude: 1.0,
+                    longitude: 1.0,
+                },
+            ]],
+            ..GeoData::default()
+        };
+        let style = PreviewStyle::default();
+        let path = render_outline(&source, &data, style).expect("outline");
+        let image = image::open(path).expect("decode").into_rgba8();
+        assert_eq!(image.get_pixel(480, 270).0, [12, 20, 31, 255]);
+
+        let light = PreviewStyle {
+            foreground: [240, 235, 225],
+            background: [16, 20, 28],
+            ..style
+        };
+        let path_dark = render_outline(&source, &data, light).expect("dark outline");
+        assert_ne!(
+            path_dark,
+            render_outline(&source, &data, style).expect("light outline")
+        );
+        let dark_image = image::open(path_dark).expect("decode dark").into_rgba8();
+        assert_eq!(dark_image.get_pixel(480, 270).0, [240, 235, 225, 255]);
     }
 }

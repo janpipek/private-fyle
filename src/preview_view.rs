@@ -16,7 +16,7 @@ use gpui_kit::*;
 
 use crate::fs_ops;
 use crate::preview::session::{PreviewSession, Request, State, TargetChange};
-use crate::preview::{Content, Preview, Registry};
+use crate::preview::{Content, Preview, PreviewStyle, Registry};
 
 /// A Ctrl-wheel gesture over preview content, forwarded to the window zoom.
 pub struct PreviewZoom(pub i32);
@@ -32,6 +32,7 @@ const LOAD_DELAY: Duration = Duration::from_millis(60);
 pub struct PreviewPane {
     registry: Arc<Registry>,
     session: PreviewSession,
+    style: PreviewStyle,
     /// Reused read-only editor for text content.
     editor: Entity<EditorState>,
     /// Variable-height virtual list state for notebook cells.
@@ -63,6 +64,7 @@ impl PreviewPane {
         Self {
             registry,
             session: PreviewSession::default(),
+            style: preview_style(cx.theme()),
             editor,
             notebook_list: ListState::new(0, ListAlignment::Top, px(160.)),
             presentation_list: ListState::new(0, ListAlignment::Top, px(240.)),
@@ -165,13 +167,15 @@ impl PreviewPane {
         };
         let path = request.path.clone();
         let registry = self.registry.clone();
+        let style = preview_style(cx.theme());
+        self.style = style;
         self._load = cx.spawn_in(window, async move |this, cx| {
             // Holding an arrow key moves the cursor faster than this; the
             // next target drops the task, so only the entry it stops on loads.
             cx.background_executor().timer(LOAD_DELAY).await;
             let result = cx
                 .background_spawn(async move {
-                    let preview = registry.preview(&path)?;
+                    let preview = registry.preview_styled(&path, style)?;
                     let images = match &preview.content {
                         Content::Notebook(notebook) => {
                             crate::notebook_view::prepare_images(notebook)
@@ -544,7 +548,14 @@ impl PreviewPane {
                         }),
                 )
                 .when(outline.is_some(), |view| {
-                    view.child(note("Green: start · red: end".into()))
+                    view.child(
+                        h_flex()
+                            .gap_3()
+                            .px_2()
+                            .text_xs()
+                            .child(div().text_color(theme.success).child("● Start"))
+                            .child(div().text_color(theme.danger).child("● End")),
+                    )
                 })
                 .into_any_element(),
             Content::Directory {
@@ -710,7 +721,16 @@ impl PreviewPane {
 }
 
 impl Render for PreviewPane {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let style = preview_style(cx.theme());
+        if style != self.style {
+            self.style = style;
+            if matches!(self.session.state(), State::Loading)
+                || matches!(self.session.state(), State::Ready(p) if matches!(p.content, Content::Geo { .. }))
+            {
+                self.reload(window, cx);
+            }
+        }
         let theme = cx.theme();
         let (title, detail, link) = match self.session.state() {
             State::Ready(p) => (
@@ -866,6 +886,20 @@ impl Element for PreviewWheelCapture {
             }
         });
         self.content.paint(window, cx);
+    }
+}
+
+fn preview_style(theme: &gpui_kit::component::Theme) -> PreviewStyle {
+    let rgb = |color: Hsla| {
+        let color = color.to_rgb();
+        let byte = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
+        [byte(color.r), byte(color.g), byte(color.b)]
+    };
+    PreviewStyle {
+        foreground: rgb(theme.foreground),
+        background: rgb(theme.background),
+        success: rgb(theme.success),
+        danger: rgb(theme.danger),
     }
 }
 
