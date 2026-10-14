@@ -15,19 +15,23 @@ use std::ffi::OsStr;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
+#[cfg(any(feature = "sftp", feature = "webdav", feature = "s3"))]
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use remotefs::fs::{ReadOptions, WriteOptions};
 use remotefs::{File, RemoteError, RemoteErrorType, RemoteFs};
 
 use super::connections::{Protocol, RemoteConfig};
+#[cfg(feature = "sftp")]
 use super::hostkey;
 use super::process::Program;
 use super::{Capabilities, Control, Item, Listing, Location, Provider, Removal, entries};
 
 /// Size of the blocks that are copied between disk and server.
 pub const CHUNK: usize = 256 * 1024;
+#[cfg(feature = "sftp")]
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const PASSWORD_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -154,6 +158,7 @@ impl RemoteFsProvider {
         let password = password(&self.config, control)?;
         let mut client = build_client(&self.config, password)?;
         // The SFTP host key check reports why it refused through the guard.
+        #[cfg(feature = "sftp")]
         let guard = (self.config.protocol == Protocol::Sftp).then(|| {
             let (host, port) = match hostkey::ssh_config_file() {
                 Some(file) => hostkey::resolve(
@@ -169,6 +174,7 @@ impl RemoteFsProvider {
             hostkey::connecting(&host, port)
         });
         if let Err(error) = client.connect() {
+            #[cfg(feature = "sftp")]
             if let Some(reason) = guard.as_ref().and_then(hostkey::Connecting::rejection) {
                 return Err(io::Error::new(io::ErrorKind::PermissionDenied, reason));
             }
@@ -339,7 +345,8 @@ fn password(config: &RemoteConfig, control: &Control) -> io::Result<Option<Strin
     Ok(Some(text.to_owned()))
 }
 
-/// The runtime that drives the async WebDAV and S3 clients.
+/// The runtime that drives the async SFTP, WebDAV and S3 clients.
+#[cfg(any(feature = "sftp", feature = "webdav", feature = "s3"))]
 fn runtime() -> io::Result<&'static tokio::runtime::Runtime> {
     static RUNTIME: OnceLock<Result<tokio::runtime::Runtime, String>> = OnceLock::new();
     RUNTIME
@@ -355,12 +362,32 @@ fn runtime() -> io::Result<&'static tokio::runtime::Runtime> {
         .map_err(|e| io::Error::other(format!("cannot start the network runtime: {e}")))
 }
 
-/// Creates the (unconnected) client for the configured protocol.
+/// The error for a protocol that `remotes.toml` configures but this build
+/// was compiled without (see the `sftp`/`ftp`/`webdav`/`s3` Cargo features).
+#[cfg(not(all(feature = "sftp", feature = "ftp", feature = "webdav", feature = "s3")))]
+fn not_compiled_in(config: &RemoteConfig) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::Unsupported,
+        format!(
+            "{}: this build of fyle was compiled without {} support",
+            config.name,
+            config.protocol.label()
+        ),
+    )
+}
+
+/// Creates the (unconnected) client for the configured protocol. `password`
+/// goes unused when sftp, ftp and webdav (the protocols that take one) are
+/// all disabled.
+#[cfg_attr(
+    not(any(feature = "sftp", feature = "ftp", feature = "webdav")),
+    allow(unused_variables)
+)]
 fn build_client(config: &RemoteConfig, password: Option<String>) -> io::Result<Client> {
-    let bad = |e: RemoteError| remote_error(&config.name, e);
-    let host = config.host.clone().unwrap_or_default();
-    Ok(match config.protocol {
+    match config.protocol {
+        #[cfg(feature = "sftp")]
         Protocol::Sftp => {
+            let host = config.host.clone().unwrap_or_default();
             let mut opts = remotefs_ssh::SshOpts::new(&host)
                 .connection_timeout(CONNECT_TIMEOUT)
                 .ssh_agent_identity(Some(remotefs_ssh::SshAgentIdentity::All));
@@ -381,9 +408,14 @@ fn build_client(config: &RemoteConfig, password: Option<String>) -> io::Result<C
                 opts = opts.config_file(ssh_config, rules);
             }
             let client = remotefs_ssh::RusshSftpFs::<hostkey::KnownHostsCheck>::new(opts);
-            Box::new(client.into_blocking(runtime()?.handle().clone()))
+            Ok(Box::new(client.into_blocking(runtime()?.handle().clone())))
         }
+        #[cfg(not(feature = "sftp"))]
+        Protocol::Sftp => Err(not_compiled_in(config)),
+
+        #[cfg(feature = "ftp")]
         Protocol::Ftp | Protocol::Ftps => {
+            let host = config.host.clone().unwrap_or_default();
             let mut client = remotefs_ftp::FtpFs::new(&host, config.port.unwrap_or(21))
                 .username(config.user.as_deref().unwrap_or("anonymous"))
                 .password(password.as_deref().unwrap_or(""))
@@ -391,9 +423,14 @@ fn build_client(config: &RemoteConfig, password: Option<String>) -> io::Result<C
             if config.protocol == Protocol::Ftps {
                 client = client.secure();
             }
-            Box::new(client)
+            Ok(Box::new(client))
         }
+        #[cfg(not(feature = "ftp"))]
+        Protocol::Ftp | Protocol::Ftps => Err(not_compiled_in(config)),
+
+        #[cfg(feature = "webdav")]
         Protocol::Webdav => {
+            let bad = |e: RemoteError| remote_error(&config.name, e);
             let auth = match (&config.user, &password) {
                 (Some(user), Some(password)) => remotefs_webdav::Auth::basic(user, password),
                 (Some(user), None) => remotefs_webdav::Auth::basic(user, ""),
@@ -402,8 +439,12 @@ fn build_client(config: &RemoteConfig, password: Option<String>) -> io::Result<C
             };
             let url = config.url.as_deref().unwrap_or_default();
             let client = remotefs_webdav::WebDAVFs::new(url, auth).map_err(bad)?;
-            Box::new(client.into_blocking(runtime()?.handle().clone()))
+            Ok(Box::new(client.into_blocking(runtime()?.handle().clone())))
         }
+        #[cfg(not(feature = "webdav"))]
+        Protocol::Webdav => Err(not_compiled_in(config)),
+
+        #[cfg(feature = "s3")]
         Protocol::S3 => {
             let mut client = remotefs_aws_s3::AwsS3Fs::new(config.bucket.as_deref().unwrap_or(""));
             if let Some(region) = &config.region {
@@ -415,9 +456,11 @@ fn build_client(config: &RemoteConfig, password: Option<String>) -> io::Result<C
             if let Some(endpoint) = &config.endpoint {
                 client = client.endpoint(endpoint).new_path_style(true);
             }
-            Box::new(client.into_blocking(runtime()?.handle().clone()))
+            Ok(Box::new(client.into_blocking(runtime()?.handle().clone())))
         }
-    })
+        #[cfg(not(feature = "s3"))]
+        Protocol::S3 => Err(not_compiled_in(config)),
+    }
 }
 
 /// Maps a listed server entry to a panel item.

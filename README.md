@@ -146,7 +146,10 @@ repeated, list or map columns show an unsupported-format message.
 F3 previews local GPX and FIT files with available name, type, sport, start,
 duration, distance, ascent/descent and track/lap counts, plus an offline route
 outline when GPS points exist. GPX track segments stay separate, so gaps do not
-count as traveled distance or appear as connecting lines. FIT activity session
+count as traveled distance or appear as connecting lines. The outline uses the
+active theme's foreground and background colors for a wide track stroke, and
+its success and danger colors for the start and end markers; it updates when
+the theme changes. FIT activity session
 totals are used when present; other FIT types show the fields they contain,
 including files with no GPS track. Properties reads the same format models
 independently for local regular files; remote and archive Properties continue
@@ -509,7 +512,12 @@ to accept a new host. If `~/.ssh/config` maps the configured `host` to another
 `HostName` or `Port`, the key is checked for that server.
 
 Building needs the OpenSSL development files (WebDAV); see Build
-dependencies (`openssl-devel` on Fedora).
+dependencies (`openssl-devel` on Fedora). Each protocol is its own Cargo
+feature (`sftp`, `ftp`, `webdav`, `s3`; all on by default) pulling in its own
+SDK; building with `--no-default-features --features ftp,webdav` (for
+example) drops the others and their crates. A remote configured for a
+disabled protocol fails to connect with a clear message instead of failing
+to parse.
 
 ## Development sandbox
 
