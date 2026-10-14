@@ -81,11 +81,16 @@ GPL-3.0-or-later. Linux first; Windows is paused, macOS comes later.
 
 ## Verify
 
-Before every commit:
+Before every commit (that changes code):
 
 ```sh
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
+```
+
+Before finishing the feature implementation (last commit):
+
+```sh
 cargo test
 ```
 
