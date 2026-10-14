@@ -290,14 +290,18 @@ fn format_cell(data: &Data) -> String {
             } else {
                 match date.as_datetime() {
                     // Values below one day are times of day.
-                    Some(_) if date.as_f64() >= 0.0 && date.as_f64() < 1.0 => date
-                        .as_datetime()
-                        .map(|d| d.format("%H:%M:%S").to_string())
-                        .unwrap_or_default(),
-                    Some(dt) if dt.time() == chrono::NaiveTime::MIN => {
-                        dt.format("%Y-%m-%d").to_string()
+                    Some(dt) if date.as_f64() >= 0.0 && date.as_f64() < 1.0 => {
+                        let time = dt.time().to_string();
+                        time.get(..8).unwrap_or(&time).to_owned()
                     }
-                    Some(dt) => dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+                    Some(dt) => {
+                        let time = dt.time().to_string();
+                        if time == "00:00:00" {
+                            dt.date().to_string()
+                        } else {
+                            format!("{} {}", dt.date(), time.get(..8).unwrap_or(&time))
+                        }
+                    }
                     None => format_float(date.as_f64()),
                 }
             }

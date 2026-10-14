@@ -165,23 +165,31 @@ fn field_cell(field: &Field, truncated: &mut bool) -> String {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             match self.0 {
                 Field::Date(days) => {
-                    match chrono::NaiveDate::from_ymd_opt(1970, 1, 1).and_then(|epoch| {
-                        epoch.checked_add_signed(chrono::Duration::days(i64::from(*days)))
-                    }) {
-                        Some(date) => write!(f, "{}", date.format("%Y-%m-%d")),
-                        None => write!(f, "{days}"),
+                    match jiff::Timestamp::from_second(i64::from(*days) * 86_400) {
+                        Ok(timestamp) => write!(
+                            f,
+                            "{}",
+                            timestamp
+                                .to_zoned(jiff::tz::TimeZone::UTC)
+                                .strftime("%Y-%m-%d")
+                        ),
+                        Err(_) => write!(f, "{days}"),
                     }
                 }
                 Field::TimestampMillis(millis) => {
-                    match chrono::DateTime::<chrono::Utc>::from_timestamp_millis(*millis) {
-                        Some(date) => write!(f, "{}", date.format("%Y-%m-%d %H:%M:%S%.3f %:z")),
-                        None => write!(f, "{millis}"),
+                    match jiff::Timestamp::from_millisecond(*millis) {
+                        Ok(timestamp) => {
+                            write!(f, "{}", timestamp.strftime("%Y-%m-%d %H:%M:%S%.3f %:z"))
+                        }
+                        Err(_) => write!(f, "{millis}"),
                     }
                 }
                 Field::TimestampMicros(micros) => {
-                    match chrono::DateTime::<chrono::Utc>::from_timestamp_micros(*micros) {
-                        Some(date) => write!(f, "{}", date.format("%Y-%m-%d %H:%M:%S%.6f %:z")),
-                        None => write!(f, "{micros}"),
+                    match jiff::Timestamp::from_microsecond(*micros) {
+                        Ok(timestamp) => {
+                            write!(f, "{}", timestamp.strftime("%Y-%m-%d %H:%M:%S%.6f %:z"))
+                        }
+                        Err(_) => write!(f, "{micros}"),
                     }
                 }
                 Field::Str(value) => f.write_str(value),

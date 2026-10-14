@@ -1,8 +1,6 @@
 //! Presentation model for copy/move conflicts.
 
-use chrono::{DateTime, Local};
-
-use crate::fs_ops::format_size;
+use crate::fs_ops::{format_size, format_time_with_seconds};
 use crate::transfer::{EntryInfo, EntryKind};
 
 pub fn details(info: &EntryInfo) -> Vec<(&'static str, String)> {
@@ -16,10 +14,7 @@ pub fn details(info: &EntryInfo) -> Vec<(&'static str, String)> {
         (
             "Modified",
             info.modified
-                .map(|time| {
-                    let time: DateTime<Local> = time.into();
-                    time.format("%Y-%m-%d %H:%M:%S").to_string()
-                })
+                .map(format_time_with_seconds)
                 .unwrap_or_else(|| "—".into()),
         ),
     ]

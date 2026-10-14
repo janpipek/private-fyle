@@ -6,7 +6,7 @@ use std::io;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use crate::entry::{Attrs, Entry};
 use crate::links::LinkState;
@@ -353,11 +353,40 @@ pub fn format_size(size: u64) -> String {
     }
 }
 
-/// Formats as "YYYY-MM-DD HH:MM" in local time.
+/// Formats as "YYYY-MM-DD HH:MM" in local time, or an em dash if out of range.
 pub fn format_time(time: SystemTime) -> String {
-    chrono::DateTime::<chrono::Local>::from(time)
-        .format("%Y-%m-%d %H:%M")
+    format_time_with(time, "%Y-%m-%d %H:%M")
+}
+
+/// Formats a timestamp with seconds in local time, or an em dash if invalid.
+pub fn format_time_with_seconds(time: SystemTime) -> String {
+    format_time_with(time, "%Y-%m-%d %H:%M:%S")
+}
+
+fn format_time_with(time: SystemTime, format: &str) -> String {
+    let Ok(timestamp) = jiff::Timestamp::try_from(time) else {
+        return "—".into();
+    };
+    timestamp
+        .to_zoned(jiff::tz::TimeZone::system())
+        .strftime(format)
         .to_string()
+}
+
+/// Converts a Jiff timestamp to the standard library representation when possible.
+pub fn system_time_from_timestamp(timestamp: jiff::Timestamp) -> Option<SystemTime> {
+    const NANOS_PER_SECOND: i128 = 1_000_000_000;
+    let nanos = timestamp.as_nanosecond();
+    if nanos >= 0 {
+        let seconds = u64::try_from(nanos / NANOS_PER_SECOND).ok()?;
+        let subsec_nanos = u32::try_from(nanos % NANOS_PER_SECOND).ok()?;
+        SystemTime::UNIX_EPOCH.checked_add(Duration::new(seconds, subsec_nanos))
+    } else {
+        let nanos = nanos.checked_neg()?;
+        let seconds = u64::try_from(nanos / NANOS_PER_SECOND).ok()?;
+        let subsec_nanos = u32::try_from(nanos % NANOS_PER_SECOND).ok()?;
+        SystemTime::UNIX_EPOCH.checked_sub(Duration::new(seconds, subsec_nanos))
+    }
 }
 
 #[cfg(test)]

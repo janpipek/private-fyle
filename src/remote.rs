@@ -253,8 +253,8 @@ pub fn is_start_page(url: &str) -> bool {
 
 /// Parses an RFC 3339 timestamp as services report them.
 pub fn timestamp(text: Option<&str>) -> Option<SystemTime> {
-    text.and_then(|text| chrono::DateTime::parse_from_rfc3339(text).ok())
-        .map(Into::into)
+    let timestamp = text?.parse::<jiff::Timestamp>().ok()?;
+    crate::fs_ops::system_time_from_timestamp(timestamp)
 }
 
 /// The configured remotes, by name.
