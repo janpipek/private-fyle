@@ -9,12 +9,31 @@ use std::time::{Duration, Instant};
 
 use rusqlite::{Connection, OpenFlags};
 
-use crate::properties::{GroupId, GroupStatus, PropertyGroup, PropertyTable, PropertyValue};
+use crate::properties::{
+    GroupId, GroupStatus, Probe, PropertyGroup, PropertyProvider, PropertyTable, PropertyValue,
+};
 
 const MAX_TABLES: usize = 128;
 const MAX_NAME_CHARS: usize = 1024;
 const DEADLINE: Duration = Duration::from_secs(2);
 const HEADER: &[u8; 16] = b"SQLite format 3\0";
+
+/// SQLite schema provider for the Properties registry.
+pub(super) struct Provider;
+
+impl PropertyProvider for Provider {
+    fn id(&self) -> &'static str {
+        "sqlite"
+    }
+
+    fn matches(&self, probe: &Probe) -> bool {
+        probe.is_file && is_candidate(&probe.path)
+    }
+
+    fn read(&self, probe: &Probe, cancel: &Arc<AtomicBool>) -> io::Result<Vec<PropertyGroup>> {
+        read(&probe.path, Arc::clone(cancel)).map(|group| vec![group])
+    }
+}
 
 /// Reports SQLite-looking local regular files by extension or file signature.
 pub fn is_candidate(path: &Path) -> bool {

@@ -20,6 +20,15 @@ filesystem facts when a format reader fails. The controller permits one blocking
 inspection worker at a time and keeps only the newest replacement request
 queued until a cancelled worker exits.
 
+Local file format details use `properties::Registry`. Each `PropertyProvider`
+has a match predicate and a bounded reader; inspection runs all matching
+providers in registration order and collects their independent groups. A
+provider failure remains visible in its own group without hiding other matches.
+Listing, filesystem/symlink and EXIF facts remain baseline inspection sections.
+This follows the registry shape used by Preview and Tools without a shared
+registry abstraction: Preview chooses its first matching renderer, while Tools
+offers every applicable action.
+
 Properties labels, values, paths, tables and errors are selectable across
 separate text runs, so a drag can span fields and sections. Ctrl-C copies an
 active Properties text selection before the panel file-yank command. The

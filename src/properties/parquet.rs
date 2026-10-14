@@ -3,16 +3,35 @@
 use std::fs::{File, OpenOptions};
 use std::io::{self, Read};
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use crate::formats::parquet::{check_cancel, read_metadata};
 use crate::properties::{
-    GroupId, GroupStatus, PropertyField, PropertyGroup, PropertyTable, PropertyValue,
+    GroupId, GroupStatus, Probe, PropertyField, PropertyGroup, PropertyProvider, PropertyTable,
+    PropertyValue,
 };
 
 const MAX_COLUMNS: usize = 256;
 const MAX_ROW_GROUPS: usize = 128;
 const MAX_TEXT_CHARS: usize = 1024;
+
+/// Parquet metadata provider for the Properties registry.
+pub(super) struct Provider;
+
+impl PropertyProvider for Provider {
+    fn id(&self) -> &'static str {
+        "parquet"
+    }
+
+    fn matches(&self, probe: &Probe) -> bool {
+        probe.is_file && is_candidate(&probe.path)
+    }
+
+    fn read(&self, probe: &Probe, cancel: &Arc<AtomicBool>) -> io::Result<Vec<PropertyGroup>> {
+        read(&probe.path, cancel).map(|group| vec![group])
+    }
+}
 
 /// Checks whether a regular local path has a Parquet extension or magic.
 pub fn is_candidate(path: &Path) -> bool {

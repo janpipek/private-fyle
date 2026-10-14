@@ -8,13 +8,72 @@ use std::io::{self, BufReader, Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::{ExifField, ExifFieldId};
-
 const IMAGE_LIMIT: u64 = 8 * 1024 * 1024;
 const RAW_LIMIT: u64 = crate::formats::raw::SCAN_LIMIT;
 const MAX_RAW_EXIF_CANDIDATES: usize = 16;
 const MAX_RAW_TIFF_BYTES: usize = 1024 * 1024;
 const MAX_FIELD_CHARS: usize = 4096;
+
+/// A stable semantic EXIF field.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExifField {
+    /// Stable field identity, suitable for localization by a view.
+    pub id: ExifFieldId,
+    /// Reader-formatted value.
+    pub value: String,
+}
+
+/// EXIF identities supported by the Properties reader.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ExifFieldId {
+    /// Camera manufacturer.
+    Make,
+    /// Camera model.
+    Model,
+    /// Lens model.
+    LensModel,
+    /// Original capture date and time.
+    DateTimeOriginal,
+    /// Exposure time.
+    ExposureTime,
+    /// Aperture number.
+    FNumber,
+    /// Photographic sensitivity.
+    PhotographicSensitivity,
+    /// Focal length.
+    FocalLength,
+    /// Pixel width.
+    PixelXDimension,
+    /// Pixel height.
+    PixelYDimension,
+    /// GPS latitude.
+    GPSLatitude,
+    /// GPS longitude.
+    GPSLongitude,
+    /// Metadata software.
+    Software,
+}
+
+impl ExifFieldId {
+    /// Stable machine identity independent of Rust's debug formatting.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Make => "make",
+            Self::Model => "model",
+            Self::LensModel => "lens_model",
+            Self::DateTimeOriginal => "date_time_original",
+            Self::ExposureTime => "exposure_time",
+            Self::FNumber => "f_number",
+            Self::PhotographicSensitivity => "photographic_sensitivity",
+            Self::FocalLength => "focal_length",
+            Self::PixelXDimension => "pixel_x_dimension",
+            Self::PixelYDimension => "pixel_y_dimension",
+            Self::GPSLatitude => "gps_latitude",
+            Self::GPSLongitude => "gps_longitude",
+            Self::Software => "software",
+        }
+    }
+}
 
 #[derive(Debug)]
 pub(super) struct ReadResult {

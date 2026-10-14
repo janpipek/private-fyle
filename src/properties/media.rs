@@ -2,11 +2,35 @@
 
 use std::io;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::formats::media::{self, MediaMetadata, Stream, StreamKind};
 use crate::icons::{self, FileIcon};
-use crate::properties::{GroupId, GroupStatus, PropertyField, PropertyGroup, PropertyValue};
+use crate::properties::{
+    GroupId, GroupStatus, Probe, PropertyField, PropertyGroup, PropertyProvider, PropertyValue,
+};
+
+/// Media metadata provider for the Properties registry.
+pub(super) struct Provider;
+
+impl PropertyProvider for Provider {
+    fn id(&self) -> &'static str {
+        "container"
+    }
+
+    fn matches(&self, probe: &Probe) -> bool {
+        probe.is_file && is_candidate(&probe.path)
+    }
+
+    fn read(&self, probe: &Probe, cancel: &Arc<AtomicBool>) -> io::Result<Vec<PropertyGroup>> {
+        read(&probe.path, cancel)
+    }
+
+    fn failure(&self, error: &io::Error) -> PropertyGroup {
+        failure(error)
+    }
+}
 
 /// Whether a local regular path is a media file supported by the media preview.
 pub fn is_candidate(path: &Path) -> bool {

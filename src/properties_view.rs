@@ -5,16 +5,18 @@ use gpui_kit::base::{SelectableText, TextSelection};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::*;
+use std::sync::Arc;
 
 use crate::location::Location;
 use crate::properties::{
-    GroupStatus, Inspection, PropertiesSession, PropertyGroup, PropertyValue, Request, Section,
-    Selection, State,
+    GroupStatus, Inspection, PropertiesSession, PropertyGroup, PropertyValue, Registry, Request,
+    Section, Selection, State,
 };
 
 /// Renders filesystem and format properties for the inspector's selected entry.
 pub struct PropertiesPane {
     session: PropertiesSession,
+    registry: Arc<Registry>,
     _load: Task<()>,
     running: bool,
     pending: Option<Request>,
@@ -23,8 +25,14 @@ pub struct PropertiesPane {
 impl PropertiesPane {
     /// Creates an empty Properties perspective.
     pub fn new() -> Self {
+        Self::with_registry(Arc::new(Registry::with_defaults()))
+    }
+
+    /// Creates a Properties perspective with the application's provider registry.
+    pub fn with_registry(registry: Arc<Registry>) -> Self {
         Self {
             session: PropertiesSession::default(),
+            registry,
             _load: Task::ready(()),
             running: false,
             pending: None,
@@ -76,13 +84,18 @@ impl PropertiesPane {
         };
         self.running = true;
         let worker_request = request.clone();
+        let registry = Arc::clone(&self.registry);
         self._load = cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    crate::properties::inspect(&worker_request.selection, &worker_request.cancel)
-                        .map_err(|error| {
-                            format!("{}: {error}", worker_request.selection.entry.path.display())
-                        })
+                    crate::properties::inspect_with_registry(
+                        &worker_request.selection,
+                        &worker_request.cancel,
+                        &registry,
+                    )
+                    .map_err(|error| {
+                        format!("{}: {error}", worker_request.selection.entry.path.display())
+                    })
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {

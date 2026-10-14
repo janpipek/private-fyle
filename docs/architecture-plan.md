@@ -115,6 +115,29 @@ largest-decodable-JPEG selection. [`raw_preview.rs`](../src/raw_preview.rs)
 retains source freshness checks, cache identity and atomic materialization;
 EXIF fallback parses selected JPEG bytes without writing to that cache.
 
+### Preview, Properties and tool registries
+
+Keep three domain-specific registries with the same basic extension shape:
+providers or tools register in order, expose a predicate for applicability, and
+return plain model data or an action. Do not introduce a universal registry
+trait; preview, inspection and tool planning have different result and failure
+semantics.
+
+`preview::Registry` selects the first matching `Previewer`, because one preview
+content representation owns the display. `properties::Registry` runs every
+matching local-file `PropertyProvider` and collects independent groups, so a
+file can expose facts from several formats; a failed reader contributes its
+own failed group without hiding other results. Listing, filesystem/symlink and
+EXIF facts remain the inspection's baseline sections. `tools::Registry`
+continues to offer all applicable tools, then plans only the selected tool.
+Each feature owns its matching and execution contract.
+
+Columns and Properties remain separate presentation contracts. When both need
+the same format fact, share the semantic reader and stable fact identity, then
+map that fact into the fixed column catalog or the richer Properties groups at
+each consumer. Do not infer columns automatically from arbitrary property
+groups.
+
 ### Feature decisions embedded in GUI code
 
 [`preview/session.rs`](../src/preview/session.rs) now owns target identity,

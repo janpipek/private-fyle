@@ -1,4 +1,4 @@
-//! UI-independent file properties data, readers, and selection lifecycle.
+//! Shared Properties contracts, reader orchestration, and selection lifecycle.
 
 use std::fs;
 use std::io;
@@ -11,9 +11,12 @@ use crate::entry::{Attrs, Entry};
 use crate::location::Location;
 
 mod exif_reader;
+mod filesystem;
 mod media;
 mod parquet;
 mod sqlite;
+
+pub use exif_reader::{ExifField, ExifFieldId};
 
 /// A selected listing row paired with its source address.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,41 +44,7 @@ pub struct ListingFacts {
     pub link: crate::links::LinkState,
 }
 
-/// Facts about a path obtained from the local filesystem.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct StatFacts {
-    /// Whether this filesystem object is a directory.
-    pub is_dir: bool,
-    /// Whether this filesystem object is a regular file.
-    pub is_file: bool,
-    /// Byte length for regular files.
-    pub size: Option<u64>,
-    /// Last modification time.
-    pub modified: Option<SystemTime>,
-    /// Creation time, where supported.
-    pub created: Option<SystemTime>,
-    /// Platform attributes.
-    pub attrs: Attrs,
-    /// Unix owner name, when available in the local account database.
-    pub owner_name: Option<String>,
-    /// Unix group ID.
-    pub gid: Option<u32>,
-    /// Unix group name, when available in the local account database.
-    pub group_name: Option<String>,
-}
-
-/// Local filesystem facts distinguish the link object from its target.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FilesystemFacts {
-    /// Metadata for the directory entry itself, without following a symlink.
-    pub link_object: StatFacts,
-    /// Stored symlink destination, if the entry is a symlink.
-    pub symlink_target: Option<PathBuf>,
-    /// Followed target metadata; absent for a broken or unreadable target.
-    pub target: Option<StatFacts>,
-    /// Target lookup failure, if following a symlink failed.
-    pub target_error: Option<String>,
-}
+pub use filesystem::{FilesystemFacts, StatFacts};
 
 /// Status for one independently loaded properties section.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -99,46 +68,6 @@ impl<T> Section<Vec<T>> {
             Self::Failed(_) | Self::Truncated { .. } => true,
         }
     }
-}
-
-/// A stable semantic EXIF field.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ExifField {
-    /// Stable field identity, suitable for localization by a view.
-    pub id: ExifFieldId,
-    /// Reader-formatted value.
-    pub value: String,
-}
-
-/// EXIF identities supported by the shared metadata reader.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum ExifFieldId {
-    /// Camera manufacturer.
-    Make,
-    /// Camera model.
-    Model,
-    /// Lens model.
-    LensModel,
-    /// Original capture date and time.
-    DateTimeOriginal,
-    /// Exposure time.
-    ExposureTime,
-    /// Aperture number.
-    FNumber,
-    /// Photographic sensitivity.
-    PhotographicSensitivity,
-    /// Focal length.
-    FocalLength,
-    /// Pixel width.
-    PixelXDimension,
-    /// Pixel height.
-    PixelYDimension,
-    /// GPS latitude.
-    GPSLatitude,
-    /// GPS longitude.
-    GPSLongitude,
-    /// Metadata software.
-    Software,
 }
 
 /// Results of inspecting a selected source item.
@@ -241,6 +170,116 @@ pub struct PropertyTable {
     pub columns: Vec<String>,
     /// Rows aligned with `columns`.
     pub rows: Vec<Vec<PropertyValue>>,
+}
+
+/// Cheap local-file facts supplied to property providers during selection.
+#[derive(Debug)]
+pub struct Probe {
+    /// Local source path inspected by the provider.
+    pub path: PathBuf,
+    /// File name, as shown in the listing.
+    pub name: String,
+    /// Lowercase extension without the dot.
+    pub ext: String,
+    /// Whether the local path is a directory.
+    pub is_dir: bool,
+    /// Whether the local path is a regular file.
+    pub is_file: bool,
+    /// Current local file size.
+    pub size: u64,
+}
+
+impl Probe {
+    fn read(path: &std::path::Path) -> io::Result<Self> {
+        let metadata = fs::metadata(path)?;
+        Ok(Self {
+            path: path.to_path_buf(),
+            name: path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.display().to_string()),
+            ext: path
+                .extension()
+                .map(|extension| extension.to_string_lossy().to_lowercase())
+                .unwrap_or_default(),
+            is_dir: metadata.is_dir(),
+            is_file: metadata.is_file(),
+            size: metadata.len(),
+        })
+    }
+}
+
+/// A provider that contributes Properties groups when its probe matches.
+pub trait PropertyProvider: Send + Sync {
+    /// Stable group identity used when a provider fails.
+    fn id(&self) -> &'static str;
+    /// Whether this provider can contribute properties for the local source.
+    fn matches(&self, probe: &Probe) -> bool;
+    /// Reads zero or more semantic groups; call from a background worker.
+    fn read(&self, probe: &Probe, cancel: &Arc<AtomicBool>) -> io::Result<Vec<PropertyGroup>>;
+    /// Converts a reader failure into a visible independent group.
+    fn failure(&self, error: &io::Error) -> PropertyGroup {
+        PropertyGroup {
+            id: GroupId(self.id().into()),
+            status: GroupStatus::Failed(error.to_string()),
+            fields: Vec::new(),
+            groups: Vec::new(),
+            tables: Vec::new(),
+        }
+    }
+}
+
+/// Ordered providers; all providers matching a file contribute their groups.
+#[derive(Default)]
+pub struct Registry {
+    providers: Vec<Box<dyn PropertyProvider>>,
+}
+
+impl Registry {
+    /// Built-in format property providers.
+    pub fn with_defaults() -> Self {
+        let mut registry = Self::default();
+        registry.register(Box::new(parquet::Provider));
+        registry.register(Box::new(sqlite::Provider));
+        registry.register(Box::new(media::Provider));
+        registry
+    }
+
+    /// Adds a provider after existing providers.
+    pub fn register(&mut self, provider: Box<dyn PropertyProvider>) {
+        self.providers.push(provider);
+    }
+
+    /// Reads all matching provider groups, retaining independent failures.
+    pub fn read(
+        &self,
+        path: &std::path::Path,
+        cancel: &Arc<AtomicBool>,
+    ) -> io::Result<Vec<PropertyGroup>> {
+        let probe = match Probe::read(path) {
+            Ok(probe) => probe,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => return Err(error),
+            // A vanished or unreadable path must not discard independent
+            // listing, filesystem, or EXIF results from the inspection.
+            Err(_) => return Ok(Vec::new()),
+        };
+        let mut groups = Vec::new();
+        for provider in self
+            .providers
+            .iter()
+            .filter(|provider| provider.matches(&probe))
+        {
+            if cancel.load(Ordering::Relaxed) {
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
+            }
+            match provider.read(&probe, cancel) {
+                Ok(mut provided) => groups.append(&mut provided),
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => return Err(error),
+                Err(error) => groups.push(provider.failure(&error)),
+            }
+        }
+        Ok(groups)
+    }
 }
 
 /// A cancellable inspection request for the background worker.
@@ -356,29 +395,17 @@ impl PropertiesSession {
     }
 }
 
-impl ExifFieldId {
-    /// Stable machine identity independent of Rust's debug formatting.
-    pub fn id(self) -> &'static str {
-        match self {
-            Self::Make => "make",
-            Self::Model => "model",
-            Self::LensModel => "lens_model",
-            Self::DateTimeOriginal => "date_time_original",
-            Self::ExposureTime => "exposure_time",
-            Self::FNumber => "f_number",
-            Self::PhotographicSensitivity => "photographic_sensitivity",
-            Self::FocalLength => "focal_length",
-            Self::PixelXDimension => "pixel_x_dimension",
-            Self::PixelYDimension => "pixel_y_dimension",
-            Self::GPSLatitude => "gps_latitude",
-            Self::GPSLongitude => "gps_longitude",
-            Self::Software => "software",
-        }
-    }
-}
-
 /// Reads bounded properties for a selection; call from a background worker.
 pub fn inspect(selection: &Selection, cancel: &Arc<AtomicBool>) -> io::Result<Inspection> {
+    inspect_with_registry(selection, cancel, &Registry::with_defaults())
+}
+
+/// Reads bounded properties using the providers held by the application.
+pub fn inspect_with_registry(
+    selection: &Selection,
+    cancel: &Arc<AtomicBool>,
+    registry: &Registry,
+) -> io::Result<Inspection> {
     if cancel.load(Ordering::Relaxed) {
         return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
     }
@@ -397,7 +424,7 @@ pub fn inspect(selection: &Selection, cancel: &Arc<AtomicBool>) -> io::Result<In
         Location::Local(path) => {
             let current = fs::metadata(path.as_path());
             let regular_file = current.as_ref().is_ok_and(fs::Metadata::is_file);
-            let fs = match filesystem_facts(path.as_path(), cancel) {
+            let fs = match filesystem::read(path.as_path(), cancel) {
                 Ok(facts) => Section::Available(facts),
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => {
                     return Err(error);
@@ -424,40 +451,7 @@ pub fn inspect(selection: &Selection, cancel: &Arc<AtomicBool>) -> io::Result<In
                     Err(error) => Section::Failed(error.to_string()),
                 }
             };
-            let mut additional_groups = Vec::new();
-            if regular_file && parquet::is_candidate(path.as_path()) {
-                match parquet::read(path.as_path(), cancel) {
-                    Ok(group) => additional_groups.push(group),
-                    Err(error) if error.kind() == io::ErrorKind::Interrupted => return Err(error),
-                    Err(error) => additional_groups.push(PropertyGroup {
-                        id: GroupId("parquet".into()),
-                        status: GroupStatus::Failed(error.to_string()),
-                        fields: Vec::new(),
-                        groups: Vec::new(),
-                        tables: Vec::new(),
-                    }),
-                }
-            }
-            if regular_file && sqlite::is_candidate(path.as_path()) {
-                match sqlite::read(path.as_path(), Arc::clone(cancel)) {
-                    Ok(group) => additional_groups.push(group),
-                    Err(error) if error.kind() == io::ErrorKind::Interrupted => return Err(error),
-                    Err(error) => additional_groups.push(PropertyGroup {
-                        id: GroupId("sqlite".into()),
-                        status: GroupStatus::Failed(error.to_string()),
-                        fields: Vec::new(),
-                        groups: Vec::new(),
-                        tables: Vec::new(),
-                    }),
-                }
-            }
-            if regular_file && media::is_candidate(path.as_path()) {
-                match media::read(path.as_path(), cancel) {
-                    Ok(groups) => additional_groups.extend(groups),
-                    Err(error) if error.kind() == io::ErrorKind::Interrupted => return Err(error),
-                    Err(error) => additional_groups.push(media::failure(&error)),
-                }
-            }
+            let additional_groups = registry.read(path.as_path(), cancel)?;
             (fs, exif, additional_groups)
         }
         Location::Remote(_) => (
@@ -484,80 +478,11 @@ pub fn inspect(selection: &Selection, cancel: &Arc<AtomicBool>) -> io::Result<In
     })
 }
 
-fn filesystem_facts(path: &std::path::Path, cancel: &AtomicBool) -> io::Result<FilesystemFacts> {
-    if cancel.load(Ordering::Relaxed) {
-        return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
-    }
-    let link_object = fs::symlink_metadata(path)?;
-    let symlink = link_object.file_type().is_symlink();
-    let (target_path, target, target_error) = if symlink {
-        match fs::read_link(path) {
-            Err(error) => (None, None, Some(error.to_string())),
-            Ok(target_path) => match fs::metadata(path) {
-                Ok(meta) => (Some(target_path), Some(stat_facts(&meta)), None),
-                Err(error) => (Some(target_path), None, Some(error.to_string())),
-            },
-        }
-    } else {
-        (None, None, None)
-    };
-    Ok(FilesystemFacts {
-        link_object: stat_facts(&link_object),
-        symlink_target: target_path,
-        target,
-        target_error,
-    })
-}
-
-#[cfg(unix)]
-fn stat_facts(meta: &fs::Metadata) -> StatFacts {
-    use std::os::unix::fs::MetadataExt;
-    let (owner_name, group_name) = crate::fs_ops::account_names(meta.uid(), meta.gid());
-    let attrs = Attrs {
-        mode: Some(meta.mode()),
-        uid: Some(meta.uid()),
-        readonly: meta.permissions().readonly(),
-        created: meta.created().ok(),
-    };
-    StatFacts {
-        is_dir: meta.is_dir(),
-        is_file: meta.is_file(),
-        size: meta.is_file().then_some(meta.len()),
-        modified: meta.modified().ok(),
-        created: meta.created().ok(),
-        attrs,
-        owner_name,
-        gid: Some(meta.gid()),
-        group_name,
-    }
-}
-
-#[cfg(windows)]
-fn stat_facts(meta: &fs::Metadata) -> StatFacts {
-    let attrs = Attrs {
-        mode: None,
-        uid: None,
-        readonly: meta.permissions().readonly(),
-        created: meta.created().ok(),
-    };
-    StatFacts {
-        is_dir: meta.is_dir(),
-        is_file: meta.is_file(),
-        size: meta.is_file().then_some(meta.len()),
-        modified: meta.modified().ok(),
-        created: meta.created().ok(),
-        attrs,
-        owner_name: None,
-        gid: None,
-        group_name: None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        GroupId, GroupStatus, PropertiesSession, PropertyField, PropertyGroup, PropertyTable,
-        Section, Selection, State, inspect,
+        GroupId, GroupStatus, Probe, PropertiesSession, PropertyField, PropertyGroup,
+        PropertyProvider, PropertyTable, Registry, Section, Selection, State, inspect,
     };
     use crate::entry::{Attrs, Entry};
     use crate::location::Location;
@@ -574,6 +499,80 @@ mod tests {
             groups: Vec::new(),
             tables: Vec::<PropertyTable>::new(),
         }
+    }
+
+    struct TestProvider {
+        id: &'static str,
+        fails: bool,
+    }
+
+    impl PropertyProvider for TestProvider {
+        fn id(&self) -> &'static str {
+            self.id
+        }
+
+        fn matches(&self, _probe: &Probe) -> bool {
+            true
+        }
+
+        fn read(
+            &self,
+            _probe: &Probe,
+            _cancel: &Arc<AtomicBool>,
+        ) -> std::io::Result<Vec<PropertyGroup>> {
+            if self.fails {
+                return Err(std::io::Error::other("test reader failed"));
+            }
+            Ok(vec![PropertyGroup {
+                id: GroupId(self.id.into()),
+                status: GroupStatus::Available,
+                fields: Vec::new(),
+                groups: Vec::new(),
+                tables: Vec::new(),
+            }])
+        }
+    }
+
+    fn test_registry(providers: &[(&'static str, bool)]) -> Registry {
+        let mut registry = Registry::default();
+        for (id, fails) in providers {
+            registry.register(Box::new(TestProvider { id, fails: *fails }));
+        }
+        registry
+    }
+
+    #[test]
+    fn registry_reads_all_matching_providers_in_registration_order() {
+        let temp = TempDir::new().expect("tempdir");
+        let path = temp.path().join("item.bin");
+        std::fs::write(&path, b"data").expect("fixture");
+        let registry = test_registry(&[("first", false), ("second", false)]);
+
+        let groups = registry
+            .read(&path, &Arc::new(AtomicBool::new(false)))
+            .expect("provider groups");
+
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].id.0, "first");
+        assert_eq!(groups[1].id.0, "second");
+    }
+
+    #[test]
+    fn registry_keeps_provider_failures_independent_of_later_results() {
+        let temp = TempDir::new().expect("tempdir");
+        let path = temp.path().join("item.bin");
+        std::fs::write(&path, b"data").expect("fixture");
+        let registry = test_registry(&[("broken", true), ("working", false)]);
+
+        let groups = registry
+            .read(&path, &Arc::new(AtomicBool::new(false)))
+            .expect("independent provider results");
+
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].id.0, "broken");
+        assert!(matches!(&groups[0].status, GroupStatus::Failed(_)));
+        assert_eq!(groups[1].id.0, "working");
+        assert_eq!(&groups[1].status, &GroupStatus::Available);
     }
 
     #[test]
@@ -686,6 +685,22 @@ mod tests {
     }
 
     #[test]
+    fn missing_probe_path_keeps_listing_and_filesystem_facts() {
+        let temp = TempDir::new().expect("tempdir");
+        let path = temp.path().join("missing.txt");
+        let mut selected = selection(path);
+        selected.entry.size = Some(17);
+
+        let result = inspect(&selected, &Arc::new(AtomicBool::new(false)))
+            .expect("missing source retains partial inspection");
+
+        assert_eq!(result.listing.size, Some(17));
+        assert!(matches!(result.filesystem, Section::Failed(_)));
+        assert!(matches!(result.exif, Section::Unavailable(_)));
+        assert!(result.additional_groups.is_empty());
+    }
+
+    #[test]
     fn malformed_parquet_keeps_filesystem_facts_and_reports_only_its_group_failure() {
         let temp = TempDir::new().expect("tempdir");
         let path = temp.path().join("bad.parquet");
@@ -790,7 +805,7 @@ mod tests {
         let temp = TempDir::new().expect("tempdir");
         let path = temp.path().join("broken");
         symlink("missing", &path).expect("symlink");
-        let facts = super::filesystem_facts(&path, &AtomicBool::new(false)).expect("facts");
+        let facts = super::filesystem::read(&path, &AtomicBool::new(false)).expect("facts");
         assert!(facts.link_object.attrs.mode.is_some());
         assert_eq!(facts.symlink_target, Some(PathBuf::from("missing")));
         assert!(facts.target.is_none());
@@ -808,7 +823,7 @@ mod tests {
         symlink(&target, &link).expect("link");
         let link_meta = std::fs::symlink_metadata(&link).expect("link metadata");
         let target_meta = std::fs::metadata(&link).expect("target metadata");
-        let facts = super::filesystem_facts(&link, &AtomicBool::new(false)).expect("facts");
+        let facts = super::filesystem::read(&link, &AtomicBool::new(false)).expect("facts");
         assert_eq!(facts.link_object.attrs.uid, Some(link_meta.uid()));
         assert_eq!(facts.link_object.gid, Some(link_meta.gid()));
         let followed = facts.target.expect("target facts");

@@ -138,6 +138,7 @@ not to pursue an item.
       and later a macOS package.
 - [ ] The column header should be editable, such as + icon to add a column,
       right-click to show a menu etc.
+- [ ] ID3 properties for audio files.
 
 ## Done
 
