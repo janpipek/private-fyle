@@ -70,7 +70,6 @@ mod tools;
 mod tools_view;
 mod transfer;
 mod window_chrome_view;
-mod window_title;
 #[cfg(windows)]
 mod windows_apps;
 pub mod workspace;

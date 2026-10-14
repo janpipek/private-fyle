@@ -31,7 +31,7 @@ pub enum EditorEvent {
 
 /// Opens an editor in its own window and returns its window handle and pane.
 pub fn open_window(doc: Document, cx: &mut App) -> Result<(AnyWindowHandle, Entity<EditorPane>)> {
-    let title = crate::window_title::editor_title(&doc.name(), false);
+    let title = editor_title(&doc.name(), false);
     let bounds = Bounds::centered(None, size(px(900.), px(700.)), cx);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -46,6 +46,12 @@ pub fn open_window(doc: Document, cx: &mut App) -> Result<(AnyWindowHandle, Enti
         });
         pane
     })
+}
+
+/// Formats an editor title, keeping unsaved changes visible in the header.
+fn editor_title(name: &str, modified: bool) -> String {
+    let marker = if modified { "● " } else { "" };
+    format!("{marker}{name} — Fyle")
 }
 
 pub struct EditorPane {
@@ -208,7 +214,7 @@ impl Render for EditorPane {
         let weak_pane = cx.entity().downgrade();
         #[cfg(any(windows, target_os = "linux"))]
         let titlebar = crate::window_chrome_view::editor_title_bar(
-            crate::window_title::editor_title(
+            editor_title(
                 &self.doc.path().display().to_string(),
                 self.modified,
             ),
@@ -286,5 +292,20 @@ impl Render for EditorPane {
                     .text_color(theme.muted_foreground)
                     .child("Ctrl-S save · Esc / Ctrl-W close"),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::editor_title;
+
+    #[test]
+    fn saved_document_has_an_unmarked_title() {
+        assert_eq!(editor_title("readme.md", false), "readme.md — Fyle");
+    }
+
+    #[test]
+    fn unsaved_document_retains_its_name_and_gets_a_marker() {
+        assert_eq!(editor_title("zażółć.rs", true), "● zażółć.rs — Fyle");
     }
 }
