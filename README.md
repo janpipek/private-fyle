@@ -176,6 +176,12 @@ base64 PNG or JPEG data URI. Other HTML outputs, HTML in Markdown or raw cells,
 SVG, math, attachments, widgets, remote Markdown images and unknown output
 types show explicit placeholders.
 
+F3 previews `.pptx` and `.pptm` presentations as a scrollable list of slides in
+presentation order. It extracts slide text and labels embedded images with
+placeholders; layout and speaker notes are not reproduced. The reader is pure
+Rust and caps the ZIP file at 32 MiB, XML at 2 MiB per entry and 16 MiB total,
+slides at 300 and text at 300,000 bytes.
+
 F3 and icon view can use embedded JPEG previews from camera RAW files with
 extensions `.raw`, `.cr2`, `.cr3`, `.nef`, `.nrw`, `.arw`, `.sr2`, `.srf`,
 `.raf`, `.rw2`, `.orf`, `.pef` and `.dng`. This is best-effort JPEG extraction;
@@ -643,7 +649,7 @@ Where things live (`src/`):
 | `fs_ops.rs`, `transfer.rs`, `jobs.rs` | Native metadata/account adapters and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
 | `remote.rs`, `remote/` | Remote providers: `Provider` trait; compatibility `Location` alias to `location::RemoteLocation`; Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `LocalCopy` keeps a typed source address separate from the cache path used at native I/O boundaries; `model/remote.rs` holds cached listings |
 | `archive.rs`, `archive/extraction.rs`, `dirsize.rs`, `links.rs` | Archive index; safe extraction; recursive sizes; symlink state |
-| `preview/`, `preview_view.rs`, `notebook_view.rs` | `Previewer`s and their `Registry` (including bounded nbformat 4 notebook parsing); one render arm per `Content`; notebooks render through a variable-height lazy list; `PreviewSession` owns target identity, reloads, navigation and stale-result acceptance; GUI resources stay in the pane |
+| `preview/`, `preview_view.rs`, `notebook_view.rs`, `presentation_view.rs` | `Previewer`s and their `Registry` (including bounded nbformat 4 and PowerPoint parsing); one render arm per `Content`; notebooks and presentations render through variable-height lazy lists; `PreviewSession` owns target identity, reloads, navigation and stale-result acceptance; GUI resources stay in the pane |
 | `properties.rs`, `properties/`, `properties_view.rs` | `properties.rs` owns shared result contracts, section/group policy, the multi-provider `Registry` and cancellable `PropertiesSession`; `properties/filesystem.rs` reads local metadata and symlink facts; `properties/exif_reader.rs` reads EXIF; format modules map shared Parquet and media readers into groups, while `properties/sqlite.rs` reads database structure; the GPUI controller limits inspection to one active worker with the latest selection queued; selectable text runs support cross-field copying and Ctrl-C takes priority over panel file yank while a text selection exists |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and separate editor windows |
 | `tools/`, `tools_view.rs` | Tool, Action and Registry model; `defaults.toml`; built-ins; Lua plugins; `exec.rs` runs them |
@@ -654,7 +660,7 @@ Where things live (`src/`):
 | `*_view.rs`, `menu_bar.rs`, `link_badge.rs`, `theme_picker.rs` | Thin views |
 
 Previews follow the same split. `src/preview/` is the model: a `Registry`
-of `Previewer`s (directory, embedded-JPEG RAW images, image with EXIF, PDF via poppler, audio/video via ffmpeg, archive, DOCX/ODT documents (to Markdown), Markdown, read-only IPYNB,
+of `Previewer`s (directory, embedded-JPEG RAW images, image with EXIF, PDF via poppler, audio/video via ffmpeg, archive, DOCX/ODT documents (to Markdown), PPTX/PPTM slide text, Markdown, read-only IPYNB,
 Parquet and CSV tables, text, binary fallback) turns a path into
 plain `Content` data; the first previewer whose `matches` accepts the file's
 `Probe` (name, extension, size, first 8 KiB) wins. PDF pages render on demand

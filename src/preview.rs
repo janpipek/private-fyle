@@ -22,6 +22,7 @@ mod media;
 mod notebook;
 mod parquet;
 mod pdf;
+mod pptx;
 mod raw;
 /// Preview target lifecycle and page/sheet navigation decisions.
 pub mod session;
@@ -44,6 +45,7 @@ pub use media::MediaPreviewer;
 pub use notebook::{Cell as NotebookCell, Notebook, NotebookPreviewer, Output as NotebookOutput};
 pub use parquet::ParquetPreviewer;
 pub use pdf::{PdfPreviewer, render_page};
+pub use pptx::{Presentation, PresentationPreviewer, Slide};
 pub use raw::RawPreviewer;
 pub use spreadsheet::{Sheet, SpreadsheetPreviewer, read_sheet};
 pub use table::TablePreviewer;
@@ -154,6 +156,8 @@ pub enum Content {
     Markdown { text: String },
     /// Read-only Jupyter notebook cells and saved outputs.
     Notebook(std::sync::Arc<Notebook>),
+    /// Read-only slide text from a PowerPoint presentation.
+    Presentation(std::sync::Arc<Presentation>),
     /// Tabular data (CSV, TSV or Parquet): a header row and records.
     Table {
         header: Vec<String>,
@@ -216,6 +220,7 @@ impl Registry {
         // Before the archive previewer: XLSX, ODS, DOCX and ODT are zip files.
         registry.register(SpreadsheetPreviewer);
         registry.register(DocumentPreviewer);
+        registry.register(PresentationPreviewer);
         registry.register(ArchivePreviewer);
         registry.register(MarkdownPreviewer);
         registry.register(NotebookPreviewer);

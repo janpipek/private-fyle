@@ -144,6 +144,10 @@ not to pursue an item.
 
 ## Done
 
+- [x] F3 PowerPoint previews (`.pptx`, `.pptm`) show slides in order as a
+      scrollable text outline with named embedded-image placeholders. Bounded
+      ZIP/XML reads; presentation layout is not reproduced.
+
 - [x] Add an optional Duration column (`duration`) for local audio and video
       files, formatted as `mm:ss` or `h:mm:ss` through the bounded media reader
       and panel metadata queue. Remote and archive rows remain blank.

@@ -33,6 +33,8 @@ pub struct PreviewPane {
     editor: Entity<EditorState>,
     /// Variable-height virtual list state for notebook cells.
     notebook_list: ListState,
+    /// Variable-height virtual list state for presentation slides.
+    presentation_list: ListState,
     /// Raster images prepared off the UI thread for notebook outputs.
     notebook_images: Arc<HashMap<(usize, usize), Arc<RenderImage>>>,
     /// Scroll position for both axes of a table preview.
@@ -58,6 +60,7 @@ impl PreviewPane {
             session: PreviewSession::default(),
             editor,
             notebook_list: ListState::new(0, ListAlignment::Top, px(160.)),
+            presentation_list: ListState::new(0, ListAlignment::Top, px(240.)),
             notebook_images: Arc::new(HashMap::new()),
             table_scroll: ScrollHandle::new(),
             _pdf_render: Task::ready(()),
@@ -242,6 +245,10 @@ impl PreviewPane {
             if let Content::Notebook(notebook) = &preview.content {
                 self.notebook_list =
                     ListState::new(notebook.cells.len(), ListAlignment::Top, px(240.));
+            }
+            if let Content::Presentation(presentation) = &preview.content {
+                self.presentation_list =
+                    ListState::new(presentation.slides.len(), ListAlignment::Top, px(240.));
             }
             if let Content::Text { text, language, .. } = &preview.content {
                 self.editor.update(cx, |editor, cx| {
@@ -550,6 +557,11 @@ impl PreviewPane {
                 notebook.clone(),
                 self.notebook_list.clone(),
                 self.notebook_images.clone(),
+                cx,
+            ),
+            Content::Presentation(presentation) => crate::presentation_view::render(
+                presentation.clone(),
+                self.presentation_list.clone(),
                 cx,
             ),
             Content::Table {

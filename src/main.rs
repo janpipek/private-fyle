@@ -51,6 +51,7 @@ mod palette_view;
 mod panel;
 mod panels;
 mod places;
+mod presentation_view;
 mod preview;
 mod preview_view;
 pub mod properties;
