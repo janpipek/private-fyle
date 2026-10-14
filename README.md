@@ -110,12 +110,9 @@ row groups at 128, and displayed text at 1,024 characters. Footer decoding
 cannot be interrupted and decoded metadata may use more memory than its
 serialized size. Symlinks to regular local Parquet files show target metadata
 while Filesystem continues to describe the link object. Local regular SQLite
-databases show tables, views, columns (including generated and hidden columns),
-indexes and foreign keys without reading user rows. SQLite inspection is
-read-only, cancellable and limited to two seconds, 128 objects, 1,024 detail
-rows and 1,024 characters per displayed value. A 256-column SQLite read limit
-can make unusually wide schemas fail in this section while filesystem facts
-remain visible. Symlinks to regular databases inspect their targets. Local
+databases show user table names only. SQLite inspection is read-only,
+cancellable and limited to two seconds, 128 table names and 1,024 characters
+per name. Symlinks to regular databases inspect their targets. Local
 regular audio and video files show Container, Video,
 Audio and Subtitles groups from `ffprobe`; unavailable `ffprobe` and probe
 failures appear in Properties without hiding filesystem facts. The shared

@@ -143,12 +143,10 @@ not to pursue an item.
 
 ## Done
 
-- [x] SQLite Properties: local regular databases show tables, views, columns
-      (including hidden/generated columns), indexes and foreign keys without
-      reading user rows. The read-only reader caps schema objects at 128,
-      detail rows at 1,024 and displayed text at 1,024 characters, with a
-      two-second deadline and cancellation. Reader failures preserve filesystem
-      facts; remote and archive contents remain listing-only. See
+- [x] SQLite Properties: local regular databases show user table names only.
+      The read-only reader caps results at 128 names and 1,024 characters per
+      name, with a two-second deadline and cancellation. Reader failures
+      preserve filesystem facts; remote and archive contents remain listing-only. See
       [Properties plan](docs/properties-plan.md).
 
 - [x] Media Properties: a shared bounded, timed `ffprobe` JSON reader shows

@@ -52,13 +52,11 @@ and cannot be interrupted, and decoded metadata may use more memory than its
 serialized footer. Remote and archive contents are not read. A symlink to a
 regular local Parquet file is inspected through its target while Filesystem
 continues to describe the link object.
-Local regular SQLite databases show tables, views, columns (including generated
-and hidden columns), indexes and foreign keys from read-only, parameterized
-schema queries. User rows are never read. The reader limits output to 128
-objects, 1,024 detail rows and 1,024 characters per displayed value; a
-two-second deadline and cancellation bound each inspection. SQLite's
-256-column read limit can cause an unusually wide schema to fail independently
-of filesystem facts. Symlinks to regular databases inspect their targets.
+Local regular SQLite databases show user table names only, from a read-only
+schema query. Views, indexes, columns and user rows are not read. The reader
+limits output to 128 table names and 1,024 characters per name; a two-second
+deadline and cancellation bound each inspection. Symlinks to regular databases
+inspect their targets.
 Local regular audio and video files show bounded Container, Video, Audio and
 Subtitles groups from `ffprobe`. Probe failures leave filesystem and other
 format facts visible. The shared reader limits output to 1 MiB, streams to 32,
