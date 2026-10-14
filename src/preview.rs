@@ -199,11 +199,39 @@ pub struct Preview {
     pub resolved_link: Option<PathBuf>,
 }
 
+/// Plain RGB colors supplied by the view for previews rendered to images.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PreviewStyle {
+    /// Main text color, used for the route line.
+    pub foreground: [u8; 3],
+    /// Surface color, used behind the route line.
+    pub background: [u8; 3],
+    /// Start marker color.
+    pub success: [u8; 3],
+    /// End marker color.
+    pub danger: [u8; 3],
+}
+
+impl Default for PreviewStyle {
+    fn default() -> Self {
+        Self {
+            foreground: [12, 20, 31],
+            background: [255, 255, 255],
+            success: [24, 148, 82],
+            danger: [213, 73, 57],
+        }
+    }
+}
+
 pub trait Previewer: Send + Sync {
     /// Short, user-visible kind, e.g. "Image".
     fn name(&self) -> &'static str;
     fn matches(&self, probe: &Probe) -> bool;
     fn load(&self, probe: &Probe) -> io::Result<Content>;
+    /// Loads using plain view colors when the format draws an image.
+    fn load_styled(&self, probe: &Probe, _style: PreviewStyle) -> io::Result<Content> {
+        self.load(probe)
+    }
 }
 
 #[derive(Default)]
@@ -239,8 +267,14 @@ impl Registry {
         self.previewers.push(Box::new(previewer));
     }
 
-    /// Probes and loads `path` with the first matching previewer. Blocking.
+    /// Probes and loads `path` with default colors in tests. Blocking.
+    #[cfg(test)]
     pub fn preview(&self, path: &Path) -> Result<Preview, String> {
+        self.preview_styled(path, PreviewStyle::default())
+    }
+
+    /// Probes and loads `path` using colors from the active theme. Blocking.
+    pub fn preview_styled(&self, path: &Path, style: PreviewStyle) -> Result<Preview, String> {
         // Remote files are previewed from their downloaded copy only.
         if crate::location::is_remote(path) {
             return Err(format!("{}: not downloaded", path.display()));
@@ -249,7 +283,7 @@ impl Registry {
             && let Some((file, inner)) = crate::archive::locate(path)
             && !inner.is_empty()
         {
-            return self.preview_in_archive(path, &file, &inner);
+            return self.preview_in_archive(path, &file, &inner, style);
         }
         let error = |e: io::Error| format!("{}: {e}", path.display());
         // A broken link cannot be read; say where it points instead.
@@ -265,7 +299,7 @@ impl Registry {
             .iter()
             .find(|p| p.matches(&probe))
             .ok_or_else(|| format!("No preview for {}", probe.name))?;
-        let content = previewer.load(&probe).map_err(error)?;
+        let content = previewer.load_styled(&probe, style).map_err(error)?;
         let link = crate::links::LinkState::of(path);
         let resolved_link = link.resolved(path);
         Ok(Preview {
@@ -282,7 +316,13 @@ impl Registry {
     /// Previews an entry of an archive: a folder is summarised from the
     /// listing, a file is extracted to the preview cache first (up to
     /// [`ARCHIVE_LIMIT`] bytes) and previewed from there.
-    fn preview_in_archive(&self, path: &Path, file: &Path, inner: &str) -> Result<Preview, String> {
+    fn preview_in_archive(
+        &self,
+        path: &Path,
+        file: &Path,
+        inner: &str,
+        style: PreviewStyle,
+    ) -> Result<Preview, String> {
         let error = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
         let index = crate::archive::Index::cached(file).map_err(|e| error(&e))?;
         let node = index
@@ -332,7 +372,7 @@ impl Registry {
                 }
             }
         }
-        let mut preview = self.preview(&temp)?;
+        let mut preview = self.preview_styled(&temp, style)?;
         preview.path = path.to_path_buf();
         preview.name = name;
         preview.resolved_link = None;

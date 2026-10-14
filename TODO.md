@@ -38,8 +38,11 @@ not to pursue an item.
       With. Use a shared, bounded detection model that combines known names
       (such as `Justfile` and `CMakeLists.txt`), extensions and content
       signatures where useful: SQLite databases, XMP sidecars, YAML and GPU
-      shader sources are examples. Decide how to handle ambiguous text formats
-      and remote files before implementation.
+      shader sources are examples. Owner preference: use MIME types through a
+      detector interface with swappable implementations (for example, `file`
+      on Linux or a Rust reader); external programs are acceptable when useful.
+      For remote files, use the filename first and refine after download.
+      Decide how to handle ambiguous text formats before implementation.
 - [ ] Idea: grouped files for related assets, such as RAW/JPEG/XMP photos,
       video/subtitle pairs, audio/lyrics pairs and split archives. Decide
       format-aware pairing rules and an optional panel presentation independent
