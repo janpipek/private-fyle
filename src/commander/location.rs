@@ -1,7 +1,8 @@
 //! Background navigation and the grouped locations picker.
 
+use gpui_kit::component::button::Button;
 use gpui_kit::component::list::{List, ListState};
-use gpui_kit::component::{IndexPath, WindowExt as _};
+use gpui_kit::component::{IndexPath, Sizable as _, WindowExt as _, v_flex};
 use gpui_kit::*;
 
 use super::Commander;
@@ -257,16 +258,30 @@ impl Commander {
             list.set_selected_index(Some(IndexPath::new(0)), window, cx)
         });
         let dialog_list = list.clone();
+        let commander = cx.weak_entity();
         window.open_dialog(cx, move |dialog, _, _| {
-            dialog
-                .title("Locations")
-                .w(px(640.))
-                .child(
-                    div().h(px(420.)).child(
-                        List::new(&dialog_list)
-                            .search_placeholder("drives, places, bookmarks, frequent"),
+            let commander = commander.clone();
+            dialog.title("Locations").w(px(640.)).child(
+                v_flex()
+                    .gap_2()
+                    .child(
+                        div().h(px(420.)).child(
+                            List::new(&dialog_list)
+                                .search_placeholder("drives, places, bookmarks, frequent"),
+                        ),
+                    )
+                    .child(
+                        Button::new("manage-remotes-from-locations")
+                            .label("Manage Remotes…")
+                            .small()
+                            .on_click(move |_, window, cx| {
+                                window.close_dialog(cx);
+                                let _ = commander.update(cx, |this, cx| {
+                                    this.manage_remotes(&super::keys::ManageRemotes, window, cx)
+                                });
+                            }),
                     ),
-                )
+            )
         });
         list.update(cx, |list, cx| list.focus(window, cx));
         cx.notify();

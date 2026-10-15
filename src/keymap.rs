@@ -274,6 +274,7 @@ fn action_id(cmd: Cmd) -> &'static str {
         Cmd::CancelJobs => "CancelJobs",
         Cmd::CommandPalette => "CommandPalette",
         Cmd::EditShortcuts => "EditShortcuts",
+        Cmd::ManageRemotes => "ManageRemotes",
         Cmd::Help => "Help",
         Cmd::OpenConfig => "OpenConfig",
         Cmd::About => "About",

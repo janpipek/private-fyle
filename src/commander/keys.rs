@@ -79,6 +79,7 @@ actions!(
         ZoomOut,
         ZoomReset,
         EditShortcuts,
+        ManageRemotes,
         Quit,
     ]
 );
@@ -366,6 +367,7 @@ pub fn action_for(cmd: Cmd) -> Box<dyn Action> {
         Cmd::ZoomOut => Box::new(ZoomOut),
         Cmd::ZoomReset => Box::new(ZoomReset),
         Cmd::EditShortcuts => Box::new(EditShortcuts),
+        Cmd::ManageRemotes => Box::new(ManageRemotes),
     }
 }
 

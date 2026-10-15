@@ -13,6 +13,7 @@ mod navigation;
 mod open_with;
 mod panel_view;
 mod remotes;
+mod remotes_view;
 mod search;
 mod tools;
 mod view;
@@ -310,6 +311,9 @@ impl Commander {
                         }
                         HeaderEvent::Locations => this.open_locations(ix, true, window, cx),
                         HeaderEvent::SearchLocations => this.open_locations(ix, false, window, cx),
+                        HeaderEvent::ManageRemotes => {
+                            this.manage_remotes(&keys::ManageRemotes, window, cx)
+                        }
                         HeaderEvent::Edit => {
                             this.set_active(ix, cx);
                             this.views[ix].update(cx, |view, cx| view.open_location(window, cx));
@@ -623,6 +627,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::open_terminal))
             .on_action(cx.listener(Self::select_columns))
             .on_action(cx.listener(Self::edit_shortcuts))
+            .on_action(cx.listener(Self::manage_remotes))
             .on_action(cx.listener(Self::select_all))
             .on_action(cx.listener(Self::invert_selection))
             .on_action(cx.listener(Self::select_pattern))

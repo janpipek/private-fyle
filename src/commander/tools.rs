@@ -24,7 +24,7 @@ use crate::tools_view::{MenuDelegate, PickDelegate};
 
 pub fn tool_menu_footer(mut menu: PopupMenu, state: &menus::State) -> PopupMenu {
     menu = menu.separator();
-    for cmd in [Cmd::ToolsMenu, Cmd::FindFiles] {
+    for cmd in [Cmd::ToolsMenu, Cmd::FindFiles, Cmd::ManageRemotes] {
         menu = menu.item(command_item(cmd, state));
     }
     menu.separator().item(command_item(Cmd::CancelJobs, state))

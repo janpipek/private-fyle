@@ -5,6 +5,7 @@ pub mod connections;
 #[cfg(feature = "sftp")]
 pub mod hostkey;
 pub mod jobs;
+pub mod manage;
 pub mod process;
 pub mod proton;
 pub mod rclone;

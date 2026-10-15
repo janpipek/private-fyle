@@ -95,6 +95,7 @@ pub enum HeaderEvent {
     Navigate(PanelTarget),
     Locations,
     SearchLocations,
+    ManageRemotes,
     Edit,
     CopyPath(String),
     /// The bookmark star was clicked.
@@ -248,6 +249,7 @@ impl FolderView {
     ) {
         let pick = cx.weak_entity();
         let search = pick.clone();
+        let manage = pick.clone();
         let menu = crate::location_view::locations_menu(
             groups,
             move |path, _, cx| {
@@ -257,6 +259,9 @@ impl FolderView {
             },
             move |_, cx| {
                 let _ = search.update(cx, |_, cx| cx.emit(HeaderEvent::SearchLocations));
+            },
+            move |_, cx| {
+                let _ = manage.update(cx, |_, cx| cx.emit(HeaderEvent::ManageRemotes));
             },
             window,
             cx,

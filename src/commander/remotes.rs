@@ -109,7 +109,13 @@ impl Commander {
         self.set_active(active, cx);
     }
 
-    fn set_remotes(&mut self, registry: Registry, errors: Vec<io::Error>, cx: &mut Context<Self>) {
+    /// Replaces discovered providers and updates remote labels and listing caches.
+    pub fn set_remotes(
+        &mut self,
+        registry: Registry,
+        errors: Vec<io::Error>,
+        cx: &mut Context<Self>,
+    ) {
         for cache in &self.listing_caches {
             cache.clear();
         }

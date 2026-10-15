@@ -36,6 +36,7 @@ pub fn locations_menu(
     groups: Vec<Group>,
     on_pick: impl Fn(PathBuf, &mut Window, &mut App) + 'static,
     on_search: impl Fn(&mut Window, &mut App) + 'static,
+    on_manage: impl Fn(&mut Window, &mut App) + 'static,
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<PopupMenu> {
@@ -79,10 +80,15 @@ pub fn locations_menu(
                 }
             }
         }
-        menu.separator().item(
-            PopupMenuItem::new("Search Locations… (Ctrl-G)")
-                .on_click(move |_, window, cx| on_search(window, cx)),
-        )
+        menu.separator()
+            .item(
+                PopupMenuItem::new("Manage Remotes…")
+                    .on_click(move |_, window, cx| on_manage(window, cx)),
+            )
+            .item(
+                PopupMenuItem::new("Search Locations… (Ctrl-G)")
+                    .on_click(move |_, window, cx| on_search(window, cx)),
+            )
     })
 }
 

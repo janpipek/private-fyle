@@ -84,6 +84,7 @@ pub enum Cmd {
     ZoomOut,
     ZoomReset,
     EditShortcuts,
+    ManageRemotes,
 }
 
 /// What availability and toggle states depend on, taken from the window.
@@ -147,7 +148,7 @@ pub struct State {
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 72] = [
+    pub const ALL: [Cmd; 73] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::OpenInBrowser,
@@ -220,6 +221,7 @@ impl Cmd {
         Cmd::About,
         Cmd::Quit,
         Cmd::EditShortcuts,
+        Cmd::ManageRemotes,
     ];
 
     /// Name in menus.
@@ -297,6 +299,7 @@ impl Cmd {
             Cmd::ZoomOut => "Zoom Out",
             Cmd::ZoomReset => "Reset Zoom",
             Cmd::EditShortcuts => "Edit Keyboard Shortcuts…",
+            Cmd::ManageRemotes => "Manage Remotes…",
         }
     }
 
@@ -347,6 +350,7 @@ impl Cmd {
             Cmd::Help => "Help: commands and keys",
             Cmd::OpenConfig => "Edit configuration (config.toml)",
             Cmd::EditShortcuts => "Edit keyboard shortcuts",
+            Cmd::ManageRemotes => "Manage remotes in remotes.toml",
             Cmd::ZoomIn => "Zoom in UI",
             Cmd::ZoomOut => "Zoom out UI",
             Cmd::ZoomReset => "Reset UI zoom",
@@ -650,11 +654,15 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
                     GoToOtherFolder,
                     SwapPanels,
                     ToggleBookmark,
+                    ManageRemotes,
                 ],
                 &[OpenTerminal],
             ]),
         ),
-        ("Tools", items(&[&[ToolsMenu, FindFiles], &[CancelJobs]])),
+        (
+            "Tools",
+            items(&[&[ToolsMenu, FindFiles], &[ManageRemotes], &[CancelJobs]]),
+        ),
         (
             "Help",
             items(&[
@@ -676,7 +684,8 @@ mod tests {
         for cmd in Cmd::ALL {
             assert!(seen.insert(cmd), "{cmd:?} twice");
         }
-        // Every menu item is a known command, and appears once.
+        // Every menu item is known; Manage Remotes is intentionally offered
+        // from both Go and Tools.
         let mut in_menus = std::collections::HashSet::new();
         for (_, items) in menu_bar() {
             for item in items {
@@ -688,6 +697,9 @@ mod tests {
                 };
                 for &cmd in cmds {
                     assert!(seen.contains(&cmd), "{cmd:?}");
+                    if cmd == Cmd::ManageRemotes {
+                        continue;
+                    }
                     assert!(in_menus.insert(cmd), "{cmd:?} in two menus");
                 }
             }

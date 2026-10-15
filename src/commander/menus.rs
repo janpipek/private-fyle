@@ -163,7 +163,11 @@ impl Commander {
                 let open_with = open_with.clone();
                 let builder: MenuBuilder = if name == "Tools" {
                     let commander = commander.clone();
+                    let state = state.clone();
                     Rc::new(move |menu, window, cx| {
+                        if state.remote.is_some() || state.in_archive {
+                            return tool_menu_footer(menu.label("Tools unavailable here"), &state);
+                        }
                         let popup = cx.entity().downgrade();
                         let _ = commander.update(cx, |this, cx| {
                             this.discover_tools_for_menu(popup, true, window, cx)

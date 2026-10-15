@@ -145,6 +145,11 @@ not to pursue an item.
 
 ## Done
 
+- [x] Manage server remotes in a dialog from Go, Tools and Locations. Edit,
+      add, remove, test and connect entries in `remotes.toml`; rclone remotes
+      remain managed with `rclone config`, and Proton Drive setup points to
+      `proton-drive auth login`.
+
 - [x] F3 PowerPoint previews (`.pptx`, `.pptm`) show slides in order as a
       scrollable text outline with named embedded-image placeholders. Bounded
       ZIP/XML reads; presentation layout is not reproduced.
