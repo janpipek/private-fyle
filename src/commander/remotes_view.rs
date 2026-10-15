@@ -1,9 +1,16 @@
 //! Dialog for editing user configured remote connections.
 
+use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::list::{List, ListDelegate, ListItem, ListState};
+use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::component::{Disableable as _, Sizable as _, WindowExt as _, h_flex, v_flex};
+use gpui_kit::component::{
+    ActiveTheme as _, Disableable as _, Icon, IndexPath, Sizable as _, WindowExt as _, h_flex,
+    v_flex,
+};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::Commander;
@@ -13,7 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 const FIELDS: [&str; 12] = [
     "Name",
-    "Protocol (sftp/ftp/ftps/webdav/s3)",
+    "Protocol",
     "Host",
     "Port",
     "User",
@@ -25,6 +32,30 @@ const FIELDS: [&str; 12] = [
     "S3 profile",
     "S3 endpoint",
 ];
+
+fn protocol_title(protocol: &str) -> &'static str {
+    match protocol {
+        "sftp" => "SFTP",
+        "ftp" => "FTP",
+        "ftps" => "FTPS",
+        "webdav" => "WebDAV",
+        "s3" => "S3",
+        _ => "Choose type",
+    }
+}
+
+fn defer_list_selection(
+    list: Entity<ListState<RemoteListDelegate>>,
+    index: Option<usize>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    window.defer(cx, move |window, cx| {
+        list.update(cx, |list, cx| {
+            list.set_selected_index(index.map(IndexPath::new), window, cx)
+        });
+    });
+}
 
 /// Remote list and editable form shown in the manager dialog.
 pub struct RemoteManager {
@@ -42,6 +73,146 @@ pub struct RemoteManager {
     test_task: Task<()>,
     test_cancel: Option<Arc<AtomicBool>>,
     test_generation: u64,
+    remote_list: Option<Entity<ListState<RemoteListDelegate>>>,
+    has_draft: bool,
+    _input_subscriptions: Vec<Subscription>,
+}
+
+struct RemoteListDelegate {
+    manager: WeakEntity<RemoteManager>,
+}
+
+impl ListDelegate for RemoteListDelegate {
+    type Item = ListItem;
+
+    fn perform_search(
+        &mut self,
+        _: &str,
+        _: &mut Window,
+        _: &mut Context<ListState<Self>>,
+    ) -> Task<()> {
+        Task::ready(())
+    }
+
+    fn items_count(&self, _: usize, cx: &App) -> usize {
+        self.manager
+            .upgrade()
+            .map_or(0, |manager| manager.read(cx).configs.len())
+    }
+
+    fn render_item(
+        &mut self,
+        ix: IndexPath,
+        _: &mut Window,
+        cx: &mut Context<ListState<Self>>,
+    ) -> Option<ListItem> {
+        let manager = self.manager.upgrade()?;
+        let manager = manager.read(cx);
+        let config = manager.configs.get(ix.row)?;
+        let protocol = match config.protocol {
+            connections::Protocol::Sftp => "SFTP",
+            connections::Protocol::Ftp => "FTP",
+            connections::Protocol::Ftps => "FTPS",
+            connections::Protocol::Webdav => "WebDAV",
+            connections::Protocol::S3 => "S3",
+        };
+        let endpoint = config
+            .host
+            .as_deref()
+            .or(config.url.as_deref())
+            .or(config.bucket.as_deref())
+            .unwrap_or("Remote endpoint not set");
+        Some(
+            ListItem::new(ix.row)
+                .selected(manager.selected == Some(ix.row))
+                .child(
+                    v_flex()
+                        .w_full()
+                        .gap_1()
+                        .px_2()
+                        .py_1()
+                        .child(
+                            h_flex()
+                                .w_full()
+                                .justify_between()
+                                .child(config.name.clone())
+                                .child(div().text_xs().child(protocol)),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .min_w_0()
+                                .truncate()
+                                .child(endpoint.to_owned()),
+                        ),
+                ),
+        )
+    }
+
+    fn set_selected_index(
+        &mut self,
+        ix: Option<IndexPath>,
+        window: &mut Window,
+        cx: &mut Context<ListState<Self>>,
+    ) {
+        if let (Some(index), Some(manager)) = (ix.map(|ix| ix.row), self.manager.upgrade()) {
+            let (previous, busy, remote_list) = {
+                let manager = manager.read(cx);
+                (manager.selected, manager.busy, manager.remote_list.clone())
+            };
+            if previous == Some(index) {
+                return;
+            }
+            if busy {
+                if let Some(list) = remote_list {
+                    defer_list_selection(list, previous, window, cx);
+                }
+                return;
+            }
+            let dirty = {
+                let manager = manager.read(cx);
+                manager.has_draft
+                    && manage::is_dirty(
+                        &manager.draft(cx),
+                        manager
+                            .selected
+                            .and_then(|index| manager.configs.get(index)),
+                    )
+            };
+            if dirty && manager.read(cx).selected != Some(index) {
+                let weak = self.manager.clone();
+                let prior_index = manager.read(cx).selected.map(IndexPath::new);
+                let remote_list = manager.read(cx).remote_list.clone();
+                window.open_alert_dialog(cx, move |dialog, _, _| {
+                    let weak_ok = weak.clone();
+                    let remote_list_cancel = remote_list.clone();
+                    dialog
+                        .title("Discard unsaved changes?")
+                        .description("Your edits will be lost if you switch remotes.")
+                        .ok_text("Discard")
+                        .show_cancel(true)
+                        .on_ok(move |_, window, cx| {
+                            let _ = weak_ok
+                                .update(cx, |manager, cx| manager.load_config(index, window, cx));
+                            true
+                        })
+                        .on_cancel(move |_, window, cx| {
+                            if let Some(list) = &remote_list_cancel {
+                                list.update(cx, |list, cx| {
+                                    list.set_selected_index(prior_index, window, cx)
+                                });
+                            }
+                            true
+                        })
+                });
+            } else {
+                manager.update(cx, |manager, cx| manager.load_config(index, window, cx));
+            }
+        }
+    }
+
+    fn confirm(&mut self, _: bool, _: &mut Window, _: &mut Context<ListState<Self>>) {}
 }
 
 impl RemoteManager {
@@ -70,6 +241,7 @@ impl RemoteManager {
     fn load_config(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         self.cancel_test();
         self.selected = Some(index);
+        self.has_draft = true;
         self.selected_original_name = Some(self.configs[index].name.clone());
         let draft = manage::Draft::from_config(&self.configs[index]);
         let values = [
@@ -96,66 +268,67 @@ impl RemoteManager {
 impl Render for RemoteManager {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let weak = cx.entity().downgrade();
-        let remotes = self.configs.iter().enumerate().map(|(index, config)| {
-            let entity = weak.clone();
-            let name = config.name.clone();
-            let button = Button::new(SharedString::from(format!("remote-{name}")))
-                .label(name)
-                .small()
-                .disabled(self.busy)
-                .on_click(move |_, window, cx| {
-                    let _ = entity.update(cx, |this, cx| this.load_config(index, window, cx));
-                });
-            if self.selected == Some(index) {
-                button.primary()
-            } else {
-                button
-            }
-        });
+        let protocol = self.fields[1].read(cx).value().to_string();
+        let protocol_label = protocol_title(&protocol);
+        let dirty = self.has_draft
+            && manage::is_dirty(
+                &self.draft(cx),
+                self.selected.and_then(|index| self.configs.get(index)),
+            );
         let field_view = |label: &str, field: &Entity<InputState>| {
             v_flex()
+                .flex_1()
                 .gap_1()
                 .child(div().text_xs().child(label.to_owned()))
                 .child(Input::new(field).disabled(self.busy))
         };
-        let left_fields = FIELDS
-            .iter()
-            .step_by(2)
-            .zip(self.fields.iter().step_by(2))
-            .map(|(label, field)| field_view(label, field));
-        let right_fields = FIELDS
-            .iter()
-            .skip(1)
-            .step_by(2)
-            .zip(self.fields.iter().skip(1).step_by(2))
-            .map(|(label, field)| field_view(label, field));
-        let mut content = v_flex().gap_3().child(div().child("Manage remotes.toml. rclone remotes use rclone config; Proton Drive needs proton-drive auth login."));
-        if let Some(message) = &self.message {
-            content = content.child(div().child(message.clone()));
-        }
+        let mut content = v_flex().gap_3();
         let refresh = weak.clone();
         let add = Button::new("remote-add")
-            .label("New")
+            .label("Add…")
+            .icon(Icon::new(Lucide::ChevronDown))
             .small()
-            .disabled(self.busy)
-            .on_click(move |_, window, cx| {
-                let _ = refresh.update(cx, |this, cx| {
-                    this.cancel_test();
-                    this.selected = None;
-                    this.selected_original_name = None;
-                    for field in &this.fields {
-                        field.update(cx, |f, cx| f.set_value("".to_owned(), window, cx));
-                    }
-                    this.fields[1].update(cx, |f, cx| f.set_value("sftp".to_owned(), window, cx));
-                    this.fields[5].update(cx, |f, cx| f.set_value("/".to_owned(), window, cx));
-                    cx.notify();
-                });
+            .disabled(self.busy || dirty)
+            .dropdown_menu(move |mut menu, _, _| {
+                let parent = refresh.clone();
+                for (id, label) in [
+                    ("sftp", "SFTP"),
+                    ("ftp", "FTP"),
+                    ("ftps", "FTPS"),
+                    ("webdav", "WebDAV"),
+                    ("s3", "S3"),
+                ] {
+                    let parent = parent.clone();
+                    menu = menu.item(PopupMenuItem::new(format!("New {label} remote")).on_click(
+                        move |_, window, cx| {
+                            let _ = parent.update(cx, |this, cx| {
+                                this.cancel_test();
+                                this.selected = None;
+                                this.selected_original_name = None;
+                                this.has_draft = true;
+                                for field in &this.fields {
+                                    field
+                                        .update(cx, |f, cx| f.set_value(String::new(), window, cx));
+                                }
+                                this.fields[1]
+                                    .update(cx, |f, cx| f.set_value(id.to_owned(), window, cx));
+                                this.fields[5].update(cx, |f, cx| f.set_value("/", window, cx));
+                                if let Some(list) = this.remote_list.clone() {
+                                    defer_list_selection(list, None, window, cx);
+                                }
+                                this.message = None;
+                                cx.notify();
+                            });
+                        },
+                    ));
+                }
+                menu
             });
         let del = weak.clone();
         let remove = Button::new("remote-remove")
             .label("Remove…")
             .small()
-            .disabled(self.selected.is_none() || self.busy)
+            .disabled(self.selected.is_none() || self.busy || dirty)
             .on_click(move |_, window, cx| {
                 let Some(entity) = del.upgrade() else {
                     return;
@@ -206,9 +379,9 @@ impl Render for RemoteManager {
             });
         let connect_entity = weak.clone();
         let connect = Button::new("remote-connect")
-            .label("Connect saved")
+            .label("Connect")
             .small()
-            .disabled(self.selected.is_none() || self.busy)
+            .disabled(self.selected.is_none() || self.busy || dirty)
             .on_click(move |_, window, cx| {
                 let Some(entity) = connect_entity.upgrade() else {
                     return;
@@ -227,32 +400,241 @@ impl Render for RemoteManager {
                     commander.update(cx, |this, cx| this.connect_remote_name(name, window, cx));
                 }
             });
-        content.child(
-            h_flex()
+        let cancel_entity = weak.clone();
+        let cancel_changes = Button::new("remote-cancel-changes")
+            .label("Cancel changes")
+            .small()
+            .disabled(!dirty || self.busy)
+            .on_click(move |_, window, cx| {
+                let _ = cancel_entity.update(cx, |this, cx| {
+                    this.cancel_test();
+                    if let Some(index) = this
+                        .selected
+                        .filter(|index| *index < this.saved_configs.len())
+                    {
+                        this.configs = this.saved_configs.clone();
+                        this.load_config(index, window, cx);
+                    } else {
+                        this.configs = this.saved_configs.clone();
+                        this.selected = None;
+                        this.selected_original_name = None;
+                        this.has_draft = false;
+                        for field in &this.fields {
+                            field.update(cx, |f, cx| f.set_value(String::new(), window, cx));
+                        }
+                        if let Some(list) = this.remote_list.clone() {
+                            defer_list_selection(list, None, window, cx);
+                        }
+                    }
+                    this.message = None;
+                    cx.notify();
+                });
+            });
+        let selector = Button::new("remote-protocol")
+            .label(protocol_label)
+            .icon(Icon::new(Lucide::ChevronDown))
+            .small()
+            .disabled(self.busy)
+            .dropdown_menu(move |mut menu, _, _| {
+                let entity = weak.clone();
+                for (id, label) in [
+                    ("sftp", "SFTP"),
+                    ("ftp", "FTP"),
+                    ("ftps", "FTPS"),
+                    ("webdav", "WebDAV"),
+                    ("s3", "S3"),
+                ] {
+                    let entity = entity.clone();
+                    menu = menu.item(PopupMenuItem::new(label).on_click(move |_, window, cx| {
+                        let _ = entity.update(cx, |manager, cx| {
+                            manager.cancel_test();
+                            manager.fields[1]
+                                .update(cx, |field, cx| field.set_value(id.to_owned(), window, cx));
+                            manager.message = None;
+                            cx.notify();
+                        });
+                    }));
+                }
+                menu
+            });
+        let port_label = match protocol.as_str() {
+            "ftp" | "ftps" => "Port (default 21)",
+            _ => "Port (default 22)",
+        };
+        let protocol_fields = match protocol.as_str() {
+            "sftp" | "ftp" | "ftps" => v_flex()
                 .gap_2()
                 .child(
-                    v_flex()
-                        .w(px(190.))
+                    h_flex()
                         .gap_2()
-                        .children(remotes)
-                        .child(add)
-                        .child(remove),
+                        .child(field_view("Host", &self.fields[2]).flex_1())
+                        .child(
+                            field_view(port_label, &self.fields[3])
+                                .w(px(120.))
+                                .flex_none(),
+                        ),
                 )
+                .child(field_view("Username", &self.fields[4]))
+                .child(field_view("Root folder (optional)", &self.fields[5]))
                 .child(
                     v_flex()
-                        .flex_1()
-                        .gap_2()
+                        .gap_1()
+                        .child(field_view("Password command", &self.fields[6]))
                         .child(
-                            div().max_h(px(400.)).overflow_y_scrollbar().child(
-                                h_flex()
-                                    .gap_3()
-                                    .child(v_flex().flex_1().gap_2().children(left_fields))
-                                    .child(v_flex().flex_1().gap_2().children(right_fields)),
-                            ),
-                        )
-                        .child(h_flex().gap_2().child(save).child(test).child(connect)),
-                ),
-        )
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child("Prints the password; it is not run through a shell."),
+                        ),
+                )
+                .into_any_element(),
+            "webdav" => v_flex()
+                .gap_2()
+                .child(field_view("WebDAV URL", &self.fields[7]))
+                .child(field_view("Username", &self.fields[4]))
+                .child(field_view("Root folder (optional)", &self.fields[5]))
+                .child(
+                    v_flex()
+                        .gap_1()
+                        .child(field_view("Password command", &self.fields[6]))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child("Prints the password; it is not run through a shell."),
+                        ),
+                )
+                .into_any_element(),
+            "s3" => v_flex()
+                .gap_2()
+                .child(field_view("Bucket", &self.fields[8]))
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .child(field_view("Region", &self.fields[9]))
+                        .child(field_view("AWS profile", &self.fields[10])),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Uses the standard AWS credential chain."),
+                )
+                .child(field_view("Custom endpoint (optional)", &self.fields[11]))
+                .child(field_view("Root folder (optional)", &self.fields[5]))
+                .into_any_element(),
+            _ => div()
+                .child("Choose a supported protocol.")
+                .into_any_element(),
+        };
+        let rows = v_flex()
+            .w(px(265.))
+            .h_full()
+            .gap_2()
+            .child(h_flex().justify_between().child("Saved remotes").child(add));
+        let mut rows = rows;
+        if self.configs.is_empty() {
+            rows = rows.child(
+                div()
+                    .flex_1()
+                    .p_3()
+                    .child("No saved remotes yet. Choose Add… to create one."),
+            );
+        } else if let Some(list) = &self.remote_list {
+            rows = rows.child(
+                div()
+                    .flex_1()
+                    .border_1()
+                    .rounded_md()
+                    .overflow_y_scrollbar()
+                    .child(List::new(list)),
+            );
+        }
+        let rows = rows.child(remove);
+        let name_and_type = h_flex()
+            .gap_2()
+            .child(
+                v_flex()
+                    .flex_1()
+                    .gap_1()
+                    .child(div().text_xs().child("Name"))
+                    .child(Input::new(&self.fields[0]).disabled(self.busy)),
+            )
+            .child(
+                v_flex()
+                    .gap_1()
+                    .child(div().text_xs().child("Type"))
+                    .child(selector),
+            );
+        let heading = self
+            .selected
+            .and_then(|index| self.configs.get(index))
+            .map_or_else(
+                || format!("New {} remote", protocol_title(&protocol)),
+                |config| format!("Edit {}", config.name),
+            );
+        let form = v_flex()
+            .flex_1()
+            .h_full()
+            .min_h_0()
+            .gap_2()
+            .child(div().text_sm().child(heading))
+            .child(name_and_type)
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scrollbar()
+                    .child(protocol_fields),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(save)
+                    .child(cancel_changes)
+                    .child(test.label("Test connection"))
+                    .child(connect),
+            )
+            .when_some(self.message.clone(), |this, message| {
+                let lower = message.to_lowercase();
+                let error = lower.contains("failed")
+                    || lower.contains("error")
+                    || lower.contains("changed on disk")
+                    || lower.contains("incomplete")
+                    || lower.contains("port must");
+                this.child(
+                    div()
+                        .text_xs()
+                        .text_color(if error {
+                            cx.theme().colors.danger
+                        } else {
+                            cx.theme().muted_foreground
+                        })
+                        .child(message),
+                )
+            })
+            .when(dirty && self.selected.is_some(), |this| {
+                this.child(
+                    div()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Save or cancel changes before connecting."),
+                )
+            });
+        content = content.child(h_flex().gap_4().h(px(455.)).child(rows).child(if self.has_draft { form.into_any_element() } else { div().flex_1().child("Select a saved remote or choose Add… to create one.").into_any_element() }))
+            .child(div().text_xs().text_color(cx.theme().muted_foreground).child("rclone remotes use rclone config. Proton Drive requires proton-drive auth login."))
+            .when(dirty, |this| this.child(div().text_xs().text_color(cx.theme().muted_foreground).child("Save or cancel changes before adding or removing remotes.")));
+        if !self.has_draft
+            && let Some(message) = &self.message
+        {
+            content = content.child(
+                div()
+                    .text_xs()
+                    .text_color(cx.theme().colors.danger)
+                    .child(message.clone()),
+            );
+        }
+        content
     }
 }
 
@@ -292,6 +674,7 @@ impl RemoteManager {
             self.configs.push(config);
             self.selected = Some(self.configs.len() - 1);
         }
+        self.has_draft = true;
         self.persist(window, cx);
     }
 
@@ -346,6 +729,7 @@ impl RemoteManager {
                                 this.fields[5]
                                     .update(cx, |field, cx| field.set_value("/", window, cx));
                                 this.selected_original_name = None;
+                                this.has_draft = false;
                             }
                         } else {
                             this.selected_original_name = this.selected.and_then(|index| {
@@ -372,6 +756,12 @@ impl RemoteManager {
                         this.message = Some(error);
                     }
                 };
+                if let Some(list) = &this.remote_list {
+                    list.update(cx, |_, cx| cx.notify());
+                }
+                if let Some(list) = this.remote_list.clone() {
+                    defer_list_selection(list, this.selected, window, cx);
+                }
                 cx.notify();
             });
         });
@@ -483,7 +873,35 @@ impl Commander {
                         test_task: Task::ready(()),
                         test_cancel: None,
                         test_generation: 0,
+                        remote_list: None,
+                        has_draft: false,
+                        _input_subscriptions: Vec::new(),
                     });
+                    let manager_weak = draft.downgrade();
+                    let input_fields = draft.read(cx).fields.clone();
+                    let subscriptions = input_fields.iter().map(|field| {
+                        let manager = manager_weak.clone();
+                        cx.subscribe(field, move |_, _, event: &InputEvent, cx| {
+                            if matches!(event, InputEvent::Change) {
+                                let _ = manager.update(cx, |manager, cx| {
+                                    manager.cancel_test();
+                                    manager.message = None;
+                                    cx.notify();
+                                });
+                            }
+                        })
+                    }).collect();
+                    draft.update(cx, |draft, _| draft._input_subscriptions = subscriptions);
+                    let remote_list = cx.new(|cx| {
+                        ListState::new(
+                            RemoteListDelegate {
+                                manager: manager_weak,
+                            },
+                            window,
+                            cx,
+                        )
+                    });
+                    draft.update(cx, |draft, _| draft.remote_list = Some(remote_list.clone()));
                     if draft.read(cx).configs.is_empty() {
                         draft.update(cx, |draft, cx| {
                             draft.fields[1]
@@ -494,8 +912,47 @@ impl Commander {
                     } else {
                         draft.update(cx, |draft, cx| draft.load_config(0, window, cx));
                     }
+                    defer_list_selection(remote_list, draft.read(cx).selected, window, cx);
+                    let manager_entity = draft.downgrade();
                     window.open_dialog(cx, move |dialog, _, _| {
-                        dialog.title("Manage Remotes").w(px(850.)).child(
+                        let manager_entity_cancel = manager_entity.clone();
+                        dialog.title("Manage Remotes").w(px(890.)).on_cancel(move |_, window, cx| {
+                            let dirty = manager_entity_cancel.upgrade().is_some_and(|manager| {
+                                let manager = manager.read(cx);
+                                manager.has_draft && manage::is_dirty(&manager.draft(cx), manager.selected.and_then(|i| manager.configs.get(i)))
+                            });
+                            if dirty {
+                                let manager_entity_discard = manager_entity_cancel.clone();
+                                window.open_alert_dialog(cx, move |dialog, _, _| {
+                                    let discard = manager_entity_discard.clone();
+                                    dialog.title("Discard unsaved changes?")
+                                        .description("Discard the current remote edits before closing the manager.")
+                                        .ok_text("Discard changes")
+                                        .show_cancel(true)
+                                        .on_ok(move |_, window, cx| {
+                                            let _ = discard.update(cx, |manager, cx| {
+                                                manager.configs = manager.saved_configs.clone();
+                                                if let Some(index) = manager.selected.filter(|index| *index < manager.configs.len()) {
+                                                    manager.load_config(index, window, cx);
+                                                } else {
+                                                    manager.has_draft = false;
+                                                    manager.selected = None;
+                                                    manager.selected_original_name = None;
+                                                    for field in &manager.fields {
+                                                        field.update(cx, |field, cx| field.set_value(String::new(), window, cx));
+                                                    }
+                                                    manager.fields[1].update(cx, |field, cx| field.set_value("sftp", window, cx));
+                                                    manager.fields[5].update(cx, |field, cx| field.set_value("/", window, cx));
+                                                }
+                                                cx.notify();
+                                            });
+                                            window.defer(cx, |window, cx| window.close_dialog(cx));
+                                            true
+                                        })
+                                });
+                                false
+                            } else { true }
+                        }).child(
                             div()
                                 .max_h(px(650.))
                                 .overflow_y_scrollbar()

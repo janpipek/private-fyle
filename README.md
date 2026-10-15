@@ -494,7 +494,9 @@ Other providers:
 - Servers in `remotes.toml` (next to `config.toml`; see `remotes.example.toml`)
   over SFTP, FTP, FTPS, WebDAV and S3, through the `remotefs` crates. Manage
   these entries from Go or Tools › Manage Remotes, also available in both
-  Locations pickers. The dialog supports add, edit, remove, test and connect;
+  Locations pickers. The dialog has a keyboard-navigable saved-remote list and
+  shows only fields for the selected protocol; it supports add, edit, remove,
+  test and connect;
   rclone remotes still use `rclone config`, and Proton Drive authentication
   uses `proton-drive auth login`. SMB is not supported. Removing a remote
   configuration never deletes server files. The file is never created

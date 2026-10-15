@@ -6,6 +6,52 @@ use std::path::{Path, PathBuf};
 
 use super::connections::{self, Protocol, RemoteConfig};
 
+/// Editable inputs supported by the remote manager.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DraftField {
+    /// Network host.
+    Host,
+    /// Network port.
+    Port,
+    /// Account name.
+    User,
+    /// Remote root folder.
+    Root,
+    /// Password printing command.
+    PasswordCommand,
+    /// WebDAV base URL.
+    Url,
+    /// S3 bucket.
+    Bucket,
+    /// S3 region.
+    Region,
+    /// AWS credentials profile.
+    Profile,
+    /// Custom S3 endpoint.
+    Endpoint,
+}
+
+/// Returns the fields applicable to a protocol identifier.
+pub fn fields_for_protocol(protocol: &str) -> &'static [DraftField] {
+    use DraftField as F;
+    match protocol {
+        "sftp" | "ftp" | "ftps" => &[F::Host, F::Port, F::User, F::Root, F::PasswordCommand],
+        "webdav" => &[F::Url, F::User, F::Root, F::PasswordCommand],
+        "s3" => &[F::Bucket, F::Region, F::Profile, F::Endpoint, F::Root],
+        _ => &[],
+    }
+}
+
+/// Reports whether a draft differs from its saved remote; a new draft is dirty.
+pub fn is_dirty(draft: &Draft, saved: Option<&RemoteConfig>) -> bool {
+    saved.is_none_or(|saved| {
+        draft.validate().map_or_else(
+            |_| Draft::from_config(saved) != *draft,
+            |current| current != *saved,
+        )
+    })
+}
+
 /// Editable fields for one remote. The model deliberately stores strings so
 /// incomplete drafts can be edited before validation.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -68,15 +114,17 @@ impl Draft {
 
     /// Validates and converts this draft through the production parser.
     pub fn validate(&self) -> io::Result<RemoteConfig> {
-        if !self.port.trim().is_empty()
-            && !self.port.trim().parse::<u16>().is_ok_and(|port| port > 0)
+        let active = self.active_fields();
+        if fields_for_protocol(&self.protocol).contains(&DraftField::Port)
+            && !active.port.trim().is_empty()
+            && !active.port.trim().parse::<u16>().is_ok_and(|port| port > 0)
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "port must be a number from 1 to 65535",
             ));
         }
-        let text = self.to_toml();
+        let text = active.to_toml();
         let (mut configs, mut errors) = connections::parse(&text)?;
         if let Some(error) = errors.pop() {
             return Err(error);
@@ -84,6 +132,28 @@ impl Draft {
         configs
             .pop()
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "remote is incomplete"))
+    }
+
+    fn active_fields(&self) -> Self {
+        let allowed = fields_for_protocol(&self.protocol);
+        let mut active = self.clone();
+        for (field, value) in [
+            (DraftField::Host, &mut active.host),
+            (DraftField::Port, &mut active.port),
+            (DraftField::User, &mut active.user),
+            (DraftField::Root, &mut active.root),
+            (DraftField::PasswordCommand, &mut active.password_command),
+            (DraftField::Url, &mut active.url),
+            (DraftField::Bucket, &mut active.bucket),
+            (DraftField::Region, &mut active.region),
+            (DraftField::Profile, &mut active.profile),
+            (DraftField::Endpoint, &mut active.endpoint),
+        ] {
+            if !allowed.contains(&field) {
+                value.clear();
+            }
+        }
+        active
     }
 
     fn to_toml(&self) -> String {
@@ -324,7 +394,7 @@ fn temp_path(path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{Draft, read, save_with_rename};
+    use super::{Draft, DraftField as F, fields_for_protocol, read, save_with_rename};
     use crate::remote::connections;
 
     #[test]
@@ -345,6 +415,60 @@ mod tests {
             draft.port = port.to_owned();
             assert!(draft.validate().is_err(), "accepted port {port}");
         }
+    }
+
+    #[test]
+    fn protocol_field_policy_hides_unrelated_inputs_and_ignores_hidden_values() {
+        assert_eq!(
+            fields_for_protocol("sftp"),
+            &[F::Host, F::Port, F::User, F::Root, F::PasswordCommand]
+        );
+        assert_eq!(
+            fields_for_protocol("webdav"),
+            &[F::Url, F::User, F::Root, F::PasswordCommand]
+        );
+        assert_eq!(
+            fields_for_protocol("s3"),
+            &[F::Bucket, F::Region, F::Profile, F::Endpoint, F::Root]
+        );
+
+        let mut draft = Draft {
+            name: "cloud".into(),
+            protocol: "webdav".into(),
+            url: "https://example.test/dav".into(),
+            port: "not a port".into(),
+            host: "hidden host".into(),
+            ..Draft::default()
+        };
+        let config = draft.validate().unwrap();
+        assert_eq!(config.url.as_deref(), Some("https://example.test/dav"));
+        assert_eq!(config.host, None);
+        assert_eq!(config.port, None);
+
+        draft.protocol = "s3".into();
+        draft.bucket = "bucket".into();
+        assert_eq!(draft.validate().unwrap().bucket.as_deref(), Some("bucket"));
+    }
+
+    #[test]
+    fn dirty_policy_compares_the_editable_draft_to_saved_settings() {
+        let (configs, errors) =
+            connections::parse("[[remote]]\nname='nas'\nprotocol='sftp'\nhost='server'\n").unwrap();
+        assert!(errors.is_empty());
+        let draft = Draft::from_config(&configs[0]);
+        assert!(!super::is_dirty(&draft, Some(&configs[0])));
+        let mut edited = draft.clone();
+        edited.host = "elsewhere".into();
+        assert!(super::is_dirty(&edited, Some(&configs[0])));
+        assert!(super::is_dirty(&draft, None));
+
+        let mut switched = draft;
+        switched.protocol = "s3".into();
+        switched.bucket = "bucket".into();
+        switched.port = "not a port".into();
+        switched.host = "retained for switching back".into();
+        let saved_s3 = switched.validate().unwrap();
+        assert!(!super::is_dirty(&switched, Some(&saved_s3)));
     }
 
     #[test]
