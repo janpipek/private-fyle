@@ -154,6 +154,9 @@ not to pursue an item.
 - [ ] The column header should be editable, such as + icon to add a column,
       right-click to show a menu etc.
 - [ ] ID3 properties for audio files.
+- [ ] Properties for RPM, AppImage and DEB packages: show package/application
+      metadata through bounded readers. Decide the fields and parsing approach
+      for each format before implementation.
 
 ## Done
 
