@@ -10,9 +10,10 @@ can be reconstructed without the chat.
 
 - The owner authorized starting the plan after the planning commit `5da8dee`.
 - Completed: slices 1–3, contracts, the GPX/FIT adapter and display-only columns.
-- Next: slice 4, static packages and a supervised Lua reader. Sol has designed
-  the boundary and Luna has surveyed the code read-only; implementation starts
-  after the slice 3 commit.
+- Slice 4a static package validation/loading is complete. Next is 4b worker
+  execution, followed by 4c settings/catalog integration, as separate reviewable
+  commits. Luna implements and Sol reviews; read [worker-plan.md](worker-plan.md)
+  before starting 4b.
 - Working roles, requested by the owner: Sol makes architecture decisions;
   Luna implements; the coordinating agent reviews, verifies and documents.
   Earlier slices were reviewed by Astra; the owner replaced that role with Sol
@@ -405,6 +406,72 @@ changes separate from the completed column commit.
   commit needs model tests, repository checks, updated handoff and relevant UI
   verification.
 
+## Slice 4 work log
+
+### 2026-10-16 — Start with static package validation
+
+- Column milestone committed as `85fa3d0`. The tracked tree was clean before
+  assigning the next work; `title.png` remains unrelated.
+- Split slice 4 into reviewable features: **4a** bounded static manifest/package
+  loading and validation; **4b** headless helper/protocol/supervision;
+  **4c** explicit enablement and catalog integration with completeness-aware
+  results. Full slice 4 is not complete until those pieces are connected.
+- Assigned Luna the new extensions module and focused manifest/loading files
+  for 4a. Sol settles schema details and reviews. The coordinator owns this log,
+  README/TODO/plan changes, final verification and commits.
+- 4a must not evaluate Lua, spawn helpers, register columns or change Tools.
+  Disabled packages are not scanned. Tests use TempDir for valid/invalid
+  versions and declarations, path containment, file bounds, independent package
+  errors and nonregular files. Settings enablement is connected when execution
+  is available, rather than presenting a nonfunctional runtime option.
+- Sol's execution design is recorded in the handoff above. Inline helper-test
+  strategy must be resolved before 4b so tests exercise the real worker loop
+  without depending on a prebuilt application binary or optional programs.
+- Stopped the owned scratch app and Xvfb after column UI verification. Artifacts
+  remain in the recorded scratch directory; `state.json` marks those processes
+  stopped. Future UI checks must launch fresh owned processes.
+- Sol's first review requested a single fully validated manifest before script
+  access, structured diagnostics retaining native paths and original I/O error
+  causes, and 256-byte limits on all declared IDs. Luna is applying these before
+  final verification. Static loading keeps script text unevaluated, including
+  invalid Lua; enabled neighbors fail independently.
+- Sol is recording the concrete helper protocol, Lua callback API and process
+  test/cleanup strategy in a separate worker handoff for 4b. The initial Init
+  write must also be supervised: a child that never reads its pipe must not
+  block the parent's deadline/cancellation loop.
+- Refined 4b transport: on Linux, the supervisor owns nonblocking child pipes
+  in one event loop covering Init writes, framed output, diagnostics, deadline,
+  cancellation and child exit. This avoids unbounded pipe-writer or drainer
+  joins. Other platforms keep compiling and return `Unsupported` from this
+  new supervisor; existing Tools behavior remains unchanged. The worker loop
+  itself uses generic blocking `Read`/`Write` for direct process tests.
+
+### 2026-10-16 — Verify static package loading
+
+- Added `src/extensions.rs`, `extensions/manifest.rs` and
+  `extensions/loading.rs`, exposed from `main.rs`. Strict version-1 TOML
+  declarations convert to the existing provider contracts; no Lua is evaluated.
+  Full declaration validation precedes entry-source access.
+- Explicit IDs select packages without directory discovery. Canonical
+  containment covers package directories, manifests and entry scripts; bounded
+  regular-file reads reject excess bytes and invalid UTF-8. Linux nonblocking
+  open avoids FIFO hangs. Independent errors retain package ID, native path,
+  I/O category and source error. Disabled packages are untouched.
+- Sol approved the final source. All **20 extension tests** passed, including
+  count/ID/file bounds, invalid declarations, unevaluated scripts, independent
+  errors, symlink escapes, native non-UTF-8 roots and FIFO rejection. Clippy
+  found one needless borrow in a test; the coordinator removed it and reran
+  fmt/clippy successfully. `cargo test --quiet` passed **599 tests, zero
+  failures/ignored**. `git diff --check` passed.
+- Added [worker-plan.md](worker-plan.md) with the concrete 4b API, protocol,
+  limits, Lua results, static/dynamic applicability, nonblocking process
+  transport, cleanup and inline real-worker subprocess tests. This documents
+  the next work; it does not represent implemented execution.
+- README, TODO and architecture/implementation records now describe the static
+  boundary. No dependency, setting, startup loading, GUI behavior or Tools
+  behavior changed. No live UI check is needed for this unused static loader;
+  no Windows build was run.
+
 ## Completion and next work
 
 | Slice | State | Evidence / handoff |
@@ -412,7 +479,7 @@ changes separate from the completed column commit.
 | 1. Contribution contracts | Complete | Astra approved; fmt/clippy and all 565 tests passed |
 | 2. Existing GPX/FIT adapter | Complete | Astra approved; fmt/clippy/build and all 573 tests passed; 11 live inspector comparisons identical |
 | 3. Dynamic columns | Complete | Sol approved; fmt/clippy/build and all 579 tests passed; unavailable-ID persistence/removal and native UI checked |
-| 4. Packages and worker | Pending | Supervised Lua/config-only packages/explicit enablement approved |
+| 4. Packages and worker | In progress | 4a complete: Sol approved, fmt/clippy and 599 tests pass; 4b worker next per worker-plan.md, then 4c integration |
 | 5. Sensor renderer proof | Pending | Requires renderer scope decision |
 | 6. Contextual Git | Pending | New Git Properties behavior is within the authorized proof scope |
 | 7. Review proof | Pending | Both sensor and Git cases must work before broader migration |

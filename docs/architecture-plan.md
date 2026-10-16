@@ -129,6 +129,13 @@ the existing bounded metadata queue. Provider columns are display-only. Its
 [progress log](format-organization/progress.md) records the implemented boundary
 and next slice; Tools retains its separate planning/execution contract.
 
+`extensions/manifest.rs` validates versioned package declarations against those
+contracts before script access. `extensions/loading.rs` loads only explicitly
+named packages, bounds manifest/script bytes, checks canonical package-local
+paths and retains structured per-package errors. It stores script text without
+evaluation. This static boundary is not yet connected to startup or the catalog;
+supervised execution and settings integration follow separately.
+
 Keep three domain-specific registries with the same basic extension shape:
 providers or tools register in order, expose a predicate for applicability, and
 return plain model data or an action. Do not introduce a universal registry

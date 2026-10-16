@@ -157,6 +157,12 @@ not to pursue an item.
 
 ## Done
 
+- [x] Data-provider migration, slice 4a: validate versioned package manifests
+      and load bounded, unevaluated script text for explicitly named packages.
+      Enforce package-local paths and retain independent filesystem diagnostics.
+      App startup/settings integration and supervised execution remain open in
+      slice 4; see the [handoff log](docs/format-organization/progress.md).
+
 - [x] Data-provider migration, slice 3: persist extensible column IDs, preserve
       unavailable selections across settings edits, and share a descriptor
       catalog across dialog/table/background metadata. Native provider cells

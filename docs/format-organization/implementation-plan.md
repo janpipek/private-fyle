@@ -1,7 +1,7 @@
 # Data providers and contributions: implementation plan
 
 Status: started with owner authorization on 2026-10-16, after planning commit
-`5da8dee`. Slices 1–3 are complete. The owner approved
+`5da8dee`. Slices 1–3 are complete and slice 4 is in progress. The owner approved
 display-only extension columns first and the proposed supervised Lua worker
 with explicit package enablement; the renderer scope decision remains pending.
 This makes the [synthesis](synthesis.md) actionable.
@@ -164,6 +164,11 @@ with scratch config. New columns follow the approved sorting checkpoint.
 
 ### 4. Validate packages and supervise a local reader worker
 
+In progress, with separate static-validation (4a), helper/supervision (4b) and
+runtime/catalog-integration (4c) commits. Static validation is implemented;
+the [worker handoff](worker-plan.md) defines the next boundary. See the
+[step log](progress.md) for checks and remaining integration.
+
 Touch: new `src/extensions.rs` and `src/extensions/` for manifest validation,
 protocol, Lua worker and supervisor; early dispatch in `src/main.rs`;
 settings schema/persistence and `config.example.toml` for enabled packages.
@@ -298,7 +303,7 @@ Never push or open a PR without a request.
 
 ## Completion record
 
-Slices 1–3 are complete; slice 4 is next. See the [progress and handoff log](progress.md) for
+Slices 1–3 are complete; slice 4 is in progress. See the [progress and handoff log](progress.md) for
 ownership, completed steps, checks and the next task. The owner's start request
 authorizes the initial proof scope; later decision checkpoints remain attached
 to their respective slices. Unrelated deferred TODO features stay deferred.

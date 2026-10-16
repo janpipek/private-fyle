@@ -20,6 +20,8 @@ mod dirsize;
 mod editor;
 mod editor_view;
 mod entry;
+/// Static package manifests for provider extensions.
+pub mod extensions;
 mod formats;
 mod fs_ops;
 mod git_status;
