@@ -157,6 +157,10 @@ not to pursue an item.
 - [ ] Properties for RPM, AppImage and DEB packages: show package/application
       metadata through bounded readers. Decide the fields and parsing approach
       for each format before implementation.
+- [ ] Show extended attributes (xattrs) in Properties, including their names
+      and values through bounded local reads. The existing xattrs column shows
+      names; reuse its native reader where appropriate and represent binary or
+      truncated values explicitly.
 
 ## Done
 
