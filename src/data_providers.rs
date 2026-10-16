@@ -6,6 +6,9 @@ use crate::location::Location;
 
 mod identity;
 
+/// GPX/FIT provider shared by the Properties and View adapters.
+pub mod geo;
+
 /// Validated IDs exposed to provider definitions and prepared observations.
 pub use identity::{ContributionId, FieldId, ProviderId};
 

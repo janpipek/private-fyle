@@ -9,14 +9,15 @@ can be reconstructed without the chat.
 ## Current state
 
 - The owner authorized starting the plan after the planning commit `5da8dee`.
-- Completed: slice 1, UI-independent contribution contracts and tests.
-- Next: slice 2, adapt the existing GPX/FIT reader through Properties and View.
-  No implementation agent currently owns slice 2.
+- Completed: slices 1 and 2, pure contracts and the production GPX/FIT adapter.
+- Next: slice 3, dynamic columns. Astra is preparing architecture and Luna is
+  surveying code read-only; implementation starts after the slice 2 commit.
 - Working roles, requested by the owner: Astra makes architecture decisions;
   Luna implements; the coordinating agent reviews, verifies and documents.
-- Application behavior, runtime execution and GUI wiring are unchanged by
-  this first slice. Runtime/trust, renderer scope and extension-column sorting
-  checkpoints are still pending for their later slices.
+- Existing GPX/FIT presentation and scheduling are preserved by the shared
+  adapter. Runtime/trust and renderer scope checkpoints are still
+  pending. The owner approved display-only extension columns first; new
+  metadata sorting remains a separate design task.
 - Keep the unrelated, pre-existing untracked `title.png` out of commits.
 
 ## How to join
@@ -160,13 +161,110 @@ their original paths; the model examples are not installed user extensions.
    checks and a scratch-config live UI check for both inspector perspectives.
    Update this log, README/TODO and the completion record before committing.
 
+## Slice 2 work log
+
+### 2026-10-16 — Start the production GPX/FIT adapter
+
+- The owner asked to continue after slice 1 commit `2ba942f`. Read this handoff,
+  the plan, TODO/README and current readers/adapters before editing.
+- Assigned Luna the new `data_providers/geo.rs`, its module declaration,
+  `formats/geo.rs`, `formats/geo/{gpx,fit}.rs`, `properties/geo.rs`,
+  `preview/geo.rs`, and minimal registry wiring in `properties.rs`/`preview.rs`.
+  Astra reviews design and implementation; the coordinator owns documentation.
+- Scope is behavior-preserving production use of the contribution contract.
+  No new columns, extension runtime, shared cache or detection policy.
+- Prepared isolated GPX/FIT, no-GPS and malformed fixtures under a temporary
+  directory for before/after UI checks. All app launches use scratch config,
+  data and runtime directories; the real user's settings/history stay untouched.
+- Architecture decisions, implementation and verification are in progress.
+
+### 2026-10-16 — Set the GPX/FIT adapter design
+
+- Astra chose one immutable `GeoProvider` bundle with typed Properties/viewer
+  handles, installed at the existing registry positions. Both adapters must
+  consume the bundle's applicability and fixed reader limits, then render
+  prepared native data using their current formatting and outline functions.
+- Keep parsing in `formats/geo`; represent duration/distance with their native
+  value and recorded/inferred origin at the assignment branch. The provider
+  validates each numeric result independently into a quantity. A bad metric
+  cannot fail the entire readable activity or suppress its outline.
+- Prepared numeric completeness is independent of route truncation: FIT
+  recorded session totals remain complete, while inferred values from truncated
+  coordinates are truncated. Missing values remain absent, including no-GPS
+  files with no usable duration/distance.
+- Do not fabricate an original `Location`, source revision or observation from
+  a materialized preview path. These adapters retain their current lifecycle
+  owners; the native prepared result need not pretend to be a cacheable
+  source-bound observation.
+- Captured before-state screenshots for GPX, FIT, no-GPS and malformed files in
+  both inspector perspectives under `/tmp/fyle-slice2-ui-6xgcdhih`. Bare Xvfb
+  reproduced the documented F3 input issue, so UI verification uses the View
+  menu and inspector tabs. No keybinding change is part of this slice.
+
+### 2026-10-16 — Review the first adapter draft
+
+- Luna produced the provider, native provenance changes, both adapter updates
+  and unchanged-order registry wiring. The coordinator and Astra reviewed this
+  source before repository verification.
+- Astra confirmed fixed demand descriptors may reference the exact existing
+  reader constants; this slice must not pretend to enforce arbitrary runtime
+  limits or introduce a general acquisition layer.
+- Required stable field-ID binding instead of field-vector positions, with a
+  regression that reorders definitions without swapping duration/distance units.
+- Requested production-handle read tests for cancellation, malformed/oversized
+  inputs, no-GPS absence and truncation; valid formatting and independently bad
+  metrics must also be covered. Corrected an import left behind by adapter
+  extraction. Tests and final verification remain in progress.
+- Added and captured the existing 100,001-point GPX truncation case in both
+  perspectives. The sorting milestone question for slice 3 is pending with the
+  owner; it does not block this slice.
+
+### 2026-10-16 — Set the slice 3 sorting scope
+
+- The owner answered the queued checkpoint: **“Display-only first; design
+  sorting separately.”** Dynamic provider columns will be unsortable in the
+  first milestone; the four currently sortable built-ins retain their behavior.
+- Astra is preparing slice 3 architecture while the coordinator finishes
+  slice 2 UI validation/commit. Luna is surveying the column call sites read-only;
+  no slice 3 code will be mixed into the GPX/FIT commit.
+
+### 2026-10-16 — Complete and verify slice 2
+
+- Added `data_providers/geo.rs`, provider-owned typed handles and one immutable
+  validated bundle. The existing registries install those adapters at their
+  old positions. Both use shared applicability and native acquisition; the
+  definitions' limits come directly from the unchanged reader constants.
+- Native GPX/FIT duration and distance now carry their parser-assigned origin
+  alongside the magnitude. Provider preparation resolves stable field IDs,
+  preserves independent completeness/failure, and leaves native geometry and
+  unrelated facts available. Properties and View retain their old formatting.
+- Astra approved the final architecture/source after the field-ID fix and
+  meaningful boundary/projection tests. No additional dependencies, commands,
+  settings, cache, scheduler or nonlocal inspection permissions were added.
+- Luna ran `cargo fmt` and `cargo test geo -- --nocapture`: **16 passed**.
+  The coordinator ran `cargo fmt --check`,
+  `cargo clippy --all-targets -- -D warnings`, `cargo test --quiet` and
+  `cargo build`: **all passed; 573 tests, zero failures/ignored**.
+- Launched the rebuilt app with the same scratch config/data/runtime and inputs
+  as the baseline. Checked GPX, FIT, no-GPS, malformed and 100,001-point GPX
+  files in View and Properties, then rapid cursor/tab changes ending at GPX.
+  Visually inspected the outputs. ImageMagick `compare -metric AE` over the
+  inspector content (`360x650+870+100`) reported **zero changed pixels** in all
+  ten before/after comparisons and the rapid-navigation final-state comparison.
+  Logs were empty. Screenshots remain in `/tmp/fyle-slice2-ui-6xgcdhih`.
+- UI checks used menus/tabs because the documented bare-Xvfb F-key issue still
+  occurs. They do not claim to validate F3 keyboard delivery. No Windows build
+  was run; this slice adds no platform-specific production code.
+- README, TODO and architecture/implementation records now describe the shared
+  adapter. Next feature is the approved display-only dynamic-column milestone.
+
 ## Completion and next work
 
 | Slice | State | Evidence / handoff |
 | --- | --- | --- |
 | 1. Contribution contracts | Complete | Astra approved; fmt/clippy and all 565 tests passed |
-| 2. Existing GPX/FIT adapter | Pending | Depends on completed and reviewed contracts |
-| 3. Dynamic columns | Pending | Requires sorting checkpoint before implementation |
+| 2. Existing GPX/FIT adapter | Complete | Astra approved; fmt/clippy/build and all 573 tests passed; 11 live inspector comparisons identical |
+| 3. Dynamic columns | Pending | Display-only first approved; architecture survey underway |
 | 4. Packages and worker | Pending | Requires execution/loading/trust decisions |
 | 5. Sensor renderer proof | Pending | Requires renderer scope decision |
 | 6. Contextual Git | Pending | New Git Properties behavior is within the authorized proof scope |

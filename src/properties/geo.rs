@@ -4,13 +4,25 @@ use std::io;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::formats::geo::{self, GeoData};
+use crate::data_providers::geo::{GeoProperties, PreparedGeo};
+use crate::formats::geo as geo_format;
 use crate::properties::{
     GroupId, GroupStatus, Probe, PropertyField, PropertyGroup, PropertyProvider, PropertyValue,
 };
 
 /// GPX and FIT metadata provider for the Properties registry.
-pub(super) struct Provider;
+pub(super) struct Provider {
+    provider: GeoProperties,
+}
+
+impl Provider {
+    /// Builds the Properties adapter over the shared geo provider.
+    pub fn new() -> Self {
+        Self {
+            provider: crate::data_providers::geo::properties(),
+        }
+    }
+}
 
 impl PropertyProvider for Provider {
     fn id(&self) -> &'static str {
@@ -18,21 +30,24 @@ impl PropertyProvider for Provider {
     }
 
     fn matches(&self, probe: &Probe) -> bool {
-        probe.is_file && matches!(probe.ext.as_str(), "gpx" | "fit")
+        probe.is_file && self.provider.matches_extension(&probe.ext)
     }
 
     fn read(&self, probe: &Probe, cancel: &Arc<AtomicBool>) -> io::Result<Vec<PropertyGroup>> {
-        let data = geo::read(&probe.path, || cancel.load(Ordering::Relaxed))?;
-        Ok(vec![group(&data)])
+        let prepared = self
+            .provider
+            .read(&probe.path, || cancel.load(Ordering::Relaxed))?;
+        Ok(vec![group(&prepared)])
     }
 }
 
-fn group(data: &GeoData) -> PropertyGroup {
+fn group(prepared: &PreparedGeo) -> PropertyGroup {
+    let data = &prepared.data;
     let mut group = PropertyGroup {
         id: GroupId("route_activity".into()),
         status: if data.truncated {
             GroupStatus::Truncated {
-                reason: format!("GPS points limited to {}", geo::MAX_POINTS),
+                reason: format!("GPS points limited to {}", geo_format::MAX_POINTS),
             }
         } else {
             GroupStatus::Available
@@ -52,9 +67,9 @@ fn group(data: &GeoData) -> PropertyGroup {
             text(&mut group, id, value);
         }
     }
+    metric(&mut group, "duration_seconds", &prepared.duration);
+    metric(&mut group, "distance_meters", &prepared.distance);
     for (id, value) in [
-        ("duration_seconds", data.duration_seconds),
-        ("distance_meters", data.distance_meters),
         ("ascent_meters", data.ascent_meters),
         ("descent_meters", data.descent_meters),
     ] {
@@ -82,6 +97,23 @@ fn group(data: &GeoData) -> PropertyGroup {
     group
 }
 
+fn metric(
+    group: &mut PropertyGroup,
+    id: &str,
+    state: &crate::data_providers::ResultState<crate::data_providers::geo::PreparedQuantity>,
+) {
+    use crate::data_providers::ResultState;
+    let value = match state {
+        ResultState::Ready { value, .. } => format!("{:.1}", value.quantity.value()),
+        ResultState::Failed(reason) => reason.clone(),
+        ResultState::Pending | ResultState::Absent | ResultState::Unavailable(_) => return,
+    };
+    group.fields.push(PropertyField {
+        id: id.into(),
+        value: PropertyValue::Text(value),
+    });
+}
+
 fn text(group: &mut PropertyGroup, id: &str, value: &str) {
     group.fields.push(PropertyField {
         id: id.into(),
@@ -97,14 +129,17 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use super::Provider;
-    use crate::properties::{Probe, PropertyProvider};
+    use super::{PreparedGeo, Provider};
+    use crate::data_providers::geo::PreparedQuantity;
+    use crate::data_providers::{Completeness, Provenance, Quantity, ResultState, Unit};
+    use crate::formats::geo::GeoData;
+    use crate::properties::{Probe, PropertyProvider, PropertyValue};
 
     #[test]
     fn provider_adds_route_facts() {
         let dir = TempDir::new().expect("temporary directory");
         let path = dir.path().join("route.gpx");
-        fs::write(&path, r#"<gpx version="1.1" creator="test"><rte><name>Loop</name><rtept lat="0" lon="0"/><rtept lat="0" lon="0.001"/></rte></gpx>"#).expect("write GPX");
+        fs::write(&path, r#"<gpx version="1.1" creator="test"><trk><name>Loop</name><trkseg><trkpt lat="0" lon="0"><time>2020-01-01T00:00:00Z</time></trkpt><trkpt lat="0" lon="0.001"><time>2020-01-01T00:01:01Z</time></trkpt></trkseg></trk></gpx>"#).expect("write GPX");
         let probe = Probe {
             path,
             name: "route.gpx".into(),
@@ -113,17 +148,66 @@ mod tests {
             is_file: true,
             size: 0,
         };
-        assert!(Provider.matches(&probe));
-        let groups = Provider
+        let provider = Provider::new();
+        assert!(provider.matches(&probe));
+        let groups = provider
             .read(&probe, &Arc::new(AtomicBool::new(false)))
             .expect("read properties");
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].id.0, "route_activity");
-        assert!(
+        let value = |id: &str| {
             groups[0]
                 .fields
                 .iter()
-                .any(|field| field.id == "distance_meters")
+                .find(|field| field.id == id)
+                .map(|field| &field.value)
+        };
+        assert_eq!(
+            value("duration_seconds"),
+            Some(&PropertyValue::Text("61.0".into()))
         );
+        assert_eq!(
+            value("distance_meters"),
+            Some(&PropertyValue::Text("111.2".into()))
+        );
+        assert_eq!(value("type"), Some(&PropertyValue::Text("Track".into())));
+    }
+
+    #[test]
+    fn failed_metric_keeps_other_properties_and_numeric_zero() {
+        let data = GeoData {
+            format: "GPX",
+            kind: Some("Track".into()),
+            tracks: 1,
+            points: 2,
+            ..GeoData::default()
+        };
+        let group = super::group(&PreparedGeo {
+            data,
+            duration: ResultState::Ready {
+                value: PreparedQuantity {
+                    quantity: Quantity::new(0.0, Unit::Seconds).expect("zero duration"),
+                    provenance: Provenance::Inferred,
+                },
+                completeness: Completeness::Complete,
+            },
+            distance: ResultState::Failed("invalid distance".into()),
+        });
+        let value = |id: &str| {
+            group
+                .fields
+                .iter()
+                .find(|field| field.id == id)
+                .map(|field| &field.value)
+        };
+        assert_eq!(
+            value("duration_seconds"),
+            Some(&PropertyValue::Text("0.0".into()))
+        );
+        assert_eq!(
+            value("distance_meters"),
+            Some(&PropertyValue::Text("invalid distance".into()))
+        );
+        assert_eq!(value("gps_points"), Some(&PropertyValue::Unsigned(2)));
     }
 }

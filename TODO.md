@@ -13,11 +13,12 @@ not to pursue an item.
       follow the
       [implementation plan](docs/format-organization/implementation-plan.md)
       and [handoff log](docs/format-organization/progress.md).
-      Slice 1 contracts are complete; next is the GPX/FIT production adapter.
+      Slices 1 and 2 are complete; next is the dynamic-column catalog.
       Prove a local user-defined
       reader, Properties section, column and custom viewer plus contextual Git
-      before migrating the remaining built-ins. Runtime/trust, renderer scope,
-      and metadata sorting checkpoints remain for their later slices.
+      before migrating the remaining built-ins. The owner approved display-only
+      extension columns first; design new metadata sorting separately.
+      Runtime/trust and renderer scope checkpoints remain for their later slices.
 - [ ] Menus and selection, remaining parts: output/history in Tools.
       Implement missing actions as separate features.
 - [ ] Idea: replace the Git status column's `git` subprocess with a Rust
@@ -153,6 +154,13 @@ not to pursue an item.
 - [ ] ID3 properties for audio files.
 
 ## Done
+
+- [x] Data-provider migration, slice 2: route GPX/FIT Properties and View
+      through one provider-owned contribution bundle and bounded native reader.
+      Duration/distance retain recorded/inferred provenance, typed units and
+      independent completeness/failure. Existing valid rendering, route outlines,
+      read limits, registry ordering and feature lifecycles are preserved.
+      See the [handoff log](docs/format-organization/progress.md).
 
 - [x] Data-provider migration, slice 1: add UI-independent provider-owned
       contribution definitions, validated IDs and typed quantities, captured

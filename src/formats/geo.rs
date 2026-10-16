@@ -20,6 +20,24 @@ pub struct Point {
     pub longitude: f64,
 }
 
+/// How a route or activity metric was obtained from its source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MeasurementOrigin {
+    /// Recorded as a native activity/session total.
+    Recorded,
+    /// Computed from timestamps or consecutive coordinates.
+    Inferred,
+}
+
+/// Numeric geo metric with provenance captured at the parser assignment.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Measurement {
+    /// Metric magnitude in the field's documented unit.
+    pub value: f64,
+    /// Whether the metric was recorded or derived.
+    pub origin: MeasurementOrigin,
+}
+
 /// Data common to routes and recorded activities.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GeoData {
@@ -34,9 +52,9 @@ pub struct GeoData {
     /// First recorded or session start time.
     pub start: Option<String>,
     /// Elapsed duration when recorded timestamps or a session total exist.
-    pub duration_seconds: Option<f64>,
+    pub duration_seconds: Option<Measurement>,
     /// Total distance from session data or consecutive GPS points.
-    pub distance_meters: Option<f64>,
+    pub distance_meters: Option<Measurement>,
     /// Positive elevation gain when available.
     pub ascent_meters: Option<f64>,
     /// Positive elevation loss when available.

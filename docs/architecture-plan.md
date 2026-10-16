@@ -117,11 +117,14 @@ EXIF fallback parses selected JPEG bytes without writing to that cache.
 
 ### Preview, Properties and tool registries
 
-The [provider migration](format-organization/implementation-plan.md) has started
-with pure contribution contracts in `data_providers`. They do not yet replace
-these registries or the fixed column catalog. Its
+The [provider migration](format-organization/implementation-plan.md) provides
+pure contribution contracts in `data_providers` and a GPX/FIT provider-owned
+bundle consumed by both Properties and View. `data_providers/geo.rs` prepares
+typed quantities from the bounded native reader, preserving per-value origin
+and completeness; existing feature adapters still own presentation. These
+contracts do not replace the separate registries or fixed column catalog. Its
 [progress log](format-organization/progress.md) records the implemented boundary
-and next adapter; Tools retains its separate planning/execution contract.
+and next slice; Tools retains its separate planning/execution contract.
 
 Keep three domain-specific registries with the same basic extension shape:
 providers or tools register in order, expose a predicate for applicability, and

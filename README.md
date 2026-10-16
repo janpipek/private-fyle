@@ -156,6 +156,8 @@ independently for local regular files; remote and archive Properties continue
 to show listing facts only. Readers cap source files at 16 MiB and route outlines
 at 100,000 points. The FIT decoder validates the file CRC; its bounded decode
 call cannot be interrupted mid-file.
+Invalid duration or distance values show a field-level error while other
+readable facts and the route outline remain available.
 
 F3 previews XLSX, XLSM, XLS, XLSB and ODS workbooks as tables using the pure-Rust
 `calamine` reader (no external programs). One sheet shows at a time with
@@ -570,9 +572,12 @@ and [progress log](docs/format-organization/progress.md) track the contribution
 and extension migration. Its initial contracts live in `src/data_providers.rs`
 and `src/data_providers/`: provider-owned presentation definitions, validated
 IDs and quantities, captured applicability, result completeness and
-source/context freshness independent of UI generations. They perform no I/O
-and do not change the existing registries or user behavior. Production adapters,
-dynamic columns and extension execution remain pending.
+source/context freshness independent of UI generations. These contracts perform
+no I/O. `data_providers/geo.rs` owns the GPX/FIT contribution bundle and bounded
+native acquisition used by the existing Properties and View adapters. Its typed
+quantities retain recorded/inferred provenance and independent completeness;
+format readers remain under `formats/geo`. Each feature keeps its own registry,
+scheduling and rendering. Dynamic columns and extension execution remain pending.
 
 Model first: `src/model.rs` holds each panel's state (`Folder`: typed
 `PanelContent` with `Directory(Location)`, `Search { root, title }` and
@@ -672,6 +677,7 @@ Where things live (`src/`):
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
 | `entry.rs`, `model.rs`, `location.rs`, `location/`, `location_codec.rs` | Shared `Entry`/`Attrs` and pure sort rules; `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; pure local, remote and archive address semantics; versioned lossless location persistence |
 | `formats.rs`, `formats/` | Semantic EXIF fields, bounded RAW embedded-JPEG selection, Parquet footer validation/decoding, and shared bounded GPX/FIT route/activity readers used by Preview and Properties |
+| `data_providers.rs`, `data_providers/` | Pure contribution/identity contracts; `geo.rs` owns one GPX/FIT Properties/viewer bundle, typed quantity preparation with provenance/completeness, and bounded native read entrypoints; presentation adapters keep their existing selection, scheduling and rendering policies |
 | `copy_path.rs` | UI-independent selection path policy: local native paths, provider supplied standard URLs and no archive pseudo-paths |
 | `listing.rs`, `listing/contracts.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; shared request/result values and bounded per-panel remote listing cache |
 | `panel.rs`, `panel/header_view.rs`, `panel/table_view.rs`, `panel/metadata.rs`, `panel/metadata/` | `FolderView` owns input/menu lifecycle, focus and list/icon coordination; `header_view.rs` renders breadcrumbs, location editing and header buttons; `table_view.rs` owns `FileTable` rendering and forwarding to `Folder`; `metadata/model.rs` owns bounded request/cache policy; `metadata/reader.rs` reads optional local values; `metadata.rs` schedules GPUI workers shared by list and icon views; `metadata/exif.rs` composes semantic EXIF values into stable column keys |

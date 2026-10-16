@@ -1,8 +1,9 @@
 # Data providers and contributions: implementation plan
 
 Status: started with owner authorization on 2026-10-16, after planning commit
-`5da8dee`. Slice 1 is complete; later runtime/trust, renderer and sorting
-decisions remain pending. This makes the [synthesis](synthesis.md) actionable.
+`5da8dee`. Slices 1 and 2 are complete. The owner approved
+display-only extension columns first; runtime/trust and renderer decisions
+remain pending. This makes the [synthesis](synthesis.md) actionable.
 The [progress and handoff log](progress.md) records implementation steps,
 verification and current ownership. The [TODO](../../TODO.md) remains the
 backlog; record decisions before implementing the affected slice.
@@ -70,10 +71,10 @@ the corresponding model and tests.
 | Extension execution | Supervised Lua helper in the same executable, dispatched before GUI/config startup; reuse vendored `mlua` | Slice 4 |
 | Loading and trust | Explicit enabled package IDs in user config; packages only under `<config dir>/fyle/extensions/`; no project auto-loading; enabling permits automatic declared read-time work | Slice 4 |
 | Initial renderer | Static layout, selectable text, typed table and bounded path canvas; no worker-defined native widgets or arbitrary callbacks | Slice 5 |
-| Metadata sorting | First delivery displays extension columns but does not sort them; confirm whether this narrower milestone is acceptable | Slice 3; otherwise design sorting before implementing it |
+| Metadata sorting | Owner approved “Display-only first; design sorting separately” on 2026-10-16. Existing sortable columns keep their behavior | Scope settled for slice 3; new metadata sorting is deferred |
 
-The synthesis's sortable-column example remains a follow-up acceptance goal if
-the display-only milestone is accepted. Sorting requires a separate explicit
+The synthesis's sortable-column example remains a follow-up acceptance goal
+after the approved display-only milestone. Sorting requires a separate explicit
 choice about whole-list acquisition cost, row limits and cancellation; never
 sort only whichever visible rows happen to have loaded. Existing sortable
 columns preserve their behavior.
@@ -113,6 +114,8 @@ rejection of stale source/context results. Contracts import neither GPUI nor
 concrete remote providers, and do not depend on presentation views.
 
 ### 2. Adapt one existing reader through Properties and View
+
+Complete on 2026-10-16. See the [step log](progress.md) for decisions and checks.
 
 Touch: new `src/data_providers/geo.rs`, `src/properties/geo.rs`,
 `src/preview/geo.rs`, their registry wiring and `src/formats/geo.rs` as needed.
@@ -291,7 +294,7 @@ Never push or open a PR without a request.
 
 ## Completion record
 
-Slice 1 is complete; slice 2 is next. See the [progress and handoff log](progress.md) for
+Slices 1 and 2 are complete; slice 3 is next. See the [progress and handoff log](progress.md) for
 ownership, completed steps, checks and the next task. The owner's start request
 authorizes the initial proof scope; later decision checkpoints remain attached
 to their respective slices. Unrelated deferred TODO features stay deferred.

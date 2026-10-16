@@ -7,7 +7,7 @@ use std::path::Path;
 use fitparser::profile::MesgNum;
 use fitparser::{FitDataRecord, Value};
 
-use super::{GeoData, MAX_BYTES, MAX_POINTS, distance, point};
+use super::{GeoData, MAX_BYTES, MAX_POINTS, Measurement, MeasurementOrigin, distance, point};
 
 pub fn read(path: &Path, cancelled: impl Fn() -> bool) -> io::Result<GeoData> {
     let bytes = fs::read(path)?;
@@ -131,13 +131,17 @@ pub fn read(path: &Path, cancelled: impl Fn() -> bool) -> io::Result<GeoData> {
     if !outline.is_empty() {
         data.segments.push(outline);
     }
-    if has_distance {
-        data.distance_meters = Some(session_distance);
-    } else if data.points > 1 {
-        data.distance_meters = Some(computed_distance);
-    }
+    data.distance_meters = distance_measurement(
+        has_distance,
+        session_distance,
+        data.points,
+        computed_distance,
+    );
     if has_duration {
-        data.duration_seconds = Some(session_duration);
+        data.duration_seconds = Some(Measurement {
+            value: session_duration,
+            origin: MeasurementOrigin::Recorded,
+        });
     }
     if has_ascent {
         data.ascent_meters = Some(session_ascent);
@@ -153,6 +157,27 @@ pub fn read(path: &Path, cancelled: impl Fn() -> bool) -> io::Result<GeoData> {
         data.routes = 1;
     }
     Ok(data)
+}
+
+fn distance_measurement(
+    has_session_total: bool,
+    session_distance: f64,
+    points: usize,
+    computed_distance: f64,
+) -> Option<Measurement> {
+    if has_session_total {
+        Some(Measurement {
+            value: session_distance,
+            origin: MeasurementOrigin::Recorded,
+        })
+    } else if points > 1 {
+        Some(Measurement {
+            value: computed_distance,
+            origin: MeasurementOrigin::Inferred,
+        })
+    } else {
+        None
+    }
 }
 
 fn field<'a>(record: &'a FitDataRecord, name: &str) -> Option<&'a Value> {
@@ -205,7 +230,8 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use super::read;
+    use super::{distance_measurement, read};
+    use crate::formats::geo::MeasurementOrigin;
 
     #[test]
     fn rejects_invalid_fit() {
@@ -226,5 +252,24 @@ mod tests {
         assert!(data.laps > 0);
         assert!(data.points > 0);
         assert!(data.distance_meters.is_some());
+        assert_eq!(
+            data.duration_seconds.expect("session duration").origin,
+            MeasurementOrigin::Recorded
+        );
+        assert_eq!(
+            data.distance_meters.expect("session distance").origin,
+            MeasurementOrigin::Recorded
+        );
+    }
+
+    #[test]
+    fn session_distance_precedes_inferred_track_and_missing_total_uses_coordinates() {
+        let recorded = distance_measurement(true, 1200.0, 3, 900.0).expect("session total");
+        assert_eq!(recorded.value, 1200.0);
+        assert_eq!(recorded.origin, MeasurementOrigin::Recorded);
+        let inferred = distance_measurement(false, 0.0, 3, 900.0).expect("track distance");
+        assert_eq!(inferred.value, 900.0);
+        assert_eq!(inferred.origin, MeasurementOrigin::Inferred);
+        assert!(distance_measurement(false, 0.0, 1, 0.0).is_none());
     }
 }

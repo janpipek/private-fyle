@@ -260,7 +260,7 @@ impl Registry {
         registry.register(MarkdownPreviewer);
         registry.register(NotebookPreviewer);
         registry.register(ParquetPreviewer);
-        registry.register(GeoPreviewer);
+        registry.register(GeoPreviewer::new());
         registry.register(TablePreviewer);
         registry.register(TextPreviewer);
         registry.register(BinaryPreviewer);
