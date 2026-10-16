@@ -13,8 +13,8 @@ not to pursue an item.
       follow the
       [implementation plan](docs/format-organization/implementation-plan.md)
       and [handoff log](docs/format-organization/progress.md).
-      Slices 1–3 are complete; next is package validation and the supervised
-      Lua reader worker.
+      Slices 1–3 and the standalone package loader/Lua worker are complete;
+      next is explicit settings and column-catalog integration (4c).
       Prove a local user-defined
       reader, Properties section, column and custom viewer plus contextual Git
       before migrating the remaining built-ins. The owner approved display-only
@@ -156,6 +156,12 @@ not to pursue an item.
 - [ ] ID3 properties for audio files.
 
 ## Done
+
+- [x] Data-provider migration, slice 4b runtime: execute declared Lua column
+      readers in a headless helper with bounded allocation/instructions, file
+      brokerage, nonblocking Linux process supervision and cancellation/deadline
+      cleanup. Child reaping precedes slot release; app enablement/catalog
+      integration remains in slice 4c.
 
 - [x] Data-provider migration, slice 4b foundation: add bounded versioned
       frames, typed field/completeness validation, retained-file byte/call

@@ -586,11 +586,13 @@ scheduling and rendering. `columns::Catalog` resolves persisted IDs to built-in,
 registered native-provider or unavailable descriptors; its native provider
 readers run through the existing metadata worker queue. `extensions` validates
 versioned manifests and loads bounded, unevaluated scripts for explicitly named
-packages, preserving per-package filesystem diagnostics. This static loader is
-not connected to app startup yet; helper execution and settings integration
-remain pending. The extension boundary also defines typed, bounded protocol
-frames, retained-file read brokerage and FIFO cancellation/admission policy for
-the upcoming helper.
+packages, preserving per-package filesystem diagnostics. Its standalone Linux
+supervisor runs one Lua request at a time in the same executable's headless
+helper mode, with bounded source brokerage, protocol output, Lua allocation,
+instructions and wall time. Cancellation kills and reaps the helper before
+releasing its slot. Reader packages are not connected to app startup or the
+column catalog yet; explicit settings integration follows next. Existing Tools
+plugins retain their separate behavior.
 
 Model first: `src/model.rs` holds each panel's state (`Folder`: typed
 `PanelContent` with `Directory(Location)`, `Search { root, title }` and
@@ -691,7 +693,7 @@ Where things live (`src/`):
 | `entry.rs`, `model.rs`, `location.rs`, `location/`, `location_codec.rs` | Shared `Entry`/`Attrs` and pure sort rules; `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; pure local, remote and archive address semantics; versioned lossless location persistence |
 | `formats.rs`, `formats/` | Semantic EXIF fields, bounded RAW embedded-JPEG selection, Parquet footer validation/decoding, and shared bounded GPX/FIT route/activity readers used by Preview and Properties |
 | `data_providers.rs`, `data_providers/` | Pure contribution/identity contracts; `geo.rs` owns one GPX/FIT Properties/viewer bundle, typed quantity preparation with provenance/completeness, and bounded native read entrypoints; presentation adapters keep their existing selection, scheduling and rendering policies |
-| `extensions.rs`, `extensions/` | Static manifest validation and bounded package loading; typed protocol frames/result validation, retained-file read brokerage and bounded queue/cancellation policy. Runtime execution and startup integration remain pending. |
+| `extensions.rs`, `extensions/` | Static manifest/package validation, typed protocol/result validation and retained-file brokerage; restricted Lua worker and Linux supervisor with bounded queue, cancellation/deadline and child reaping. Reserved helper dispatch precedes config/GUI startup; package settings/catalog integration remains pending. |
 | `copy_path.rs` | UI-independent selection path policy: local native paths, provider supplied standard URLs and no archive pseudo-paths |
 | `listing.rs`, `listing/contracts.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; shared request/result values and bounded per-panel remote listing cache |
 | `panel.rs`, `panel/header_view.rs`, `panel/table_view.rs`, `panel/metadata.rs`, `panel/metadata/` | `FolderView` owns input/menu lifecycle, focus and list/icon coordination; `header_view.rs` renders breadcrumbs, location editing and header buttons; `table_view.rs` owns `FileTable` rendering and forwarding to `Folder`; `metadata/model.rs` owns bounded request/cache policy; `metadata/reader.rs` reads optional local values; `metadata.rs` schedules GPUI workers shared by list and icon views; `metadata/exif.rs` composes semantic EXIF values into stable column keys |

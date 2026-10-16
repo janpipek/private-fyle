@@ -261,6 +261,24 @@ pub fn write_worker_frame<W: Write>(writer: &mut W, frame: &WorkerFrame) -> io::
     write_frame(writer, frame)
 }
 
+/// Encodes one worker payload with frame-size and version checks for nonblocking transports.
+pub fn encode_host_frame(frame: &HostFrame) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    write_host_frame(&mut bytes, frame)?;
+    Ok(bytes)
+}
+
+/// Decodes one already frame-bounded payload and checks its protocol version.
+pub fn decode_worker_payload(payload: &[u8]) -> io::Result<WorkerFrame> {
+    if payload.len() > MAX_FRAME_BYTES {
+        return Err(invalid("protocol frame exceeds the size limit"));
+    }
+    checked_version(
+        serde_json::from_slice(payload)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?,
+    )
+}
+
 fn checked_version<T: HasVersion>(frame: T) -> io::Result<T> {
     if frame.version() == VERSION {
         Ok(frame)

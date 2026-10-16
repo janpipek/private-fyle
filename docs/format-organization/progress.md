@@ -10,8 +10,9 @@ can be reconstructed without the chat.
 
 - The owner authorized starting the plan after the planning commit `5da8dee`.
 - Completed: slices 1–3, contracts, the GPX/FIT adapter and display-only columns.
-- Slice 4a static package validation/loading is committed as `c2913dc`. Active
-  work is 4b worker execution, followed by 4c settings/catalog integration.
+- Slice 4a static package validation/loading is committed as `c2913dc`, and the
+  protocol/broker/queue foundation as `cf11f3b`. Standalone worker execution and
+  Linux supervision are complete; next is 4c settings/catalog integration.
   Luna owns the Rust extension files and helper dispatch; Sol reviews; the
   coordinator owns documentation, final checks and commits. Read
   [worker-plan.md](worker-plan.md) before joining 4b.
@@ -527,6 +528,81 @@ changes separate from the completed column commit.
   helper dispatch per [worker-plan.md](worker-plan.md); run real subprocess
   cancellation/deadline tests and a headless production-dispatch smoke test.
 
+### 2026-10-16 — Build executable worker and supervision
+
+- From `cf11f3b`, two Luna agents are implementing disjoint runtime files.
+  Initial drafts cover Lua library allowlisting, instruction/allocation limits,
+  broker RPC and result conversion; and shared supervisor/ticket ownership,
+  nonblocking Linux pipes, framing, deadlines and process cleanup.
+- Early coordinator review flagged mlua's `send` callback constraints and
+  borrowed-I/O lifetimes, strict Lua type conversion, separate structural and
+  traversal validation, and explicit flushes before waiting for RPC replies.
+  These are draft fixes, not claims that executable checks have passed.
+- The process loop must continue after a terminal result until clean EOF and
+  successful child exit, retaining deadline/cancellation enforcement. Never
+  enter an unsupervised `wait` on a still-running child after accepting output.
+  Reviewed nonblocking Init writes, retained-file ownership, last-handle
+  shutdown signaling, panic-safe completion and decoder chunk boundaries.
+- Work resumed after the subagents hit a service usage limit. The coordinator
+  resumed final checks and reactivated Sol/Luna; the saved source and handoff
+  preserved the exact stopping point. The initial integrated run passed 49
+  extension tests, but final clippy exposed an unnecessary unwrap and test-helper
+  unwraps; Luna corrected them without suppressions.
+- Sol's integrated review found an error path where a failed `try_wait` could
+  skip kill/reap; cleanup now always attempts kill before waiting on errors.
+  Requested PID-based reap assertions, last-supervisor-drop cleanup coverage and
+  stronger worker validation regressions before final approval.
+- Lifecycle source is approved after the fixes. Tests now check direct-child
+  PIDs are reaped after cancellation and shutdown, and asynchronous last-handle
+  drop eventually removes/reaps the child. Tests wait for complete PID contents
+  rather than just file existence, avoiding a publication race. Infinite Lua
+  loops run only in supervised subprocess tests
+  and must report the instruction limit; memory tests use otherwise-valid output
+  so unrelated callback errors cannot produce a false pass.
+- Worker schema tests start from valid output and then change ownership,
+  directory facts or demand. Strict output regressions reject numeric strings,
+  non-string text, metatables and extra keys. Broker-reply regression cases are
+  the last focused checks before full verification.
+- Settled 4c startup ownership: perform bounded static package loading/catalog
+  preparation after settings and before creating the GPUI application, when no
+  UI exists. Pass the immutable shared catalog into Commander. Construct one
+  shared supervisor, evaluate no Lua at startup, and format structured package
+  diagnostics only at the UI boundary. No catalog hot replacement is needed.
+- For normal app exit in 4c, retain a supervisor handle outside the GPUI run
+  closure and explicitly shut it down after the event loop returns. No UI is
+  running then. Last-handle drop remains the nonblocking fallback; abrupt host
+  termination/crash cleanup is outside the current acceptance guarantee.
+
+### 2026-10-16 — Complete and verify the standalone runtime
+
+- Added restricted `extensions/worker.rs`, shared `supervisor.rs` and Linux
+  `supervisor/process.rs`, with the reserved helper dispatch as the first main
+  operation. Only the selected declared callback runs; all module evaluation,
+  applicability and result conversion remain in the child under allocation and
+  instruction limits. Static applicability is checked in the host first.
+- The host retains native source identity/file access, pumps bounded protocol
+  and diagnostics through nonblocking pipes, supervises Init transfer and
+  post-result exit, and kills/reaps before freeing active occupancy. Tickets
+  cancel independently; normal shutdown and last-handle drop have PID checks.
+- Lua schemas use strict raw access with no metatables/coercions; bad reply IDs,
+  oversized bytes, malformed read errors and foreign result fields fail. Zero,
+  truncated and lower-bound values retain their states. The fixed column schema
+  bounds nesting structurally; no arbitrary scene/tree grammar is enabled.
+- Sol approved the final source/tests. All **52 extension tests** passed.
+  Coordinator verification passed: `cargo fmt --check`,
+  `cargo clippy --all-targets -- -D warnings`, `cargo test --quiet`:
+  **631 tests, zero failures/ignored**, and `cargo build`.
+- Manual production-helper smoke checks passed without DISPLAY/WAYLAND_DISPLAY,
+  with scratch XDG config/data/cache/runtime: valid zero/lower-bound output and
+  denied APIs; unsupported version, oversized prefix, malformed JSON and empty
+  input rejected; interactive flushed read RPC returned the expected byte-derived
+  result. No config/data/cache directories were created. Results remain at
+  `/tmp/fyle-worker-smoke-7ot6wl6y/results.json`; all owned helpers exited/reaped.
+- No dependency or normal GUI behavior changed. New supervision is Linux-only;
+  non-Linux backend reports unsupported, and no Windows build was run. This is
+  trusted-package resource supervision, not hostile-code OS isolation. Automatic
+  package startup/loading, settings, columns, Properties and View remain unwired.
+
 ## Completion and next work
 
 | Slice | State | Evidence / handoff |
@@ -534,7 +610,7 @@ changes separate from the completed column commit.
 | 1. Contribution contracts | Complete | Astra approved; fmt/clippy and all 565 tests passed |
 | 2. Existing GPX/FIT adapter | Complete | Astra approved; fmt/clippy/build and all 573 tests passed; 11 live inspector comparisons identical |
 | 3. Dynamic columns | Complete | Sol approved; fmt/clippy/build and all 579 tests passed; unavailable-ID persistence/removal and native UI checked |
-| 4. Packages and worker | In progress | 4a complete: Sol approved, fmt/clippy and 599 tests pass; 4b worker next per worker-plan.md, then 4c integration |
+| 4. Packages and worker | In progress | 4a and 4b complete; Sol approved, 631 tests/build/headless helper smoke pass; 4c settings/catalog integration next |
 | 5. Sensor renderer proof | Pending | Requires renderer scope decision |
 | 6. Contextual Git | Pending | New Git Properties behavior is within the authorized proof scope |
 | 7. Review proof | Pending | Both sensor and Git cases must work before broader migration |

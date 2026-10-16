@@ -166,9 +166,10 @@ with scratch config. New columns follow the approved sorting checkpoint.
 
 In progress, with separate static-validation (4a), helper/supervision (4b) and
 runtime/catalog-integration (4c) commits. Static validation is committed as
-`c2913dc`; 4b begins with a separately reviewed protocol/broker/queue foundation
-before Lua/process wiring. The [worker handoff](worker-plan.md) defines that
-boundary. See the
+`c2913dc` and the protocol/broker/queue foundation as `cf11f3b`. The standalone
+Lua worker and Linux supervision are implemented and verified; settings/catalog
+integration (4c) remains. The [worker handoff](worker-plan.md) defines the
+execution boundary. See the
 [step log](progress.md) for checks and remaining integration.
 
 Touch: new `src/extensions.rs` and `src/extensions/` for manifest validation,

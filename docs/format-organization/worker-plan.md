@@ -132,6 +132,7 @@ This is a trusted-package execution contract, not hostile-code OS isolation.
 | Wall deadline | 2 seconds from process start, including Init transfer |
 | Stderr | 64 KiB cumulative; exceeding it fails and kills the worker |
 | Result text/reason | 64 KiB each |
+| Captured display name | 4 KiB |
 | Lua output traversal | 4,096 nodes, depth 32 |
 | Supervisor polling interval | At most 10 ms, shortened to remaining deadline |
 | Pending/active requests | 64 / 1 |

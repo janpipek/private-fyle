@@ -91,6 +91,7 @@ use commander::Commander;
 use themes::ThemeChoice;
 
 fn main() {
+    extensions::run_worker_if_requested();
     let (settings, settings_error) = settings::persistence::load();
 
     // Command-line directories override the configured ones.
