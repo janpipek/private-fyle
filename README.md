@@ -565,6 +565,9 @@ dev container.
 This is the current module map. The
 [`architecture refactoring record`](docs/architecture-plan.md) explains the
 ownership boundaries and completed migration slices.
+The proposed [data-provider implementation plan](docs/format-organization/implementation-plan.md)
+describes a future contribution and extension model; its implementation and
+decision checkpoints remain pending.
 
 Model first: `src/model.rs` holds each panel's state (`Folder`: typed
 `PanelContent` with `Directory(Location)`, `Search { root, title }` and

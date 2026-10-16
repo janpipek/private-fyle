@@ -9,6 +9,12 @@ implementation. Keep unfinished follow-ups here; move completed items to
 **Done**. **Later** holds deferred goals, and **Dropped** records decisions
 not to pursue an item.
 
+- [ ] Proposed data-provider/contribution migration: follow the
+      [implementation plan](docs/format-organization/implementation-plan.md)
+      after its decision checkpoints are settled. Prove a local user-defined
+      reader, Properties section, column and custom viewer plus contextual Git
+      before migrating the remaining built-ins. Runtime/trust, renderer scope,
+      metadata sorting and Git Properties behavior need owner decisions.
 - [ ] Menus and selection, remaining parts: output/history in Tools.
       Implement missing actions as separate features.
 - [ ] Idea: replace the Git status column's `git` subprocess with a Rust
