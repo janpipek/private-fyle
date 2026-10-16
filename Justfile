@@ -32,6 +32,11 @@ sandbox *args:
 rpm:
     bash tools/package_fedora.sh
 
+# Build a release binary and package it as a Debian/Ubuntu .deb in dist/debian
+[linux]
+deb:
+    bash tools/package_debian.sh
+
 # Build a Windows release binary and Inno Setup installer in dist/windows
 [windows]
 installer:
