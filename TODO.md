@@ -135,8 +135,8 @@ not to pursue an item.
         Unclear to the owner; only "open terminal here" (F9, done) was
         wanted. Ask before starting.
 - [ ] macOS support (later): CI job, app menu, Cmd shortcuts, app bundle.
-- [ ] Packaging, the proper way: `just rpm` only repackages a binary built
-      on the host. Wanted: a source RPM that builds offline from vendored
+- [ ] Packaging, the proper way: `just rpm` and `just deb` only repackage a
+      binary built on the host. Wanted: a source RPM that builds offline from vendored
       crates (`cargo vendor`) in mock or Copr, an own icon and metainfo,
       and later a macOS package.
 - [ ] The column header should be editable, such as + icon to add a column,

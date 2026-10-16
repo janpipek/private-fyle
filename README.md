@@ -409,6 +409,11 @@ RPM in `dist/fedora` (needs `rpm-build` and `desktop-file-utils`). Its
 desktop entry offers fyle for opening folders. It is an interim setup: no
 source RPM yet.
 
+`just deb` does the same for Debian and Ubuntu: it packages the host-built
+binary as a `.deb` in `dist/debian` with `dpkg-deb` (needs `dpkg-dev` and
+`desktop-file-utils`). Dependencies come from `dpkg-shlibdeps`, so the
+package suits the system it was built on.
+
 On Windows, `just installer` builds an x64 release binary and an Inno Setup
 installer in `dist/windows` (requires `iscc.exe`). Setup defaults to a
 current-user install and also offers an all-users install. It creates a Start
