@@ -157,6 +157,11 @@ not to pursue an item.
 
 ## Done
 
+- [x] Data-provider migration, slice 4b foundation: add bounded versioned
+      frames, typed field/completeness validation, retained-file byte/call
+      brokerage and queue/cancellation models. Lua execution and supervision
+      remain in progress; startup/catalog integration follows in 4c.
+
 - [x] Data-provider migration, slice 4a: validate versioned package manifests
       and load bounded, unevaluated script text for explicitly named packages.
       Enforce package-local paths and retain independent filesystem diagnostics.

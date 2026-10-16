@@ -135,6 +135,11 @@ named packages, bounds manifest/script bytes, checks canonical package-local
 paths and retains structured per-package errors. It stores script text without
 evaluation. This static boundary is not yet connected to startup or the catalog;
 supervised execution and settings integration follow separately.
+`extensions/protocol.rs` defines typed bounded frames and field/completeness
+validation; `broker.rs` owns the selected native regular file and charges byte
+and call budgets; `model.rs` owns FIFO admission and cancellation while keeping
+active occupancy until explicit cleanup. These are preparation for the helper,
+not connected runtime execution.
 
 Keep three domain-specific registries with the same basic extension shape:
 providers or tools register in order, expose a predicate for applicability, and

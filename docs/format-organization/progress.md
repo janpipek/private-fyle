@@ -10,10 +10,11 @@ can be reconstructed without the chat.
 
 - The owner authorized starting the plan after the planning commit `5da8dee`.
 - Completed: slices 1–3, contracts, the GPX/FIT adapter and display-only columns.
-- Slice 4a static package validation/loading is complete. Next is 4b worker
-  execution, followed by 4c settings/catalog integration, as separate reviewable
-  commits. Luna implements and Sol reviews; read [worker-plan.md](worker-plan.md)
-  before starting 4b.
+- Slice 4a static package validation/loading is committed as `c2913dc`. Active
+  work is 4b worker execution, followed by 4c settings/catalog integration.
+  Luna owns the Rust extension files and helper dispatch; Sol reviews; the
+  coordinator owns documentation, final checks and commits. Read
+  [worker-plan.md](worker-plan.md) before joining 4b.
 - Working roles, requested by the owner: Sol makes architecture decisions;
   Luna implements; the coordinating agent reviews, verifies and documents.
   Earlier slices were reviewed by Astra; the owner replaced that role with Sol
@@ -471,6 +472,60 @@ changes separate from the completed column commit.
   boundary. No dependency, setting, startup loading, GUI behavior or Tools
   behavior changed. No live UI check is needed for this unused static loader;
   no Windows build was run.
+
+### 2026-10-16 — Start the standalone worker boundary
+
+- Committed 4a as `c2913dc`; tracked tree was clean before 4b work. The unrelated
+  `title.png` remains untracked.
+- Assigned Luna protocol/broker/queue models first, then Lua execution and Linux
+  supervision/helper dispatch. Sol reviews each boundary. These may become
+  separate commits within 4b so the bounded model can be reviewed before process
+  wiring. No settings or catalog edits belong here.
+- Asked the owner for the later slice 5 renderer-scope checkpoint while worker
+  implementation proceeds. Its answer does not block 4b; do not implement the
+  renderer until the scope decision arrives.
+- The first 4b draft contains `extensions/protocol.rs`, `broker.rs` and
+  `model.rs`: typed versioned frames and completeness-preserving result
+  validation, retained-file byte/call brokerage, and FIFO admission with
+  ticket-local versus generation cancellation. Sol is reviewing the APIs and
+  boundary tests before any executable worker wiring.
+- Initial 4b1 focused checks passed 28 tests and fmt/clippy. Sol requested
+  bounded serialization before allocating a full payload, enforced envelope
+  versions, explicit broker read-ID sequencing, exact-end EOF semantics and
+  additional retained-file/nonregular/budget/cancellation tests. These are
+  being fixed before this foundation is committed; passing the initial tests
+  alone did not settle the boundary.
+- Split the upcoming executable work between two Luna agents: the existing
+  implementation agent owns supervisor/transport, module wiring and early
+  helper dispatch; `/root/lua_worker` owns only new Lua worker/value-conversion
+  files and their inline tests. The latter does not run Cargo or edit shared
+  modules. This allows worker implementation while 4b1 finishes review/checks;
+  its files stay out of the foundation commit. Sol reviews both halves.
+
+### 2026-10-16 — Complete the worker foundation
+
+- Added `extensions/protocol.rs`, `broker.rs` and `model.rs`, exposed through
+  documented extension submodules. No Lua/process execution is connected yet.
+- Frames use checked versions, strict typed JSON and bounded serialization
+  before emitting bytes; lengths are checked before input allocation. Result
+  validation preserves zero values and completeness and rejects foreign fields,
+  wrong types/units, invalid quantities and oversized output text.
+- Broker reads retain the selected opened regular file, exclude remote/archive
+  sources, sequence read IDs and charge overlapping requests again. Limits are
+  independent named constants: 64 KiB/read, 16 MiB total (or lower declaration)
+  and 512 calls. Exact-end EOF, path replacement, non-UTF-8 paths, directories
+  and FIFOs have regressions.
+- Queue tests cover FIFO/capacity, stale pending removal, independent ticket
+  cancellation, generation cancellation and shutdown. Active cancellation
+  retains occupancy until matching release after future process cleanup.
+- Sol approved the final source and focused regressions. All **36 extension
+  tests** passed. Final coordinator checks passed: `cargo fmt --check`,
+  `cargo clippy --all-targets -- -D warnings`, and `cargo test --quiet`:
+  **615 tests, zero failures/ignored**. No dependency or UI behavior changed.
+  No live UI check or Windows build was needed/run for this standalone layer.
+- Next: connect the real Lua worker, Linux nonblocking supervisor and early
+  helper dispatch per [worker-plan.md](worker-plan.md); run real subprocess
+  cancellation/deadline tests and a headless production-dispatch smoke test.
 
 ## Completion and next work
 
