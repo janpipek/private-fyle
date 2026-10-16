@@ -8,9 +8,11 @@ pub mod model;
 pub mod reader;
 
 use std::path::Path;
+use std::sync::Arc;
 
 use gpui_kit::{AppContext as _, Context};
 
+use crate::columns::Catalog;
 use crate::links::LinkState;
 use crate::location::Location;
 
@@ -18,16 +20,34 @@ use model::MetadataQueue;
 /// Metadata fields, display values and visible-column selection shared by panel views.
 pub use model::{Field, MetadataValues, fields_for_row};
 
+/// Complete row metadata request captured by the visible table.
+pub struct RowRequest {
+    /// Original local row identity.
+    pub location: Location,
+    /// Current folder listing generation.
+    pub generation: u64,
+    /// Requested optional fields.
+    pub fields: Vec<Field>,
+    /// Owner ID captured from the listing.
+    pub uid: Option<u32>,
+    /// Link state captured from the listing.
+    pub link: LinkState,
+    /// Name and directory facts captured from the listing.
+    pub row: Option<model::CapturedRow>,
+}
+
 /// Cache and background workers shared by the list and icon views of a panel.
 pub struct MetadataState {
     queue: MetadataQueue,
+    catalog: Arc<Catalog>,
 }
 
 impl MetadataState {
     /// Creates an empty metadata cache for one panel.
-    pub fn new() -> Self {
+    pub fn new(catalog: Arc<Catalog>) -> Self {
         Self {
             queue: MetadataQueue::default(),
+            catalog,
         }
     }
 
@@ -55,13 +75,29 @@ impl MetadataState {
         self.start(cx);
     }
 
+    /// Queues metadata with captured row facts for provider applicability.
+    pub fn request_row(&mut self, request: RowRequest, cx: &mut Context<Self>) {
+        self.queue.request_row(
+            &request.location,
+            request.generation,
+            &request.fields,
+            request.uid,
+            request.link,
+            request.row,
+        );
+        self.start(cx);
+    }
+
     fn start(&mut self, cx: &mut Context<Self>) {
         while let Some(request) = self.queue.take_next() {
             let worker_request = request.clone();
+            let catalog = self.catalog.clone();
             let state = cx.weak_entity();
             cx.spawn(async move |_, cx| {
                 let values = cx
-                    .background_spawn(async move { reader::read_metadata(&worker_request) })
+                    .background_spawn(
+                        async move { reader::read_metadata(&worker_request, &catalog) },
+                    )
                     .await;
                 let _ = state.update(cx, |state, cx| {
                     if state.queue.complete(request, values) {

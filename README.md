@@ -256,6 +256,11 @@ names leave out their extension
 and SELinux values load for visible
 local rows in the background; remote and archive locations are never treated
 as native paths for these fields.
+Saved column IDs that are unavailable in the current build remain in settings
+and show blank cells. Columns… lists them with their ID and an unavailable
+explanation; changing other columns preserves them, while unchecking one removes
+it. Provider-defined columns are display-only for now. Built-in sorting and
+default columns are unchanged; loading user extension packages is still pending.
 
 Windows: ".." from a drive root lists all drives; files with the hidden
 attribute count as hidden.
@@ -577,7 +582,10 @@ no I/O. `data_providers/geo.rs` owns the GPX/FIT contribution bundle and bounded
 native acquisition used by the existing Properties and View adapters. Its typed
 quantities retain recorded/inferred provenance and independent completeness;
 format readers remain under `formats/geo`. Each feature keeps its own registry,
-scheduling and rendering. Dynamic columns and extension execution remain pending.
+scheduling and rendering. `columns::Catalog` resolves persisted IDs to built-in,
+registered native-provider or unavailable descriptors; its native provider
+readers run through the existing metadata worker queue. Extension execution
+remains pending.
 
 Model first: `src/model.rs` holds each panel's state (`Folder`: typed
 `PanelContent` with `Directory(Location)`, `Search { root, title }` and
@@ -684,7 +692,7 @@ Where things live (`src/`):
 | `thumbnails.rs`, `thumb_queue.rs`, `raw_preview.rs` | Icon view thumbnails: the freedesktop cache (URI and MD5 names, validity by `Thumb::MTime`, atomic writes, failure records), RAW preview cache identity and atomic JPEG materialization, and the load scheduler with its LRU, all UI-independent and tested |
 | `grid.rs`, `icon_view.rs`, `glyphs.rs`, `context_menu.rs` | Icon view: `ViewMode`, icon sizes, `Layout` (columns for a width) and cursor moves (UI-independent, tested); the lazy `IconGrid` view; the `FileIcon` → glyph table and the right-click menu shared with the list |
 | `workspace.rs`, `inspector_view.rs` | Workspace layout and active panel roles; the inspector tab controller retains View/Properties selection while the inspector is closed or dock layout changes. |
-| `columns.rs` | `ColumnKind` catalog, grouped, ids like `exif.iso`. A new column is a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |
+| `columns.rs`, `columns/` | Persisted `ColumnId`s, mandatory Name/selection normalization, shared descriptor `Catalog` and native provider reader seam; `ColumnKind` retains specialized built-in rendering/sorting. Unknown IDs survive settings changes, provider cells use typed validated values, and provider/unavailable columns remain unsortable. |
 | `fs_ops.rs`, `transfer.rs`, `jobs.rs` | Native metadata/account adapters and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
 | `remote.rs`, `remote/` | Remote providers: `Provider` trait; compatibility `Location` alias to `location::RemoteLocation`; Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`) and management persistence (`manage.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `LocalCopy` keeps a typed source address separate from the cache path used at native I/O boundaries; `model/remote.rs` holds cached listings |
 | `archive.rs`, `archive/extraction.rs`, `dirsize.rs`, `links.rs` | Archive index; safe extraction; recursive sizes; symlink state |

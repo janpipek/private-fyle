@@ -10,6 +10,59 @@ use serde::Deserialize;
 
 use crate::entry::SortKey;
 
+pub mod catalog;
+pub mod provider;
+
+/// Immutable catalog and descriptor types shared by panel consumers.
+pub use catalog::Catalog;
+/// Native provider reader request and callback types.
+pub use provider::ProviderColumnRequest;
+
+/// Persisted column identity, retaining IDs unknown to this build.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ColumnId(String);
+
+impl ColumnId {
+    /// Creates an opaque ID, canonicalizing the historical Git alias.
+    pub fn new(value: impl Into<String>) -> std::io::Result<Self> {
+        let value = value.into();
+        if value.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "column ID cannot be empty",
+            ));
+        }
+        Ok(Self(if value == "git" {
+            "git.status".into()
+        } else {
+            value
+        }))
+    }
+
+    /// Returns the canonical persisted spelling.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Returns its compiled implementation, if one is available.
+    pub fn builtin(&self) -> Option<ColumnKind> {
+        ColumnKind::from_id(&self.0)
+    }
+}
+
+impl From<ColumnKind> for ColumnId {
+    fn from(kind: ColumnKind) -> Self {
+        Self(kind.id().into())
+    }
+}
+
+impl<'de> Deserialize<'de> for ColumnId {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = String::deserialize(deserializer)?;
+        Self::new(value).map_err(serde::de::Error::custom)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ColumnKind {
     Name,
@@ -252,49 +305,34 @@ impl<'de> Deserialize<'de> for ColumnKind {
     }
 }
 
-/// The configured columns with Name guaranteed first and no duplicates.
-pub fn normalize(columns: &[ColumnKind]) -> Vec<ColumnKind> {
-    let mut out = vec![ColumnKind::Name];
-    for &c in columns {
-        if !out.contains(&c) {
-            out.push(c);
+/// Normalizes persisted IDs, retaining unknown columns and Name first.
+pub fn normalize(columns: &[ColumnId]) -> Vec<ColumnId> {
+    let name = ColumnId::from(ColumnKind::Name);
+    let mut result = vec![name.clone()];
+    for column in columns {
+        if column != &name && !result.contains(column) {
+            result.push(column.clone());
         }
     }
-    out
+    result
 }
 
-/// Shows or hides `column`: a newly shown column goes last; Name stays.
-pub fn toggle(columns: &[ColumnKind], column: ColumnKind, show: bool) -> Vec<ColumnKind> {
-    let mut out: Vec<_> = columns.iter().copied().filter(|&c| c != column).collect();
+/// Shows or hides an ID while preserving all other saved IDs.
+pub fn toggle(columns: &[ColumnId], column: &ColumnId, show: bool) -> Vec<ColumnId> {
+    let mut result: Vec<_> = columns
+        .iter()
+        .filter(|value| *value != column)
+        .cloned()
+        .collect();
     if show {
-        out.push(column);
+        result.push(column.clone());
     }
-    normalize(&out)
-}
-
-/// The catalog grouped for the Columns dialog, groups in catalog order.
-pub fn catalog() -> Vec<(Group, Vec<ColumnKind>)> {
-    let mut groups: Vec<(Group, Vec<ColumnKind>)> = Vec::new();
-    for column in ColumnKind::ALL {
-        match groups.last_mut() {
-            Some((group, columns)) if *group == column.group() => columns.push(column),
-            _ => groups.push((column.group(), vec![column])),
-        }
-    }
-    groups
+    normalize(&result)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ColumnKind::*;
-
-    #[test]
-    fn name_first_without_duplicates() {
-        assert_eq!(normalize(&[Size, Name, Owner, Size]), [Name, Size, Owner]);
-        assert_eq!(normalize(&[]), [Name]);
-    }
-
     #[test]
     fn ids_round_trip_and_parse_from_settings() {
         for column in ColumnKind::ALL {
@@ -309,10 +347,10 @@ mod tests {
         assert_eq!(
             s.columns,
             [
-                Size,
-                GitStatus,
-                Exif(ExifField::Camera),
-                Exif(ExifField::Iso)
+                ColumnKind::Size,
+                ColumnKind::GitStatus,
+                ColumnKind::Exif(ExifField::Camera),
+                ColumnKind::Exif(ExifField::Iso)
             ]
         );
         let err = toml::from_str::<S>(r#"columns = ["exif"]"#).err().unwrap();
@@ -320,34 +358,52 @@ mod tests {
     }
 
     #[test]
-    fn toggles_keep_order_and_name() {
-        let cols = [Name, Size, Modified];
+    fn persisted_ids_keep_unknown_values_and_canonicalize_git_alias() {
+        #[derive(Deserialize)]
+        struct SavedColumns {
+            columns: Vec<ColumnId>,
+        }
+        let parsed = toml::from_str::<SavedColumns>(
+            r#"columns = ["git", "extension.sensor.reader.distance", "future.col"]"#,
+        )
+        .unwrap()
+        .columns;
+        assert_eq!(parsed[0].as_str(), "git.status");
+        assert_eq!(parsed[1].as_str(), "extension.sensor.reader.distance");
+        assert_eq!(parsed[2].as_str(), "future.col");
+        assert_eq!(parsed[1].builtin(), None);
+        let with_duplicate_name = [
+            parsed[0].clone(),
+            ColumnId::from(ColumnKind::Name),
+            parsed[1].clone(),
+            parsed[1].clone(),
+        ];
         assert_eq!(
-            toggle(&cols, Exif(ExifField::Iso), true),
-            [Name, Size, Modified, Exif(ExifField::Iso)]
-        );
-        assert_eq!(toggle(&cols, Size, false), [Name, Modified]);
-        assert_eq!(toggle(&cols, Name, false), [Name, Size, Modified]);
-        assert_eq!(toggle(&cols, Size, true), [Name, Modified, Size]);
-    }
-
-    #[test]
-    fn catalog_groups_every_column_once() {
-        let groups = catalog();
-        let names: Vec<_> = groups.iter().map(|(g, _)| *g).collect();
-        assert_eq!(
-            names,
+            normalize(&with_duplicate_name),
             [
-                Group::File,
-                Group::Media,
-                Group::Unix,
-                Group::Git,
-                Group::Attributes,
-                Group::Exif
+                ColumnId::from(ColumnKind::Name),
+                parsed[0].clone(),
+                parsed[1].clone()
             ]
         );
-        let total: usize = groups.iter().map(|(_, c)| c.len()).sum();
-        assert_eq!(total, ColumnKind::ALL.len());
-        assert_eq!(groups[5].1.len(), 9);
+        assert_eq!(
+            normalize(&parsed),
+            [
+                ColumnId::from(ColumnKind::Name),
+                parsed[0].clone(),
+                parsed[1].clone(),
+                parsed[2].clone()
+            ]
+        );
+        let toggled = toggle(&normalize(&parsed), &parsed[1], false);
+        assert_eq!(
+            toggled,
+            [
+                ColumnId::from(ColumnKind::Name),
+                parsed[0].clone(),
+                parsed[2].clone()
+            ]
+        );
+        assert!(ColumnId::new("").is_err());
     }
 }

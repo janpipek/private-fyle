@@ -122,7 +122,10 @@ pure contribution contracts in `data_providers` and a GPX/FIT provider-owned
 bundle consumed by both Properties and View. `data_providers/geo.rs` prepares
 typed quantities from the bounded native reader, preserving per-value origin
 and completeness; existing feature adapters still own presentation. These
-contracts do not replace the separate registries or fixed column catalog. Its
+contracts do not replace the separate feature registries. The column catalog
+now resolves persisted IDs to built-ins, registered native providers or
+unavailable placeholders, keeping specialized built-in rendering/sorting and
+the existing bounded metadata queue. Provider columns are display-only. Its
 [progress log](format-organization/progress.md) records the implemented boundary
 and next slice; Tools retains its separate planning/execution contract.
 
@@ -143,7 +146,7 @@ Each feature owns its matching and execution contract.
 
 Columns and Properties remain separate presentation contracts. When both need
 the same format fact, share the semantic reader and stable fact identity, then
-map that fact into the fixed column catalog or the richer Properties groups at
+map that fact into column descriptors or the richer Properties groups at
 each consumer. Do not infer columns automatically from arbitrary property
 groups.
 

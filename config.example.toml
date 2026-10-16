@@ -64,6 +64,7 @@ icon_size = 96
 #   exif:       exif.taken, exif.camera, exif.lens, exif.exposure,
 #               exif.aperture, exif.iso, exif.focal_length,
 #               exif.dimensions, exif.gps
+# Unknown column IDs are preserved and shown as unavailable until registered.
 columns = ["name", "ext", "size", "modified"]
 sort = "name"             # "name" | "ext" | "size" | "modified"
 sort_descending = false

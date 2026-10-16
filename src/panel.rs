@@ -12,13 +12,14 @@ use gpui_kit::component::{ActiveTheme as _, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::columns::ColumnKind;
+use crate::columns::{Catalog, ColumnId, ColumnKind};
 use crate::context_menu::ContextMenuBuilder;
 use crate::git_status;
 use crate::grid::ViewMode;
 use crate::icon_view::{GridEvent, IconGrid};
 use crate::location::PanelTarget;
 use crate::model::{DragSnapshot, Folder};
+use std::sync::Arc;
 
 /// Breadcrumb, location-bar and header-button rendering.
 pub mod header_view;
@@ -154,15 +155,22 @@ impl EventEmitter<PanelDrop> for FolderView {}
 impl FolderView {
     pub fn new(
         folder: Entity<Folder>,
-        columns: Vec<ColumnKind>,
+        columns: Vec<ColumnId>,
+        catalog: Arc<Catalog>,
         mode: ViewMode,
         icon_size: u32,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let metadata = cx.new(|_| metadata::MetadataState::new());
+        let metadata = cx.new(|_| metadata::MetadataState::new(catalog.clone()));
         let drop_row = Rc::new(Cell::new(None));
-        let delegate = FileTable::new(folder.clone(), columns, metadata.clone(), drop_row.clone());
+        let delegate = FileTable::new(
+            folder.clone(),
+            columns,
+            catalog,
+            metadata.clone(),
+            drop_row.clone(),
+        );
         let table = cx.new(|cx| {
             TableState::new(delegate, window, cx)
                 .row_header(false)
@@ -279,12 +287,12 @@ impl FolderView {
         cx.notify();
     }
 
-    pub fn columns(&self, cx: &App) -> Vec<ColumnKind> {
+    pub fn columns(&self, cx: &App) -> Vec<ColumnId> {
         self.table.read(cx).delegate().columns().to_vec()
     }
 
     /// Shows `columns` (Name first, see [`crate::columns::normalize`]).
-    pub fn set_columns(&mut self, columns: Vec<ColumnKind>, cx: &mut Context<Self>) {
+    pub fn set_columns(&mut self, columns: Vec<ColumnId>, cx: &mut Context<Self>) {
         self.table.update(cx, |table, cx| {
             table.delegate_mut().set_columns(columns);
             table.refresh(cx);
@@ -303,7 +311,7 @@ impl FolderView {
             .read(cx)
             .delegate()
             .columns()
-            .contains(&ColumnKind::GitStatus)
+            .contains(&ColumnId::from(ColumnKind::GitStatus))
         {
             return;
         }

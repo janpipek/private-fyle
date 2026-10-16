@@ -68,6 +68,8 @@ struct EditorWindow {
 }
 
 pub struct Commander {
+    /// Immutable column catalog shared by both panels and the appearance dialog.
+    columns: Arc<crate::columns::Catalog>,
     folders: [Entity<Folder>; 2],
     views: [Entity<FolderView>; 2],
     /// Content pane used by the inspector.
@@ -223,12 +225,14 @@ impl Commander {
             cx.new(|_| folder)
         });
         let columns = crate::columns::normalize(&settings.panels.columns);
+        let column_catalog = Arc::new(crate::columns::Catalog::with_defaults());
         let views = [0, 1].map(|ix| {
             let mode = panels.view(ix);
             cx.new(|cx| {
                 FolderView::new(
                     folders[ix].clone(),
                     columns.clone(),
+                    column_catalog.clone(),
                     mode,
                     panels.icon_size,
                     window,
@@ -345,6 +349,7 @@ impl Commander {
             status = e.into();
         }
         let this = Self {
+            columns: column_catalog,
             folders,
             views,
             preview,

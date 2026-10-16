@@ -13,12 +13,14 @@ not to pursue an item.
       follow the
       [implementation plan](docs/format-organization/implementation-plan.md)
       and [handoff log](docs/format-organization/progress.md).
-      Slices 1 and 2 are complete; next is the dynamic-column catalog.
+      Slices 1–3 are complete; next is package validation and the supervised
+      Lua reader worker.
       Prove a local user-defined
       reader, Properties section, column and custom viewer plus contextual Git
       before migrating the remaining built-ins. The owner approved display-only
       extension columns first; design new metadata sorting separately.
-      Runtime/trust and renderer scope checkpoints remain for their later slices.
+      The proposed Lua worker and explicit package enablement are approved;
+      the renderer scope checkpoint remains for its later slice.
 - [ ] Menus and selection, remaining parts: output/history in Tools.
       Implement missing actions as separate features.
 - [ ] Idea: replace the Git status column's `git` subprocess with a Rust
@@ -154,6 +156,14 @@ not to pursue an item.
 - [ ] ID3 properties for audio files.
 
 ## Done
+
+- [x] Data-provider migration, slice 3: persist extensible column IDs, preserve
+      unavailable selections across settings edits, and share a descriptor
+      catalog across dialog/table/background metadata. Native provider cells
+      use the existing bounded queue and validate typed results. New provider
+      columns are display-only; built-in columns/defaults/sorting are unchanged.
+      Package loading remains pending; see the
+      [handoff log](docs/format-organization/progress.md).
 
 - [x] Data-provider migration, slice 2: route GPX/FIT Properties and View
       through one provider-owned contribution bundle and bounded native reader.

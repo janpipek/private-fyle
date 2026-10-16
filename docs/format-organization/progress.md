@@ -9,14 +9,18 @@ can be reconstructed without the chat.
 ## Current state
 
 - The owner authorized starting the plan after the planning commit `5da8dee`.
-- Completed: slices 1 and 2, pure contracts and the production GPX/FIT adapter.
-- Next: slice 3, dynamic columns. Astra is preparing architecture and Luna is
-  surveying code read-only; implementation starts after the slice 2 commit.
-- Working roles, requested by the owner: Astra makes architecture decisions;
+- Completed: slices 1–3, contracts, the GPX/FIT adapter and display-only columns.
+- Next: slice 4, static packages and a supervised Lua reader. Sol has designed
+  the boundary and Luna has surveyed the code read-only; implementation starts
+  after the slice 3 commit.
+- Working roles, requested by the owner: Sol makes architecture decisions;
   Luna implements; the coordinating agent reviews, verifies and documents.
+  Earlier slices were reviewed by Astra; the owner replaced that role with Sol
+  before slice 3 implementation resumed.
 - Existing GPX/FIT presentation and scheduling are preserved by the shared
-  adapter. Runtime/trust and renderer scope checkpoints are still
-  pending. The owner approved display-only extension columns first; new
+  adapter. The owner approved the proposed Lua worker and explicit package
+  enablement; the renderer scope checkpoint remains pending.
+  The owner approved display-only extension columns first; new
   metadata sorting remains a separate design task.
 - Keep the unrelated, pre-existing untracked `title.png` out of commits.
 
@@ -258,14 +262,157 @@ their original paths; the model examples are not installed user extensions.
 - README, TODO and architecture/implementation records now describe the shared
   adapter. Next feature is the approved display-only dynamic-column milestone.
 
+## Slice 3 work log
+
+### 2026-10-16 — Resume dynamic columns with Sol
+
+- Resumed from clean tracked commit `6166617`; no partial slice 3 Rust changes
+  survived the earlier agent usage-limit interruption. `title.png` remains
+  unrelated and untracked.
+- The owner requested Sol instead of Astra. Sol now owns architecture and
+  review; Luna owns all slice 3 Rust changes. The coordinator owns documentation,
+  final checks, UI validation and commits. Historical Astra reviews above still
+  describe the first two slices.
+- Sol reviewed and confirmed the display-only design: persisted `ColumnId`s
+  retain unknown IDs and canonicalize `git`; the builtin enum remains native
+  rendering/sorting dispatch. One immutable shared catalog supplies the Columns
+  dialog, tables and background metadata reader.
+- Registered native provider columns use validated definitions and typed
+  background callbacks. Reuse the existing metadata queue and its 256 cache /
+  512 pending / 4 active bounds, preserving stale-worker occupancy. Missing,
+  failed and unavailable values count as completed; readers cannot return a
+  permanently pending cell.
+- Available provider columns and saved-but-unavailable IDs are unsortable.
+  The four existing sortable built-ins keep their exact behavior. Only Name is
+  mandatory; the owner can deliberately uncheck an unavailable saved column.
+- No package discovery, hot reload, permanent sensor provider, new dependencies
+  or synthesized format/repository evidence belongs to this slice. Tests will
+  supply a fake provider to prove the native seam and queue path.
+- Implementation files: `columns.rs` / `columns/`, settings and persistence,
+  Commander construction/appearance, panel/table and metadata model/reader,
+  plus callers affected by changed signatures. Source review and checks pending.
+
+### 2026-10-16 — Review the initial column/catalog wiring
+
+- Luna connected saved IDs and the shared catalog through Commander, panels,
+  table headers/cells and metadata workers. The coordinator reviewed the first
+  draft while Sol checked registration and queue semantics.
+- Requested atomic registration that rejects real built-in ID collisions and
+  duplicate provider bundles while allowing multiple columns to bind one
+  declared field. Collision tests must reach the catalog check, not fail earlier
+  for an invalid extension namespace.
+- Found that legacy link-metadata requests could replace a pending provider
+  request's captured row name/directory flag with default values. Required
+  preserving known row facts during coalescing and a regression test.
+- Requested raw saved IDs plus an unavailable explanation in the dialog, owned
+  GPUI header strings, portable test paths, and a small row-data value instead
+  of adding long argument lists or lint suppressions.
+- Preserve one ID normalization/toggle path rather than retaining obsolete
+  parallel helpers. Sol and Luna are resolving these points before verification.
+
+### 2026-10-16 — Finish wiring and review acceptance coverage
+
+- Luna reports `cargo check --tests` passes after ID-based settings, catalog,
+  table and metadata signatures were connected. This is an intermediate compile
+  check; final Clippy/tests/UI checks are not complete yet.
+- Optional captured row facts now preserve known facts when legacy metadata
+  requests coalesce. Workers merge only requested provider fields into the
+  current generation's cache; render paths only inspect descriptors/cache and
+  queue work, never execute provider readers.
+- Sol requested explicit guards against built-in overrides even in an empty
+  catalog and duplicate provider bundles, plus tests using valid declarations
+  that reach those guards. Also required shared-field columns, unavailable
+  selection recovery, stale provider results and absent/error no-retry coverage.
+- The initial native callback returns a complete value or absence through
+  `io::Result<Option<Value>>`; it does not yet express partial/lower-bound cell
+  completeness. Native readers must honor their declared demand and return an
+  error for incomplete acquisition. Before bounded user-package cells ship,
+  extend this seam to preserve completeness rather than marking partial values
+  complete. Catalog demand equality is validated; enforcement is the native
+  reader's responsibility until supervised workers are implemented.
+
+### 2026-10-16 — Set the slice 4 execution and enablement scope
+
+- The owner answered the queued checkpoint: **“Use the proposed Lua worker and
+  explicit enablement.”** Use a supervised helper, load packages only from the
+  user's fyle config directory, and require explicit enabled package IDs before
+  automatic read-time execution. Existing Tools plugins retain their behavior.
+- This settles the slice 4 runtime/trust checkpoints. Slice 3 source and UI
+  verification still come first; no worker code is mixed into its commit.
+
+### 2026-10-16 — Complete and verify slice 3
+
+- `ColumnId` now owns saved identity and canonicalizes `git` to `git.status`.
+  Settings/persistence, Commander and panels carry IDs while `ColumnKind`
+  retains all existing native rendering, defaults and sorting. One immutable
+  `Arc<Catalog>` supplies descriptors to dialog, table and background reader.
+- The catalog validates provider bundles atomically, protects built-in IDs
+  even in an empty catalog, rejects duplicate providers and supports several
+  columns bound to one field. Native callbacks run only through the metadata
+  worker, with declared demand and type/unit validation. Production currently
+  registers built-ins only; no fake provider or package runtime was installed.
+- The existing queue now caches typed provider cells by listing generation and
+  source path. Tests cover actual queue→reader→completion, absent/I/O-error/
+  wrong-unit no-retry behavior, captured facts, stale completion/slot release,
+  native bounds, shared fields and provider removal/re-registration. Legacy
+  metadata merges preserve captured row facts and only requested fields merge.
+- Sol approved the final source/tests. Final coordinator checks:
+  `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and
+  `cargo test --quiet` all passed: **579 tests, zero failures/ignored**.
+  `cargo build` also passed; the last changes afterward were test-only.
+- Live scratch-config checks confirmed: default table content is pixel-identical
+  to the prior build; existing Columns groups/labels render correctly; a saved
+  unavailable ID shows blank cells and its raw ID/reason in the dialog;
+  toggling Created preserves that ID and config comments; list/icon switching
+  and restart preserve selections; clicking the unavailable header does not
+  reorder rows, while Size still sorts numerically; explicitly unchecking the
+  unavailable label removes only that ID from both panels and settings.
+- Screenshots/logs remain under `/tmp/fyle-slice2-ui-6xgcdhih` with
+  `columns-*` filenames. The default table comparison used
+  `580x215+51+96` and reported zero changed pixels. A dialog baseline capture
+  missed the open dialog, so no pixel-equivalence claim is made for the dialog;
+  labels/layout were checked visually and all 20 descriptors have compatibility
+  tests. The unavailable-header click changed selection shading but preserved
+  row order. App logs were empty. The scratch app/Xvfb remain available for the
+  next slice; their current PIDs are in the scratch `state.json`.
+- Updated README, example-config commentary and architecture/TODO/plan records.
+  No dependency, new sorting mode, package execution, nonlocal column reading
+  or Windows-specific behavior was added. No Windows build was run.
+
+## Slice 4 handoff
+
+Read the owner-approved execution/enablement decision above and the plan before
+editing. Sol has supplied the protocol/bounds architecture to Luna. Implement
+static validation before execution, then a headless helper and supervisor, then
+connect explicitly enabled packages to the column worker path. Keep the worker
+changes separate from the completed column commit.
+
+- Dispatch the reserved helper argument before settings/config/GUI startup.
+  Leave `tools/lua.rs` and its existing plugin contract untouched.
+- Load only explicitly enabled IDs beneath the canonical config extensions
+  root. Enforce package-directory containment as well as manifest/script
+  containment, so a symlinked package cannot escape the root. Host loading is
+  static; all Lua evaluation/applicability/acquisition runs supervised.
+- Retain the opened regular source file and native identity in the host; broker
+  bounded reads by opaque handles, never worker-supplied paths. Reject special
+  files/directories. Use capped frames/cumulative reads/output, instruction and
+  allocation limits, deadlines and kill/reap/drain ownership. One active worker
+  globally and a bounded pending model are the initial architecture.
+- Extend the native column result seam to preserve completeness before exposing
+  bounded package output. Do not silently label a partial result complete.
+- Use existing dependencies. New renderer grammar and its host view remain
+  slice 5, with the renderer scope decision still pending. Each implementation
+  commit needs model tests, repository checks, updated handoff and relevant UI
+  verification.
+
 ## Completion and next work
 
 | Slice | State | Evidence / handoff |
 | --- | --- | --- |
 | 1. Contribution contracts | Complete | Astra approved; fmt/clippy and all 565 tests passed |
 | 2. Existing GPX/FIT adapter | Complete | Astra approved; fmt/clippy/build and all 573 tests passed; 11 live inspector comparisons identical |
-| 3. Dynamic columns | Pending | Display-only first approved; architecture survey underway |
-| 4. Packages and worker | Pending | Requires execution/loading/trust decisions |
+| 3. Dynamic columns | Complete | Sol approved; fmt/clippy/build and all 579 tests passed; unavailable-ID persistence/removal and native UI checked |
+| 4. Packages and worker | Pending | Supervised Lua/config-only packages/explicit enablement approved |
 | 5. Sensor renderer proof | Pending | Requires renderer scope decision |
 | 6. Contextual Git | Pending | New Git Properties behavior is within the authorized proof scope |
 | 7. Review proof | Pending | Both sensor and Git cases must work before broader migration |

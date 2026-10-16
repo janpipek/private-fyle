@@ -105,7 +105,7 @@ pub struct PanelSettings {
     /// Icon size in pixels in icon view; snaps to 48, 64, 96, 128 or 160.
     pub icon_size: u32,
     /// Columns shown, in order; Name is always first.
-    pub columns: Vec<crate::columns::ColumnKind>,
+    pub columns: Vec<crate::columns::ColumnId>,
     pub sort: SortSetting,
     pub sort_descending: bool,
 }
@@ -165,7 +165,10 @@ impl Default for PanelSettings {
             left_view: ViewMode::List,
             right_view: ViewMode::List,
             icon_size: crate::grid::DEFAULT_SIZE,
-            columns: crate::columns::ColumnKind::DEFAULT.to_vec(),
+            columns: crate::columns::ColumnKind::DEFAULT
+                .into_iter()
+                .map(crate::columns::ColumnId::from)
+                .collect(),
             sort: SortSetting::Name,
             sort_descending: false,
         }

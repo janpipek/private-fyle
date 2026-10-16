@@ -1,9 +1,10 @@
 # Data providers and contributions: implementation plan
 
 Status: started with owner authorization on 2026-10-16, after planning commit
-`5da8dee`. Slices 1 and 2 are complete. The owner approved
-display-only extension columns first; runtime/trust and renderer decisions
-remain pending. This makes the [synthesis](synthesis.md) actionable.
+`5da8dee`. Slices 1–3 are complete. The owner approved
+display-only extension columns first and the proposed supervised Lua worker
+with explicit package enablement; the renderer scope decision remains pending.
+This makes the [synthesis](synthesis.md) actionable.
 The [progress and handoff log](progress.md) records implementation steps,
 verification and current ownership. The [TODO](../../TODO.md) remains the
 backlog; record decisions before implementing the affected slice.
@@ -68,8 +69,8 @@ the corresponding model and tests.
 | Checkpoint | Recommended choice | Needed before |
 | --- | --- | --- |
 | First feature scope | Sensor package plus contextual Git, with a new Git Properties section; authorized when the owner asked to start this plan on 2026-10-16 | Scope settled; slice 1 complete |
-| Extension execution | Supervised Lua helper in the same executable, dispatched before GUI/config startup; reuse vendored `mlua` | Slice 4 |
-| Loading and trust | Explicit enabled package IDs in user config; packages only under `<config dir>/fyle/extensions/`; no project auto-loading; enabling permits automatic declared read-time work | Slice 4 |
+| Extension execution | Owner approved the proposed supervised Lua helper on 2026-10-16; dispatch before GUI/config startup and reuse vendored `mlua` | Scope settled for slice 4 |
+| Loading and trust | Owner approved explicit enabled package IDs and config-directory-only packages on 2026-10-16; no project auto-loading; enabling permits automatic declared read-time work | Scope settled for slice 4 |
 | Initial renderer | Static layout, selectable text, typed table and bounded path canvas; no worker-defined native widgets or arbitrary callbacks | Slice 5 |
 | Metadata sorting | Owner approved “Display-only first; design sorting separately” on 2026-10-16. Existing sortable columns keep their behavior | Scope settled for slice 3; new metadata sorting is deferred |
 
@@ -135,6 +136,9 @@ equivalent, including truncated data and failures. This is the first production
 test of the contract; revise slice 1 if adapting it needs special-case dispatch.
 
 ### 3. Make column identity and projection extensible
+
+Complete on 2026-10-16 with the approved display-only scope. Package loading
+remains slice 4; see the [step log](progress.md) for decisions and checks.
 
 Touch: `src/columns.rs`, `src/settings.rs`,
 `src/settings/persistence.rs`, `src/commander/appearance.rs`,
@@ -294,7 +298,7 @@ Never push or open a PR without a request.
 
 ## Completion record
 
-Slices 1 and 2 are complete; slice 3 is next. See the [progress and handoff log](progress.md) for
+Slices 1–3 are complete; slice 4 is next. See the [progress and handoff log](progress.md) for
 ownership, completed steps, checks and the next task. The owner's start request
 authorizes the initial proof scope; later decision checkpoints remain attached
 to their respective slices. Unrelated deferred TODO features stay deferred.
