@@ -51,7 +51,7 @@ rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"
 # `remotes.toml` protocol field, parsing and UI stay unconditional, so a
 # configured but disabled protocol fails clearly at connect time.
 [features]
-default = ["sftp", "ftp", "webdav", "s3"]
+default = ["sftp", "ftp"]
 sftp = ["dep:remotefs-ssh", "dep:russh", "dep:ssh2-config", "dep:tokio"]
 ftp = ["dep:remotefs-ftp"]
 webdav = ["dep:remotefs-webdav", "dep:tokio"]
