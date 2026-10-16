@@ -1,9 +1,11 @@
 # Data providers and contributions: implementation plan
 
-Status: proposed sequence, not implementation approval. This makes the
-[synthesis](synthesis.md) actionable. No application behavior has changed.
-The [TODO](../../TODO.md) remains the backlog and approval record. Record owner
-decisions in this document before implementing the affected slice.
+Status: started with owner authorization on 2026-10-16, after planning commit
+`5da8dee`. Slice 1 is complete; later runtime/trust, renderer and sorting
+decisions remain pending. This makes the [synthesis](synthesis.md) actionable.
+The [progress and handoff log](progress.md) records implementation steps,
+verification and current ownership. The [TODO](../../TODO.md) remains the
+backlog; record decisions before implementing the affected slice.
 
 ## Outcome and scope
 
@@ -64,7 +66,7 @@ the corresponding model and tests.
 
 | Checkpoint | Recommended choice | Needed before |
 | --- | --- | --- |
-| First feature scope | Sensor package plus contextual Git, with a new Git Properties section | Slice 1 |
+| First feature scope | Sensor package plus contextual Git, with a new Git Properties section; authorized when the owner asked to start this plan on 2026-10-16 | Scope settled; slice 1 complete |
 | Extension execution | Supervised Lua helper in the same executable, dispatched before GUI/config startup; reuse vendored `mlua` | Slice 4 |
 | Loading and trust | Explicit enabled package IDs in user config; packages only under `<config dir>/fyle/extensions/`; no project auto-loading; enabling permits automatic declared read-time work | Slice 4 |
 | Initial renderer | Static layout, selectable text, typed table and bounded path canvas; no worker-defined native widgets or arbitrary callbacks | Slice 5 |
@@ -88,6 +90,8 @@ wiring into separate commits if needed. Keep each commit about one feature.
 Update the completion record and README as behavior lands.
 
 ### 1. Define the smallest contribution contract
+
+Complete on 2026-10-16. See the [step log](progress.md) for decisions and checks.
 
 Touch: new `src/data_providers.rs` and focused files under
 `src/data_providers/`; register the module in `src/main.rs`.
@@ -287,6 +291,7 @@ Never push or open a PR without a request.
 
 ## Completion record
 
-All implementation slices are pending. First next action: confirm the five
-decision checkpoints, then implement slice 1. This documentation change does
-not approve deferred TODO features or start an implementation.
+Slice 1 is complete; slice 2 is next. See the [progress and handoff log](progress.md) for
+ownership, completed steps, checks and the next task. The owner's start request
+authorizes the initial proof scope; later decision checkpoints remain attached
+to their respective slices. Unrelated deferred TODO features stay deferred.

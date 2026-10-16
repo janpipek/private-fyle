@@ -9,12 +9,15 @@ implementation. Keep unfinished follow-ups here; move completed items to
 **Done**. **Later** holds deferred goals, and **Dropped** records decisions
 not to pursue an item.
 
-- [ ] Proposed data-provider/contribution migration: follow the
+- [ ] Data-provider/contribution migration, started with owner authorization:
+      follow the
       [implementation plan](docs/format-organization/implementation-plan.md)
-      after its decision checkpoints are settled. Prove a local user-defined
+      and [handoff log](docs/format-organization/progress.md).
+      Slice 1 contracts are complete; next is the GPX/FIT production adapter.
+      Prove a local user-defined
       reader, Properties section, column and custom viewer plus contextual Git
       before migrating the remaining built-ins. Runtime/trust, renderer scope,
-      metadata sorting and Git Properties behavior need owner decisions.
+      and metadata sorting checkpoints remain for their later slices.
 - [ ] Menus and selection, remaining parts: output/history in Tools.
       Implement missing actions as separate features.
 - [ ] Idea: replace the Git status column's `git` subprocess with a Rust
@@ -150,6 +153,14 @@ not to pursue an item.
 - [ ] ID3 properties for audio files.
 
 ## Done
+
+- [x] Data-provider migration, slice 1: add UI-independent provider-owned
+      contribution definitions, validated IDs and typed quantities, captured
+      applicability, independent result completeness, and source/context
+      freshness separate from UI generations. Sensor and contextual Git model
+      examples cover the first seams. Existing presentation registries and user
+      behavior are unchanged; see the
+      [handoff log](docs/format-organization/progress.md) for the next slice.
 
 - [x] Manage server remotes in a dialog from Go, Tools and Locations. Edit,
       add, remove, test and connect entries in `remotes.toml`; rclone remotes

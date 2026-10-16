@@ -565,9 +565,14 @@ dev container.
 This is the current module map. The
 [`architecture refactoring record`](docs/architecture-plan.md) explains the
 ownership boundaries and completed migration slices.
-The proposed [data-provider implementation plan](docs/format-organization/implementation-plan.md)
-describes a future contribution and extension model; its implementation and
-decision checkpoints remain pending.
+The [data-provider implementation plan](docs/format-organization/implementation-plan.md)
+and [progress log](docs/format-organization/progress.md) track the contribution
+and extension migration. Its initial contracts live in `src/data_providers.rs`
+and `src/data_providers/`: provider-owned presentation definitions, validated
+IDs and quantities, captured applicability, result completeness and
+source/context freshness independent of UI generations. They perform no I/O
+and do not change the existing registries or user behavior. Production adapters,
+dynamic columns and extension execution remain pending.
 
 Model first: `src/model.rs` holds each panel's state (`Folder`: typed
 `PanelContent` with `Directory(Location)`, `Search { root, title }` and

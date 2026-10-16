@@ -12,6 +12,8 @@ mod commander;
 mod conflict_view;
 mod context_menu;
 mod copy_path;
+/// Pure contracts for file, metadata and contextual data providers.
+pub mod data_providers;
 #[cfg_attr(windows, allow(dead_code))]
 mod desktop;
 mod dirsize;
