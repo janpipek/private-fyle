@@ -36,6 +36,11 @@ bookmarks = []
 # keys = "ctrl-c"
 # action = "Copy"
 
+[extensions]
+# Package IDs from the config directory's extensions folder. Enabling a package
+# permits its declared readers to run automatically; restart after changing.
+enabled = []
+
 [window]
 width = 1200
 height = 760

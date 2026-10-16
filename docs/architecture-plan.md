@@ -133,8 +133,11 @@ and next slice; Tools retains its separate planning/execution contract.
 contracts before script access. `extensions/loading.rs` loads only explicitly
 named packages, bounds manifest/script bytes, checks canonical package-local
 paths and retains structured per-package errors. It stores script text without
-evaluation. Package loading is not yet connected to startup or the catalog;
-settings integration follows separately.
+evaluation. `extensions/catalog.rs` loads explicitly enabled config packages
+before GPUI starts and installs host callbacks into one shared immutable column
+catalog. Startup diagnostics retain native paths and I/O errors until main
+formats them for the status line. Unavailable saved IDs remain removable
+placeholders. Properties/View package adapters remain later work.
 `extensions/protocol.rs` defines typed bounded frames and field/completeness
 validation; `broker.rs` owns the selected native regular file and charges byte
 and call budgets; `model.rs` owns FIFO admission and cancellation while keeping
@@ -144,7 +147,9 @@ strict result schemas and no ambient file/process/module APIs. The Linux
 supervisor owns one child at a time and pumps nonblocking pipes, including Init
 writes and post-result exit, under cancellation/deadlines. Child cleanup precedes
 slot release. The reserved same-executable helper dispatch runs before settings
-or GPUI; automatic package activation remains the next integration slice.
+or GPUI. Main retains the shared supervisor and explicitly shuts it down after
+the event loop returns. Column callbacks preserve result completeness; a pure
+`columns/cell.rs` projection prepares partial/lower-bound text and hover reasons.
 
 Keep three domain-specific registries with the same basic extension shape:
 providers or tools register in order, expose a predicate for applicability, and

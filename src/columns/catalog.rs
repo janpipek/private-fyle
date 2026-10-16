@@ -245,14 +245,20 @@ impl Catalog {
             return ResultState::Failed("cancelled".into());
         }
         match (column.reader)(request) {
-            Ok(None) => ResultState::Absent,
-            Ok(Some(value)) => match column.field.validate(&value) {
+            Ok(ResultState::Ready {
+                value,
+                completeness,
+            }) => match column.field.validate(&value) {
                 Ok(()) => ResultState::Ready {
                     value,
-                    completeness: crate::data_providers::Completeness::Complete,
+                    completeness,
                 },
                 Err(error) => ResultState::Failed(error.to_string()),
             },
+            Ok(ResultState::Pending) => {
+                ResultState::Failed("provider reader returned pending after completion".into())
+            }
+            Ok(state) => state,
             Err(error) => ResultState::Failed(error.to_string()),
         }
     }
@@ -323,7 +329,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::AtomicBool;
 
-    use super::{Availability, Catalog};
+    use super::{Availability, Catalog, ResultState};
     use crate::columns::ProviderColumnRequest;
     use crate::columns::{ColumnId, ColumnKind};
     use crate::data_providers::{
@@ -366,7 +372,14 @@ mod tests {
             .expect("contribution ID");
         HashMap::from([(
             contribution,
-            Arc::new(move |_: &ProviderColumnRequest| Ok(value.clone())) as _,
+            Arc::new(move |_: &ProviderColumnRequest| {
+                Ok(value
+                    .clone()
+                    .map_or(ResultState::Absent, |value| ResultState::Ready {
+                        value,
+                        completeness: crate::data_providers::Completeness::Complete,
+                    }))
+            }) as _,
         )])
     }
 
@@ -465,6 +478,50 @@ mod tests {
     }
 
     #[test]
+    fn provider_reader_preserves_completeness_and_rejects_completed_pending() {
+        let definition = definition();
+        let contribution = definition.columns[0].header.id.clone();
+        let id = ColumnId::new(&definition.columns[0].column_id).expect("column ID");
+        let partial_value = Value::quantity(5.0, Unit::Metres).expect("quantity");
+        let readers = HashMap::from([(
+            contribution.clone(),
+            Arc::new(move |_: &ProviderColumnRequest| {
+                Ok(ResultState::Ready {
+                    value: partial_value.clone(),
+                    completeness: crate::data_providers::Completeness::Truncated(
+                        "sample limit".into(),
+                    ),
+                })
+            }) as super::NativeColumnReader,
+        )]);
+        let mut partial_catalog = Catalog::with_defaults();
+        partial_catalog
+            .register_provider(RegistrationOrigin::Extension, &definition, &readers)
+            .expect("register partial reader");
+        assert!(matches!(
+            partial_catalog.read_provider_cell(&id, &request()),
+            ResultState::Ready {
+                completeness: crate::data_providers::Completeness::Truncated(ref reason),
+                ..
+            } if reason == "sample limit"
+        ));
+
+        let pending_readers = HashMap::from([(
+            contribution,
+            Arc::new(|_: &ProviderColumnRequest| Ok(ResultState::Pending))
+                as super::NativeColumnReader,
+        )]);
+        let mut pending_catalog = Catalog::with_defaults();
+        pending_catalog
+            .register_provider(RegistrationOrigin::Extension, &definition, &pending_readers)
+            .expect("register pending reader");
+        assert!(matches!(
+            pending_catalog.read_provider_cell(&id, &request()),
+            ResultState::Failed(reason) if reason.contains("pending after completion")
+        ));
+    }
+
+    #[test]
     fn one_declared_field_can_back_multiple_columns_in_the_same_provider() {
         let mut definition = definition();
         let mut second = definition.columns[0].clone();
@@ -475,7 +532,7 @@ mod tests {
         definition.columns.push(second);
         let first_id = definition.columns[0].header.id.clone();
         let second_id = definition.columns[1].header.id.clone();
-        let reader: super::NativeColumnReader = std::sync::Arc::new(|_| Ok(None));
+        let reader: super::NativeColumnReader = std::sync::Arc::new(|_| Ok(ResultState::Absent));
         let readers = HashMap::from([(first_id, reader.clone()), (second_id, reader)]);
         let mut catalog = Catalog::with_defaults();
         catalog

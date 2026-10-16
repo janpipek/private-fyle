@@ -169,7 +169,10 @@ mod tests {
             {
                 return Err(std::io::Error::other("captured request facts changed"));
             }
-            Ok(Some(Value::quantity(42.5, Unit::Metres).unwrap()))
+            Ok(ResultState::Ready {
+                value: Value::quantity(42.5, Unit::Metres).unwrap(),
+                completeness: crate::data_providers::Completeness::Complete,
+            })
         });
         let mut catalog = Catalog::with_defaults();
         catalog
@@ -263,9 +266,12 @@ mod tests {
             let reader: NativeColumnReader = Arc::new(move |_| {
                 reader_calls.fetch_add(1, Ordering::Relaxed);
                 match outcome {
-                    Outcome::Absent => Ok(None),
+                    Outcome::Absent => Ok(ResultState::Absent),
                     Outcome::Error => Err(std::io::Error::other("fixture failure")),
-                    Outcome::WrongUnit => Ok(Some(Value::quantity(7.0, Unit::Seconds).unwrap())),
+                    Outcome::WrongUnit => Ok(ResultState::Ready {
+                        value: Value::quantity(7.0, Unit::Seconds).unwrap(),
+                        completeness: crate::data_providers::Completeness::Complete,
+                    }),
                 }
             });
             let catalog = Catalog::with_providers(vec![(

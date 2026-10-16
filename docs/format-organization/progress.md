@@ -9,10 +9,12 @@ can be reconstructed without the chat.
 ## Current state
 
 - The owner authorized starting the plan after the planning commit `5da8dee`.
-- Completed: slices 1–3, contracts, the GPX/FIT adapter and display-only columns.
+- Completed: slices 1–4, contracts, the GPX/FIT adapter, display-only columns and
+  explicitly enabled reader packages with supervised execution.
 - Slice 4a static package validation/loading is committed as `c2913dc`, and the
   protocol/broker/queue foundation as `cf11f3b`. Standalone worker execution and
-  Linux supervision are complete; next is 4c settings/catalog integration.
+  Linux supervision are committed as `a2f7021`. Settings/catalog integration
+  (4c) is complete and verified; next is slice 5 after the renderer decision.
   Luna owns the Rust extension files and helper dispatch; Sol reviews; the
   coordinator owns documentation, final checks and commits. Read
   [worker-plan.md](worker-plan.md) before joining 4b.
@@ -603,6 +605,105 @@ changes separate from the completed column commit.
   trusted-package resource supervision, not hostile-code OS isolation. Automatic
   package startup/loading, settings, columns, Properties and View remain unwired.
 
+### 2026-10-16 — Start explicit activation and column integration
+
+- Committed standalone runtime as `a2f7021`; tracked tree was clean apart from
+  unrelated `title.png` before the next task.
+- Assigned `/root/lua_worker` only settings schema/persistence/example config
+  and validated package-ID deserialization. The existing implementation Luna
+  owns startup/catalog adapters, completeness-aware column callbacks, main and
+  Commander wiring, and thin cell presentation. They coordinate Cargo; Sol
+  settles/reviews interfaces; the coordinator owns docs, UI checks and commits.
+- Scope is the approved config-only explicit enablement plus display-only
+  columns. No new sorting, Properties sections or custom viewers enter 4c.
+  Reader startup remains static; callbacks execute only on background demand.
+- Startup builds one immutable catalog shared by both panels and one supervisor
+  retained through normal post-GPUI shutdown. Existing Tools plugin behavior and
+  unknown saved column IDs must remain intact. Ready partial values must retain
+  completeness instead of being relabeled complete by the native callback seam.
+- Prepared user guidance in `docs/extensions.md` with an install/enable path,
+  minimal distance-column package, typed output/completeness and bounded worker
+  contract. It describes the intended verified 4c behavior; do not commit it
+  until integration is checked.
+- Captured the pre-4c app baseline using scratch config/data/cache/runtime at
+  `/tmp/fyle-extensions-ui-qogphagg`, display `:90`. The persistent harness owns
+  and reaps its app/Xvfb; current PIDs/window are in `state.json`. Fixtures cover
+  complete, partial, lower-bound, malformed and inapplicable files plus a nested
+  folder. Screenshots and per-run logs stay in that scratch directory.
+- During 4c, the owner requested a TODO entry for RPM, AppImage and DEB
+  Properties. Recorded it separately as `dd8a4d6`; no parser implementation was
+  added and the active integration scope stays unchanged.
+- The owner then clarified Linux `attr`/xattrs and requested them in Properties.
+  Verified the existing column reads names, then recorded names/values and
+  bounded/binary presentation as a separate TODO commit `bd1ebf5`. No `chattr`
+  filesystem-flag feature was inferred or implemented.
+- Sol approved the integrated seams and real-helper adapter test. Split bounded
+  pipe/frame helpers into `supervisor/process/transport.rs` so the process owner
+  stays below the source-size guideline; added fragmented/coalesced/max-frame
+  decoder regressions. Lower-bound formatting uses exact numeric units so
+  rounding cannot strengthen a bound; extreme finite durations have a fallback.
+- Initial final checks passed 642 tests, fmt/clippy/build. Live checks found
+  two diagnostics defects: Lua identified its Rust callsite instead of the
+  package, and initial local listing messages erased startup package errors.
+  Luna named chunks from validated package IDs and added a regression; then
+  added a pure Startup-only status policy, preserving real listing errors and
+  later user statuses. Remote initial navigation retains its existing intent.
+  Full checks are repeated after these changes.
+- Live evidence so far: default table crop `580x240+51+96` is pixel-identical
+  (zero changed pixels); the exact package from `docs/extensions.md` works;
+  complete/partial/fractional lower-bound cells and hover diagnostics work;
+  provider header clicks preserve order while native Size sorting keeps each
+  value with its source; Columns and list/icon saves/restart preserve IDs,
+  enablement and comments; disabling retains a checked unavailable ID and blank
+  cells; re-enabling restores values. Final startup-error and active-helper
+  normal-exit checks remain before commit.
+
+### 2026-10-16 — Complete explicit activation and verify the app
+
+- Added strict default-empty `[extensions].enabled`, preserving valid unknown
+  IDs and duplicates for independent loader diagnostics. Unrelated saves retain
+  IDs/comments. Startup prepares enabled config packages and one immutable
+  catalog before GPUI; one shared supervisor is retained through explicit
+  post-event-loop shutdown. Structured paths/I/O errors survive to the UI.
+- Provider callbacks now carry full result states. Catalog validation retains
+  completeness and rejects completed Pending results. Pure `columns/cell.rs`
+  prepares partial/lower-bound text and hover explanations; native sorting and
+  default descriptors stay intact. No Tools, Properties or viewer behavior was
+  added to packages in this slice.
+- Sol approved the final source/tests. Final checks passed after the UI fixes:
+  `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
+  `cargo test --quiet`: **644 tests, zero failures/ignored**, and `cargo build`.
+  No dependencies were added. No Windows build or remote-account UI check ran.
+- Final live scratch checks also passed: the exact documented example works;
+  partial/lower-bound markers and blank error hover are visible; errors name the
+  package instead of Rust code; disabled selections survive an unrelated UI save
+  and regain values after re-enable; malformed enabled neighbors remain
+  independent and their startup error stays visible through local initial load.
+  Navigating into/out of the nested fixture replaces that error normally and
+  shows the correct new-path values without stale cells.
+- Normal File → Quit with an observed active helper exited successfully in
+  **0.257 seconds** and the helper PID was gone before app exit. Evidence is
+  `/tmp/fyle-extensions-ui-qogphagg/active-helper-quit.json`. All per-run app logs
+  were empty. The harness stopped and reaped the owned app/Xvfb; `state.json`
+  records `ui_stopped: true`. Screenshots/logs are retained in the same directory.
+- Added the package guide and updated README, TODO and architecture/navigation
+  records. The owner-requested package-format/xattr Properties TODOs remain open.
+  Limitations: new worker execution is Linux-only; remote initial-navigation
+  status retains its existing behavior; abrupt host termination is outside the
+  normal-shutdown guarantee. Package Properties/View and renderer grammar remain
+  slice 5, whose named owner checkpoint is still pending.
+
+## Slice 5 handoff
+
+Wait for the owner's renderer-scope choice before implementing the grammar.
+The proposal is static layout, selectable text, typed tables and bounded path
+canvas; native code owns interaction, with no arbitrary callbacks/widgets.
+Then follow the plan's sensor package proof across Properties, a column and a
+custom graph. Keep source/permissions and feature lifecycles independent; do not
+infer format/context evidence or label partial results complete. The user guide's
+distance-column example is already verified and can inform the authoring API.
+Contextual Git and the proof review follow before remaining built-in migrations.
+
 ## Completion and next work
 
 | Slice | State | Evidence / handoff |
@@ -610,7 +711,7 @@ changes separate from the completed column commit.
 | 1. Contribution contracts | Complete | Astra approved; fmt/clippy and all 565 tests passed |
 | 2. Existing GPX/FIT adapter | Complete | Astra approved; fmt/clippy/build and all 573 tests passed; 11 live inspector comparisons identical |
 | 3. Dynamic columns | Complete | Sol approved; fmt/clippy/build and all 579 tests passed; unavailable-ID persistence/removal and native UI checked |
-| 4. Packages and worker | In progress | 4a and 4b complete; Sol approved, 631 tests/build/headless helper smoke pass; 4c settings/catalog integration next |
+| 4. Packages and worker | Complete | Explicit config activation and display-only columns; Sol approved, 644 tests/fmt/clippy/build and live UI/active-helper normal-exit checks pass |
 | 5. Sensor renderer proof | Pending | Requires renderer scope decision |
 | 6. Contextual Git | Pending | New Git Properties behavior is within the authorized proof scope |
 | 7. Review proof | Pending | Both sensor and Git cases must work before broader migration |

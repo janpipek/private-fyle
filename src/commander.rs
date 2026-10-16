@@ -182,6 +182,8 @@ pub struct Commander {
     dragging_inspector_split: bool,
     inspector_split_horizontal: bool,
     inspector_target_dirty: bool,
+    /// Keep startup diagnostics visible over routine initial listing progress.
+    has_startup_diagnostics: bool,
     status: SharedString,
     _subscriptions: Vec<Subscription>,
     _mkdir_subscription: Option<Subscription>,
@@ -194,9 +196,11 @@ impl Commander {
         [left, right]: [PathBuf; 2],
         settings: &Settings,
         settings_error: Option<String>,
+        column_catalog: Arc<crate::columns::Catalog>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let has_startup_diagnostics = settings_error.is_some();
         let mut status: SharedString =
             "Tab: switch panel · Enter: open · Backspace: up · Space/Insert: mark".into();
         set_font_size(cx, |_| zoom::clamp(settings.font_size));
@@ -225,7 +229,6 @@ impl Commander {
             cx.new(|_| folder)
         });
         let columns = crate::columns::normalize(&settings.panels.columns);
-        let column_catalog = Arc::new(crate::columns::Catalog::with_defaults());
         let views = [0, 1].map(|ix| {
             let mode = panels.view(ix);
             cx.new(|cx| {
@@ -431,6 +434,7 @@ impl Commander {
             dragging_inspector_split: false,
             inspector_split_horizontal: true,
             inspector_target_dirty: true,
+            has_startup_diagnostics,
             status: settings_error.map_or(status, Into::into),
             _subscriptions: subscriptions,
             _mkdir_subscription: None,

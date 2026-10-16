@@ -58,6 +58,18 @@ impl PackageId {
     }
 }
 
+impl<'de> Deserialize<'de> for PackageId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error as _;
+
+        let value = String::deserialize(deserializer)?;
+        Self::new(value).map_err(D::Error::custom)
+    }
+}
+
 /// A fully validated, version-1 provider manifest.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Manifest {

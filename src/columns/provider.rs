@@ -4,7 +4,7 @@ use std::io;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use crate::data_providers::{DemandLimits, Value};
+use crate::data_providers::{DemandLimits, ResultState, Value};
 use crate::location::Location;
 
 /// Captured row data passed to a native provider column reader in a worker.
@@ -24,10 +24,8 @@ pub struct ProviderColumnRequest {
 
 /// Host-owned native acquisition callback for one column contribution.
 ///
-/// `Some(value)` means the field is complete for the declared request. A
-/// bounded reader that truncates its acquisition must return an error until
-/// the column contract carries completeness. The host callback enforces its
-/// declared byte and item limits; the catalog verifies the request matches
-/// those declarations.
+/// Returns a typed value state, including partial completeness where known.
+/// The host callback enforces its declared byte and item limits; the catalog
+/// verifies ready values against the provider's field declaration.
 pub type NativeColumnReader =
-    Arc<dyn Fn(&ProviderColumnRequest) -> io::Result<Option<Value>> + Send + Sync + 'static>;
+    Arc<dyn Fn(&ProviderColumnRequest) -> io::Result<ResultState<Value>> + Send + Sync + 'static>;

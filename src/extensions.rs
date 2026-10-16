@@ -2,6 +2,8 @@
 
 /// File-read brokerage restricted to the selected native source.
 pub mod broker;
+/// Builds the application provider catalog from explicitly enabled packages.
+pub mod catalog;
 mod loading;
 /// Versioned manifest schema and provider declaration validation.
 pub mod manifest;

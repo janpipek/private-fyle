@@ -93,6 +93,13 @@ use themes::ThemeChoice;
 fn main() {
     extensions::run_worker_if_requested();
     let (settings, settings_error) = settings::persistence::load();
+    let config_directory =
+        settings::persistence::path().and_then(|path| path.parent().map(PathBuf::from));
+    let prepared_extensions =
+        extensions::catalog::prepare(config_directory.as_deref(), &settings.extensions.enabled);
+    let column_catalog = std::sync::Arc::new(prepared_extensions.catalog);
+    let supervisor = prepared_extensions.supervisor;
+    let extension_diagnostics = prepared_extensions.diagnostics;
 
     // Command-line directories override the configured ones.
     let mut args = std::env::args_os().skip(1).map(PathBuf::from);
@@ -147,6 +154,26 @@ fn main() {
                 ..window_chrome_view::window_options("Fyle".into(), cx)
             };
             let mut errors: Vec<String> = settings_error.into_iter().collect();
+            errors.extend(
+                extension_diagnostics
+                    .into_iter()
+                    .map(|diagnostic| match diagnostic {
+                        extensions::catalog::StartupDiagnostic::Package(diagnostic) => {
+                            format!("{}: {}", diagnostic.path.display(), diagnostic.error)
+                        }
+                        extensions::catalog::StartupDiagnostic::Operation { path, error } => {
+                            format!("{}: {}", path.display(), error)
+                        }
+                        extensions::catalog::StartupDiagnostic::ConfigDirectoryUnavailable(
+                            package,
+                        ) => {
+                            format!(
+                                "extensions/{}: no configuration directory is available",
+                                package.as_str()
+                            )
+                        }
+                    }),
+            );
             if let Err(keymap_errors) = commander::validate_user_keys(&settings.keymap, cx) {
                 errors.extend(keymap_errors);
             }
@@ -157,8 +184,16 @@ fn main() {
                     errors.push(e);
                 }
                 let error = (!errors.is_empty()).then(|| errors.join("; "));
-                let commander =
-                    cx.new(|cx| Commander::new([left, right], &settings, error, window, cx));
+                let commander = cx.new(|cx| {
+                    Commander::new(
+                        [left, right],
+                        &settings,
+                        error,
+                        column_catalog.clone(),
+                        window,
+                        cx,
+                    )
+                });
                 commander.update(cx, |commander, cx| commander.init(window, cx));
                 errors.extend(commander::bind_user_keys(&settings.keymap, cx));
                 commander
@@ -166,4 +201,9 @@ fn main() {
             .expect("failed to open window");
             cx.activate(true);
         });
+    if let Some(supervisor) = supervisor
+        && let Err(error) = supervisor.shutdown()
+    {
+        eprintln!("extension worker shutdown failed: {error}");
+    }
 }

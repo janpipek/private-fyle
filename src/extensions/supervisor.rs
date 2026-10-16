@@ -36,7 +36,8 @@ pub struct ColumnWork {
 }
 
 #[derive(Clone, Debug)]
-struct Pending {
+/// Internal queued request passed to the platform process backend.
+pub struct Pending {
     init: Init,
     source: Location,
     response: Sender<ResultState<Value>>,

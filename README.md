@@ -259,8 +259,10 @@ as native paths for these fields.
 Saved column IDs that are unavailable in the current build remain in settings
 and show blank cells. Columns… lists them with their ID and an unavailable
 explanation; changing other columns preserves them, while unchecking one removes
-it. Provider-defined columns are display-only for now. Built-in sorting and
-default columns are unchanged; loading user extension packages is still pending.
+it. On Linux, explicitly enabled [reader packages](docs/extensions.md) can add
+columns for local regular files. Partial values show `…` and lower bounds `≥`;
+hover explains partial values and blank failed/unavailable cells. These columns
+are display-only. Built-in sorting and default columns are unchanged.
 
 Windows: ".." from a drive root lists all drives; files with the hidden
 attribute count as hidden.
@@ -330,6 +332,10 @@ Store apps. macOS associations are not read yet.
 All keys are optional; see [`config.example.toml`](config.example.toml) for
 every key with its default. Errors (including unknown keys) are shown in the
 status line and the defaults are used. Settings are read at startup.
+Linux reader packages live in the config directory's `extensions/<id>/` folders.
+`[extensions] enabled = []` is the default; adding IDs authorizes automatic
+read-time execution for selected columns. Package and enablement changes need
+a restart. See the [package example and execution contract](docs/extensions.md).
 The View menu's workspace layout choice is saved automatically in
 `[workspace] layout`.
 View › Custom Title Bar saves `window.custom_titlebar` (default `true`) for
@@ -590,9 +596,12 @@ packages, preserving per-package filesystem diagnostics. Its standalone Linux
 supervisor runs one Lua request at a time in the same executable's headless
 helper mode, with bounded source brokerage, protocol output, Lua allocation,
 instructions and wall time. Cancellation kills and reaps the helper before
-releasing its slot. Reader packages are not connected to app startup or the
-column catalog yet; explicit settings integration follows next. Existing Tools
-plugins retain their separate behavior.
+releasing its slot. Static startup preparation builds one shared immutable
+catalog from enabled packages; callbacks execute only through background
+metadata demand. Ready values retain completeness through the cache and pure
+cell projection. Main retains the shared supervisor and shuts it down after
+GPUI exits. Existing Tools plugins retain their separate behavior; package
+Properties/View adapters remain later work.
 
 Model first: `src/model.rs` holds each panel's state (`Folder`: typed
 `PanelContent` with `Directory(Location)`, `Search { root, title }` and
@@ -693,7 +702,7 @@ Where things live (`src/`):
 | `entry.rs`, `model.rs`, `location.rs`, `location/`, `location_codec.rs` | Shared `Entry`/`Attrs` and pure sort rules; `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; pure local, remote and archive address semantics; versioned lossless location persistence |
 | `formats.rs`, `formats/` | Semantic EXIF fields, bounded RAW embedded-JPEG selection, Parquet footer validation/decoding, and shared bounded GPX/FIT route/activity readers used by Preview and Properties |
 | `data_providers.rs`, `data_providers/` | Pure contribution/identity contracts; `geo.rs` owns one GPX/FIT Properties/viewer bundle, typed quantity preparation with provenance/completeness, and bounded native read entrypoints; presentation adapters keep their existing selection, scheduling and rendering policies |
-| `extensions.rs`, `extensions/` | Static manifest/package validation, typed protocol/result validation and retained-file brokerage; restricted Lua worker and Linux supervisor with bounded queue, cancellation/deadline and child reaping. Reserved helper dispatch precedes config/GUI startup; package settings/catalog integration remains pending. |
+| `extensions.rs`, `extensions/` | Static manifest/package validation, enabled-package catalog preparation, typed protocol/result validation and retained-file brokerage; restricted Lua worker and shared Linux supervisor with bounded queue, cancellation/deadline and child reaping. Reserved helper dispatch precedes config/GUI startup; main owns normal-exit cleanup. |
 | `copy_path.rs` | UI-independent selection path policy: local native paths, provider supplied standard URLs and no archive pseudo-paths |
 | `listing.rs`, `listing/contracts.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; shared request/result values and bounded per-panel remote listing cache |
 | `panel.rs`, `panel/header_view.rs`, `panel/table_view.rs`, `panel/metadata.rs`, `panel/metadata/` | `FolderView` owns input/menu lifecycle, focus and list/icon coordination; `header_view.rs` renders breadcrumbs, location editing and header buttons; `table_view.rs` owns `FileTable` rendering and forwarding to `Folder`; `metadata/model.rs` owns bounded request/cache policy; `metadata/reader.rs` reads optional local values; `metadata.rs` schedules GPUI workers shared by list and icon views; `metadata/exif.rs` composes semantic EXIF values into stable column keys |

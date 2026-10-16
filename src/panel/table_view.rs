@@ -13,7 +13,6 @@ use gpui_kit::*;
 
 use crate::columns::{Catalog, ColumnId, ColumnKind};
 use crate::context_menu::{self, ContextMenuBuilder};
-use crate::data_providers::{ResultState, Unit, Value};
 use crate::entry::Sort;
 use crate::fs_ops;
 use crate::git_status;
@@ -22,28 +21,6 @@ use crate::icons;
 use crate::model::{Folder, PointerSelection};
 
 use super::{PanelDrag, drag_ghost, metadata, native_drag_payload};
-
-fn format_provider_value(state: &ResultState<Value>) -> String {
-    match state {
-        ResultState::Ready {
-            value: Value::Text(text),
-            ..
-        } => text.clone(),
-        ResultState::Ready {
-            value: Value::Quantity(quantity),
-            ..
-        } => match quantity.unit() {
-            Unit::Seconds => {
-                crate::formats::media::format_duration(quantity.value()).unwrap_or_default()
-            }
-            Unit::Metres => format!("{:.1} m", quantity.value()),
-        },
-        ResultState::Pending
-        | ResultState::Absent
-        | ResultState::Unavailable(_)
-        | ResultState::Failed(_) => String::new(),
-    }
-}
 
 /// Adapts a [`Folder`] to gpui-component's table.
 pub struct FileTable {
@@ -265,12 +242,12 @@ impl TableDelegate for FileTable {
                 .then_some(metadata::Field::Provider(id.clone()))
                 .into_iter()
                 .collect::<Vec<_>>();
-            let text = self
+            let display = self
                 .metadata
                 .read(cx)
                 .get(&path, generation)
                 .and_then(|values| values.provider_cell(&id))
-                .map(format_provider_value)
+                .map(crate::columns::cell::project)
                 .unwrap_or_default();
             self.metadata.update(cx, |metadata, cx| {
                 metadata.request_row(
@@ -285,12 +262,19 @@ impl TableDelegate for FileTable {
                     cx,
                 )
             });
-            return div()
+            let mut cell = div()
+                .id(("provider", row_ix))
+                .w_full()
+                .h_full()
                 .truncate()
                 .text_xs()
                 .text_color(cx.theme().muted_foreground)
-                .child(text)
-                .into_any_element();
+                .child(display.text);
+            if let Some(tip) = display.tooltip {
+                let tip = format!("{}: {tip}", path.display());
+                cell = cell.tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx));
+            }
+            return cell.into_any_element();
         };
         if matches!(
             kind,

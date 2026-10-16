@@ -1,7 +1,7 @@
 //! Nonblocking Linux child transport, deadlines and complete child cleanup.
 
 use std::collections::VecDeque;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -9,9 +9,14 @@ use std::time::{Duration, Instant};
 use super::Pending;
 use crate::data_providers::{ResultState, Value};
 use crate::extensions::broker::SourceBroker;
-use crate::extensions::protocol::{
-    self, HostFrame, HostMessage, MAX_FRAME_BYTES, MAX_RESULT_TEXT_BYTES, MAX_WORKER_BYTES,
-    ReadResult, WorkerMessage,
+use crate::extensions::protocol::{self, HostFrame, HostMessage, ReadResult, WorkerMessage};
+
+#[cfg(target_os = "linux")]
+mod transport;
+#[cfg(target_os = "linux")]
+use transport::{
+    FrameDecoder, append_host_frame, bounded_reason, drain_diagnostics, drain_protocol,
+    set_nonblocking, write_pending,
 };
 
 /// Wall-clock limit from child spawn through terminal frame and successful exit.
@@ -19,9 +24,9 @@ pub const REQUEST_DEADLINE: Duration = Duration::from_secs(2);
 /// Maximum retained helper diagnostics.
 pub const STDERR_LIMIT: usize = 64 * 1024;
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
-const IO_CHUNK: usize = 16 * 1024;
 
-pub(super) fn execute(
+/// Runs one queued extension request through the platform worker transport.
+pub fn execute(
     pending: &Pending,
     cancelled: impl Fn() -> bool,
     launcher: &Arc<dyn Fn() -> io::Result<Command> + Send + Sync>,
@@ -42,14 +47,16 @@ pub(super) fn execute(
 }
 
 #[cfg(target_os = "linux")]
-pub(super) fn production_command() -> io::Result<Command> {
+/// Builds the current executable command for the reserved helper mode.
+pub fn production_command() -> io::Result<Command> {
     let mut command = Command::new(std::env::current_exe()?);
     command.arg("--fyle-extension-worker-v1");
     Ok(command)
 }
 
 #[cfg(not(target_os = "linux"))]
-pub(super) fn production_command() -> io::Result<Command> {
+/// Reports that the supervised extension backend is unavailable on this platform.
+pub fn production_command() -> io::Result<Command> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "extension workers are unsupported on this platform",
@@ -291,170 +298,6 @@ fn supervise(
 }
 
 #[cfg(target_os = "linux")]
-fn write_pending(writer: &mut impl Write, outgoing: &mut VecDeque<u8>) -> io::Result<()> {
-    while !outgoing.is_empty() {
-        let (first, second) = outgoing.as_slices();
-        let bytes = if first.is_empty() { second } else { first };
-        match writer.write(bytes) {
-            Ok(0) => {
-                return Err(io::Error::new(
-                    io::ErrorKind::WriteZero,
-                    "worker pipe write returned zero",
-                ));
-            }
-            Ok(written) => {
-                outgoing.drain(..written);
-            }
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(error) => return Err(error),
-        }
-    }
-    Ok(())
-}
-
-#[cfg(target_os = "linux")]
-fn drain_protocol(
-    reader: &mut impl Read,
-    decoder: &mut FrameDecoder,
-    total: &mut usize,
-    eof: &mut bool,
-) -> io::Result<Vec<protocol::WorkerFrame>> {
-    let mut bytes = [0; IO_CHUNK];
-    let mut frames = Vec::new();
-    loop {
-        match reader.read(&mut bytes) {
-            Ok(0) => {
-                *eof = true;
-                decoder.finish()?;
-                break;
-            }
-            Ok(count) => {
-                *total = total.saturating_add(count);
-                if *total > MAX_WORKER_BYTES {
-                    return Err(invalid("worker protocol byte limit exceeded"));
-                }
-                frames.extend(decoder.feed(&bytes[..count])?);
-            }
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(error) => return Err(error),
-        }
-    }
-    Ok(frames)
-}
-
-#[cfg(target_os = "linux")]
-fn drain_diagnostics(
-    reader: &mut impl Read,
-    total: &mut usize,
-    retained: &mut Vec<u8>,
-    eof: &mut bool,
-) -> io::Result<()> {
-    let mut bytes = [0; IO_CHUNK];
-    loop {
-        match reader.read(&mut bytes) {
-            Ok(0) => {
-                *eof = true;
-                break;
-            }
-            Ok(count) => {
-                *total = total.saturating_add(count);
-                if *total > STDERR_LIMIT {
-                    return Err(invalid("extension helper diagnostics exceeded the limit"));
-                }
-                retained.extend_from_slice(&bytes[..count]);
-            }
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(error) => return Err(error),
-        }
-    }
-    Ok(())
-}
-
-#[cfg(target_os = "linux")]
-fn append_host_frame(outgoing: &mut VecDeque<u8>, message: HostMessage) -> io::Result<()> {
-    let bytes = protocol::encode_host_frame(&HostFrame {
-        version: protocol::VERSION,
-        message,
-    })?;
-    if outgoing.len().saturating_add(bytes.len()) > MAX_FRAME_BYTES * 2 {
-        return Err(invalid("host response buffer exceeded the limit"));
-    }
-    outgoing.extend(bytes);
-    Ok(())
-}
-
-#[cfg(target_os = "linux")]
-fn set_nonblocking(file: &impl std::os::fd::AsRawFd) -> io::Result<()> {
-    // SAFETY: fcntl only reads the open pipe's flags and updates that same descriptor.
-    let flags = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFL) };
-    if flags < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    // SAFETY: flags were obtained from this valid descriptor; O_NONBLOCK changes its status flags.
-    if unsafe { libc::fcntl(file.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(())
-}
-
-#[cfg(target_os = "linux")]
-#[derive(Default)]
-struct FrameDecoder {
-    pending: Vec<u8>,
-}
-
-#[cfg(target_os = "linux")]
-impl FrameDecoder {
-    fn feed(&mut self, input: &[u8]) -> io::Result<Vec<protocol::WorkerFrame>> {
-        if self.pending.len().saturating_add(input.len()) > MAX_FRAME_BYTES + 4 + IO_CHUNK {
-            return Err(invalid("worker frame buffer exceeded the limit"));
-        }
-        self.pending.extend_from_slice(input);
-        let mut frames = Vec::new();
-        loop {
-            if self.pending.len() < 4 {
-                break;
-            }
-            let prefix: [u8; 4] = self.pending[..4]
-                .try_into()
-                .expect("four-byte frame prefix was checked");
-            let length = u32::from_be_bytes(prefix) as usize;
-            if length > MAX_FRAME_BYTES {
-                return Err(invalid("worker frame exceeds the limit"));
-            }
-            if self.pending.len() < length + 4 {
-                break;
-            }
-            frames.push(protocol::decode_worker_payload(
-                &self.pending[4..4 + length],
-            )?);
-            self.pending.drain(..4 + length);
-        }
-        Ok(frames)
-    }
-
-    fn finish(&self) -> io::Result<()> {
-        if self.pending.is_empty() {
-            Ok(())
-        } else {
-            Err(invalid("worker ended with a partial protocol frame"))
-        }
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn bounded_reason(value: &str) -> String {
-    let mut end = value.len().min(MAX_RESULT_TEXT_BYTES);
-    while !value.is_char_boundary(end) {
-        end -= 1;
-    }
-    value[..end].to_owned()
-}
-
-#[cfg(target_os = "linux")]
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
@@ -477,6 +320,7 @@ mod tests {
     use tempfile::TempDir;
 
     const CONTRIBUTION: &str = "extension.sensor.reader.distance-cell";
+    const INVALID_CONTRIBUTION: &str = "extension.sensor.reader.invalid-distance-cell";
     const FIELD: &str = "extension.sensor.reader.distance";
     const MANIFEST: &str = r#"
 api_version = 1
@@ -495,6 +339,14 @@ unit = "metres"
 id = "extension.sensor.reader.distance-cell"
 label = "Distance"
 column_id = "extension.sensor.reader.distance"
+field = "extension.sensor.reader.distance"
+max_bytes = 1024
+max_items = 10
+
+[[providers.columns]]
+id = "extension.sensor.reader.invalid-distance-cell"
+label = "Invalid distance"
+column_id = "extension.sensor.reader.invalid-distance"
 field = "extension.sensor.reader.distance"
 max_bytes = 1024
 max_items = 10
@@ -712,6 +564,184 @@ max_items = 10
                 completeness: Completeness::Complete,
             }
         );
+        supervisor.shutdown().unwrap();
+    }
+
+    #[test]
+    fn enabled_package_flows_through_catalog_metadata_cache_and_partial_cell_projection() {
+        use crate::columns::catalog::Availability;
+        use crate::columns::{ColumnId, ProviderColumnRequest};
+        use crate::data_providers::ResultState;
+        use crate::extensions::catalog::install_packages;
+        use crate::extensions::load_enabled;
+        use crate::links::LinkState;
+        use crate::panel::metadata::model::{CapturedRow, Field, MetadataQueue};
+        use std::sync::atomic::AtomicBool;
+
+        let temp = TempDir::new().unwrap();
+        let extensions_root = temp.path().join("extensions");
+        let package_root = extensions_root.join("sensor");
+        std::fs::create_dir_all(&package_root).unwrap();
+        std::fs::write(package_root.join("manifest.toml"), MANIFEST).unwrap();
+        let script = format!(
+            r#"return {{
+                ["{CONTRIBUTION}"] = {{ read=function()
+                    return {{state="ready", field="{FIELD}",
+                        value={{kind="quantity", value=12.36, unit="metres"}},
+                        completeness={{kind="truncated", reason="sample limit"}}}}
+                end }},
+                ["{INVALID_CONTRIBUTION}"] = {{ read=function()
+                    return {{state="ready", field="{FIELD}",
+                        value={{kind="quantity", value=12.36, unit="seconds"}},
+                        completeness={{kind="complete"}}}}
+                end }}
+            }}"#
+        );
+        std::fs::write(package_root.join("main.lua"), &script).unwrap();
+        let enabled = [PackageId::new("sensor").unwrap()];
+        let report = load_enabled(&extensions_root, &enabled);
+        assert!(report.diagnostics.is_empty());
+        assert_eq!(report.packages.len(), 1);
+
+        let starts = Arc::new(AtomicUsize::new(0));
+        let launcher_starts = starts.clone();
+        let supervisor = Supervisor::with_launcher(
+            Arc::new(move || {
+                launcher_starts.fetch_add(1, Ordering::SeqCst);
+                launcher("worker")()
+            }),
+            true,
+        )
+        .unwrap();
+        let selected = [
+            ColumnId::new("extension.sensor.reader.distance").unwrap(),
+            ColumnId::new("extension.sensor.reader.invalid-distance").unwrap(),
+        ];
+        let available =
+            install_packages(report.packages, Some(supervisor.clone()), &extensions_root);
+        assert_eq!(
+            starts.load(Ordering::SeqCst),
+            0,
+            "catalog build must not execute Lua"
+        );
+        assert!(selected.iter().all(|id| matches!(
+            available.catalog.descriptor(id).map(|descriptor| &descriptor.availability),
+            Some(Availability::Available)
+        )));
+
+        let source = temp.path().join("track.dat");
+        std::fs::write(&source, b"fixture").unwrap();
+        let location = Location::local(source.clone()).unwrap();
+        let directory_request = ProviderColumnRequest {
+            location: location.clone(),
+            name: "track.dat".into(),
+            is_dir: true,
+            demand: available.catalog.provider_demand(&selected[0]).unwrap(),
+            cancel: Arc::new(AtomicBool::new(false)),
+        };
+        assert!(matches!(
+            available
+                .catalog
+                .read_provider_cell(&selected[0], &directory_request),
+            ResultState::Unavailable(_)
+        ));
+        assert_eq!(
+            starts.load(Ordering::SeqCst),
+            0,
+            "directories never launch the worker"
+        );
+
+        let mut queue = MetadataQueue::default();
+        let fields = selected
+            .iter()
+            .cloned()
+            .map(Field::Provider)
+            .collect::<Vec<_>>();
+        queue.request_row(
+            &location,
+            1,
+            &fields,
+            None,
+            LinkState::NotLink,
+            Some(CapturedRow {
+                name: "track.dat".into(),
+                is_dir: false,
+            }),
+        );
+        let request = queue.take_next().unwrap();
+        let values = crate::panel::metadata::reader::read_metadata(&request, &available.catalog);
+        assert!(queue.complete(request, values));
+        let cells = queue.get(&source, 1).unwrap();
+        let partial = cells.provider_cell(&selected[0]).unwrap();
+        assert!(matches!(
+            partial,
+            ResultState::Ready {
+                completeness: Completeness::Truncated(reason), ..
+            } if reason == "sample limit"
+        ));
+        assert_eq!(crate::columns::cell::project(partial).text, "… 12.4 m");
+        assert!(matches!(
+            cells.provider_cell(&selected[1]),
+            Some(ResultState::Failed(_))
+        ));
+        assert_eq!(starts.load(Ordering::SeqCst), 2);
+        queue.request_row(
+            &location,
+            1,
+            &fields,
+            None,
+            LinkState::NotLink,
+            Some(CapturedRow {
+                name: "track.dat".into(),
+                is_dir: false,
+            }),
+        );
+        assert!(
+            queue.take_next().is_none(),
+            "completed states suppress retries"
+        );
+
+        let mut stale_queue = MetadataQueue::default();
+        stale_queue.request_row(
+            &location,
+            5,
+            &fields,
+            None,
+            LinkState::NotLink,
+            Some(CapturedRow {
+                name: "track.dat".into(),
+                is_dir: false,
+            }),
+        );
+        let stale = stale_queue.take_next().unwrap();
+        stale_queue.sync_generation(6);
+        let stale_values =
+            crate::panel::metadata::reader::read_metadata(&stale, &available.catalog);
+        assert!(!stale_queue.complete(stale, stale_values));
+        assert!(stale_queue.get(&source, 6).is_none());
+        assert_eq!(
+            starts.load(Ordering::SeqCst),
+            2,
+            "cancelled stale work skips child launch"
+        );
+
+        let unavailable = crate::columns::Catalog::with_defaults();
+        assert!(matches!(
+            unavailable.display_descriptor(&selected[0]).availability,
+            Availability::Unavailable(_)
+        ));
+        let again = load_enabled(&extensions_root, &enabled);
+        let restored = install_packages(again.packages, Some(supervisor.clone()), &extensions_root);
+        assert_eq!(
+            selected.len(),
+            2,
+            "saved selection is independent of availability"
+        );
+        assert!(selected.iter().all(|id| matches!(
+            restored.catalog.descriptor(id).map(|descriptor| &descriptor.availability),
+            Some(Availability::Available)
+        )));
+        assert_eq!(starts.load(Ordering::SeqCst), 2);
         supervisor.shutdown().unwrap();
     }
 

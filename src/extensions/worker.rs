@@ -190,6 +190,7 @@ fn execute<R: Read, W: Write>(
 
             let module = lua
                 .load(&init.script)
+                .set_name(format!("extension.{}", init.package))
                 .set_mode(mlua::chunk::ChunkMode::Text)
                 .eval::<Table>()
                 .map_err(lua_error)?;
@@ -551,6 +552,22 @@ mod tests {
             panic!("large allocation should fail at the memory limit");
         };
         assert!(reason.contains("memory"), "{reason}");
+    }
+
+    #[test]
+    fn lua_diagnostics_name_the_package_without_exposing_worker_source_path() {
+        let script = r#"return { ["extension.sensor.reader.distance-cell"] = {
+            read=function() error("fixture failure") end } }"#;
+        let OutputState::Failed { reason } =
+            result(&invoke(init(script, FieldType::Text), &[])).state
+        else {
+            panic!("reader error should be reported");
+        };
+        assert!(reason.contains("extension.sensor"), "{reason}");
+        assert!(
+            !reason.contains("src/extensions/worker.rs"),
+            "diagnostic exposed Rust source path: {reason}"
+        );
     }
 
     #[test]

@@ -33,6 +33,25 @@ pub enum ListingCommit {
     },
 }
 
+fn preserve_startup_diagnostics(has_startup_diagnostics: bool, commit: &ListingCommit) -> bool {
+    has_startup_diagnostics && matches!(commit, ListingCommit::Startup)
+}
+
+fn successful_listing_status(
+    has_startup_diagnostics: bool,
+    commit: &ListingCommit,
+    shown: &str,
+    first_error: Option<String>,
+    warnings: String,
+) -> Option<String> {
+    first_error
+        .or_else(|| (!warnings.is_empty()).then_some(warnings))
+        .or_else(|| {
+            (!preserve_startup_diagnostics(has_startup_diagnostics, commit))
+                .then(|| format!("Opened {shown}"))
+        })
+}
+
 impl Commander {
     /// Loads `path` away from the UI thread and applies it only if it is still
     /// the newest navigation request for this panel.
@@ -82,8 +101,12 @@ impl Commander {
         let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         self.remote_cancel[panel] = Some(cancel.clone());
         let shown = path.display().to_string();
-        self.status = format!("Opening {shown}").into();
-        cx.notify();
+        let preserve_startup_diagnostics =
+            preserve_startup_diagnostics(self.has_startup_diagnostics, &commit);
+        if !preserve_startup_diagnostics {
+            self.status = format!("Opening {shown}").into();
+            cx.notify();
+        }
         self.navigation_tasks[panel] = cx.spawn_in(window, async move |this, cx| {
             let result = cx
                 .background_spawn(
@@ -111,6 +134,13 @@ impl Commander {
                                 fs_ops::display_path(&outcome.requested.panel_path())
                             )
                         });
+                        let status_update = successful_listing_status(
+                            this.has_startup_diagnostics,
+                            &commit,
+                            &shown,
+                            first_error,
+                            warnings,
+                        );
                         this.folders[panel].update(cx, |folder, cx| {
                             let selected = match commit.clone() {
                                 ListingCommit::Navigate | ListingCommit::Startup => {
@@ -146,10 +176,9 @@ impl Commander {
                         });
                         this.views[panel]
                             .update(cx, |view, cx| view.finish_location_navigation(window, cx));
-                        this.status = first_error
-                            .or_else(|| (!warnings.is_empty()).then_some(warnings))
-                            .unwrap_or_else(|| format!("Opened {shown}"))
-                            .into();
+                        if let Some(message) = status_update {
+                            this.status = message.into();
+                        }
                         this.update_preview(window, cx);
                     }
                     Err(error) => {
@@ -285,5 +314,53 @@ impl Commander {
         });
         list.update(cx, |list, cx| list.focus(window, cx));
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ListingCommit, preserve_startup_diagnostics, successful_listing_status};
+
+    #[test]
+    fn startup_diagnostics_survive_only_a_clean_startup_listing() {
+        let startup = ListingCommit::Startup;
+        let navigate = ListingCommit::Navigate;
+        let refresh = ListingCommit::Refresh;
+
+        assert_eq!(
+            successful_listing_status(true, &startup, "/home/user", None, String::new(),),
+            None
+        );
+        assert_eq!(
+            successful_listing_status(true, &navigate, "/home/user", None, String::new(),),
+            Some("Opened /home/user".to_owned())
+        );
+        assert_eq!(
+            successful_listing_status(true, &refresh, "/home/user", None, String::new(),),
+            Some("Opened /home/user".to_owned())
+        );
+        assert_eq!(
+            successful_listing_status(
+                true,
+                &startup,
+                "/home/user",
+                None,
+                "permission warning".to_owned(),
+            ),
+            Some("permission warning".to_owned())
+        );
+        assert_eq!(
+            successful_listing_status(
+                true,
+                &startup,
+                "/home/user",
+                Some("/home/user: permission denied".to_owned()),
+                "other warning".to_owned(),
+            ),
+            Some("/home/user: permission denied".to_owned())
+        );
+        assert!(preserve_startup_diagnostics(true, &startup));
+        assert!(!preserve_startup_diagnostics(false, &startup));
+        assert!(!preserve_startup_diagnostics(true, &navigate));
     }
 }

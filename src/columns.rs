@@ -1,8 +1,6 @@
-//! Columns a panel can show (yazi's "linemode"): a catalog grouped by where
-//! the data comes from (file system, Git, EXIF, …). Users pick columns in
-//! the Columns dialog or as `columns` in settings, by id (`"size"`,
-//! `"exif.camera"`). Adding a column means a variant here (and in
-//! [`ColumnKind::ALL`]) and a cell renderer in `panel.rs`.
+//! Persisted column IDs and their shared catalog connect built-in table
+//! implementations with validated provider registrations. Built-in behavior
+//! remains represented by [`ColumnKind`] and specialized table rendering.
 
 use std::fmt;
 
@@ -11,12 +9,14 @@ use serde::Deserialize;
 use crate::entry::SortKey;
 
 pub mod catalog;
+/// Display-only projection for prepared provider cells.
+pub mod cell;
 pub mod provider;
 
 /// Immutable catalog and descriptor types shared by panel consumers.
 pub use catalog::Catalog;
 /// Native provider reader request and callback types.
-pub use provider::ProviderColumnRequest;
+pub use provider::{NativeColumnReader, ProviderColumnRequest};
 
 /// Persisted column identity, retaining IDs unknown to this build.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

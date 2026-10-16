@@ -13,8 +13,8 @@ not to pursue an item.
       follow the
       [implementation plan](docs/format-organization/implementation-plan.md)
       and [handoff log](docs/format-organization/progress.md).
-      Slices 1–3 and the standalone package loader/Lua worker are complete;
-      next is explicit settings and column-catalog integration (4c).
+      Slices 1–4 are complete, including explicitly enabled package columns;
+      next is the sensor Properties/custom-viewer proof (slice 5).
       Prove a local user-defined
       reader, Properties section, column and custom viewer plus contextual Git
       before migrating the remaining built-ins. The owner approved display-only
@@ -163,6 +163,14 @@ not to pursue an item.
       truncated values explicitly.
 
 ## Done
+
+- [x] Data-provider migration, slice 4c: activate config-only packages through
+      explicit enabled IDs and register their display-only columns at startup.
+      Preserve typed completeness through background reads/cache; show partial
+      and lower-bound markers plus useful diagnostics. One shared supervisor
+      cleans up before normal app exit. Defaults, native sorting, unavailable
+      column selections and config comments remain intact. See the
+      [reader package guide](docs/extensions.md).
 
 - [x] Data-provider migration, slice 4b runtime: execute declared Lua column
       readers in a headless helper with bounded allocation/instructions, file

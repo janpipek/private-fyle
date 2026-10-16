@@ -1,7 +1,7 @@
 # Data providers and contributions: implementation plan
 
 Status: started with owner authorization on 2026-10-16, after planning commit
-`5da8dee`. Slices 1–3 are complete and slice 4 is in progress. The owner approved
+`5da8dee`. Slices 1–4 are complete. The owner approved
 display-only extension columns first and the proposed supervised Lua worker
 with explicit package enablement; the renderer scope decision remains pending.
 This makes the [synthesis](synthesis.md) actionable.
@@ -164,13 +164,13 @@ with scratch config. New columns follow the approved sorting checkpoint.
 
 ### 4. Validate packages and supervise a local reader worker
 
-In progress, with separate static-validation (4a), helper/supervision (4b) and
-runtime/catalog-integration (4c) commits. Static validation is committed as
-`c2913dc` and the protocol/broker/queue foundation as `cf11f3b`. The standalone
-Lua worker and Linux supervision are implemented and verified; settings/catalog
-integration (4c) remains. The [worker handoff](worker-plan.md) defines the
-execution boundary. See the
-[step log](progress.md) for checks and remaining integration.
+Complete on 2026-10-16 through static-validation (4a), helper/supervision (4b)
+and runtime/catalog-integration (4c) commits. Static validation is committed as
+`c2913dc`, the protocol/broker/queue foundation as `cf11f3b`, and standalone
+execution as `a2f7021`. Explicit settings and display-only column integration
+are verified. The [worker handoff](worker-plan.md) defines the execution boundary;
+the [package guide](../extensions.md) documents installation and a working
+example. See the [step log](progress.md) for final checks and limitations.
 
 Touch: new `src/extensions.rs` and `src/extensions/` for manifest validation,
 protocol, Lua worker and supervisor; early dispatch in `src/main.rs`;
@@ -306,7 +306,7 @@ Never push or open a PR without a request.
 
 ## Completion record
 
-Slices 1–3 are complete; slice 4 is in progress. See the [progress and handoff log](progress.md) for
+Slices 1–4 are complete; slice 5 awaits the renderer-scope decision. See the [progress and handoff log](progress.md) for
 ownership, completed steps, checks and the next task. The owner's start request
 authorizes the initial proof scope; later decision checkpoints remain attached
 to their respective slices. Unrelated deferred TODO features stay deferred.

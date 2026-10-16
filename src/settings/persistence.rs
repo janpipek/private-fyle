@@ -597,15 +597,19 @@ mod tests {
 
         std::fs::write(
             &path,
-            "# mine\nshow_hidden = true # keep\ntheme = \"dark\"\n",
+            "# mine\nshow_hidden = true # keep\ntheme = \"dark\"\n\n[extensions]\n# packages are explicit\nenabled = [\"sensor\", \"future-reader\"] # keep IDs\n",
         )
         .unwrap();
         save_theme_to(&path, "Tokyo Night").unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("# mine") && text.contains("show_hidden = true # keep"));
+        assert!(text.contains("# packages are explicit"));
+        assert!(text.contains("enabled = [\"sensor\", \"future-reader\"] # keep IDs"));
         let settings = Settings::parse(&text).unwrap();
         assert_eq!(settings.theme, "Tokyo Night");
         assert!(settings.show_hidden);
+        assert_eq!(settings.extensions.enabled.len(), 2);
+        assert_eq!(settings.extensions.enabled[1].as_str(), "future-reader");
     }
 
     #[test]
