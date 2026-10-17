@@ -9,20 +9,11 @@ implementation. Keep unfinished follow-ups here; move completed items to
 **Done**. **Later** holds deferred goals, and **Dropped** records decisions
 not to pursue an item.
 
-- [ ] Data-provider/contribution migration, started with owner authorization:
-      follow the
-      [implementation plan](docs/format-organization/implementation-plan.md)
-      and [handoff log](docs/format-organization/progress.md).
-      Slices 1–6 are complete, including the enabled sensor package across
-      Properties, a display-only column and a custom viewer, plus shared contextual
-      Git columns/Properties. Review both proofs (slice 7) before broader migration.
-      Prove a local user-defined
-      reader, Properties section, column and custom viewer plus contextual Git
-      before migrating the remaining built-ins. The owner approved display-only
-      extension columns first; design new metadata sorting separately.
-      The proposed Lua worker and explicit package enablement are approved;
-      static layout, selectable text, typed tables and a bounded path canvas are
-      approved for slice 5, with native interaction and no arbitrary callbacks.
+- [ ] Data-provider migration follow-up: review the completed sensor and Git
+      proofs (slice 7) before choosing further built-in migrations (slice 8).
+      Follow the [implementation plan](docs/format-organization/implementation-plan.md)
+      and [handoff log](docs/format-organization/progress.md). New metadata
+      sorting remains a separate design task; extension columns are display-only.
 - [ ] Menus and selection, remaining parts: output/history in Tools.
       Implement missing actions as separate features.
 - [ ] Idea: replace the Git status column's `git` subprocess with a Rust
@@ -165,6 +156,14 @@ not to pursue an item.
       truncated values explicitly.
 
 ## Done
+
+- [x] Data-provider/contribution initial delivery (slices 1–6): shared contracts,
+      GPX/FIT adapter, extensible display-only columns, explicitly enabled
+      supervised Lua packages, and the sensor Properties/column/custom-viewer
+      proof. Contextual Git contributes shared status snapshots to columns and
+      Properties. Both proofs are implemented and verified; broader migrations
+      remain subject to the open proof review. See the
+      [implementation plan](docs/format-organization/implementation-plan.md).
 
 - [x] Data-provider migration, slice 6: share bounded contextual Git snapshots
       between the existing status column and a new local Git Properties group.
