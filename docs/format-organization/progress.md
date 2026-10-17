@@ -15,9 +15,12 @@ can be reconstructed without the chat.
   protocol/broker/queue foundation as `cf11f3b`. Standalone worker execution and
   Linux supervision are committed as `a2f7021`. Settings/catalog integration
   (4c) is complete and verified as `0db1dbd`; slice 5 is now in progress.
+  Its pure scene model is committed as `0e179cd` (652 tests); typed runtime
+  results, feature integration and the live sensor proof remain unfinished.
   Luna owns the Rust extension files and helper dispatch; Sol reviews; the
   coordinator owns documentation, final checks and commits. Read
-  [worker-plan.md](worker-plan.md) before joining 4b.
+  [worker-plan.md](worker-plan.md) for execution and
+  [renderer-plan.md](renderer-plan.md) for current slice 5 contracts.
 - Working roles, requested by the owner: Sol makes architecture decisions;
   Luna implements; the coordinating agent reviews, verifies and documents.
   Earlier slices were reviewed by Astra; the owner replaced that role with Sol
@@ -787,3 +790,85 @@ Contextual Git and the proof review follow before remaining built-in migrations.
   handoff. The example and typed runtime draft remain uncommitted work owned by
   their assigned agents. Next: review and verify generalized worker results,
   then wire Properties/View and run the sensor proof in the application.
+
+- Captured a fresh live baseline at `/tmp/fyle-scene-ui-le1si8bh`: existing
+  columns show 95 m / ≥381 m from the new example, Properties retains native
+  filesystem facts, and ordinary text uses the native editor. The scratch-only
+  harness owns Xvfb (`:90`) and reaps app runs; the baseline app quit normally
+  (exit 0). Restart it after the integrated build for graph/Properties checks.
+
+- The standalone native renderer draft is in `preview_scene_view.rs`. Sol
+  reviewed it after sizing fixes: responsive uniform canvas scaling/clipping,
+  fixed nonshrinking table columns and selectable document order. It remains
+  unattached and uncompiled until the runtime check window; live narrow-width
+  and copying checks remain required.
+- Settled explicit Lua `false` as a blank table cell, mapped to DTO `None`.
+  Rows remain dense and rectangular; nil holes/omissions and `true` are invalid.
+- Assigned `/root/lua_worker` the next disjoint drafts, only new
+  `extensions/properties.rs` and `properties_view/extension.rs`, pending Sol's
+  exact handle/section API. No shared Properties/module/startup wiring may
+  change during the typed runtime checkpoint. `/root/contract_implementation`
+  retains protocol/worker/supervisor/process ownership and Cargo coordination.
+
+- The Properties adapter/view drafts preserve manifest section labels and typed
+  per-field results. Sol reviewed local-source gating, independent failures,
+  visibility and selectable partial reasons. Compile-review fixes cloned a
+  borrowed label before moving its package, corrected a type import and removed
+  an unused import. Inline visibility tests were added.
+- Review also fixed cancellation ordering in that adapter: check its generation
+  token after waiting, before propagating the wait error, so a cancelled queued
+  request reports Interrupted rather than BrokenPipe. Shared feature wiring
+  and real-helper integration remain pending.
+
+- The generalized runtime draft passed `cargo check --tests`. Sol's review
+  requested actual new-path regressions before approval: Properties field-set/
+  type/unit/completeness independence, invalid scene output and the exact sensor
+  package through real supervised helpers. `/root/lua_worker` now owns only a
+  new `supervisor/sensor.rs` test module for that last case; the runtime owner
+  attaches it and retains Cargo ownership.
+- Runtime review is correcting metadata strings accidentally consuming display
+  text budgets, preserving exact text boundaries and treating known-field
+  semantic errors independently while keeping aggregate-budget errors fatal.
+  Properties Init schemas must be nonempty/unique before Lua; scenes must pass
+  semantic validation in both child and host. These are review requirements,
+  not completion claims.
+- Because the runtime regressions use the exact example files, the sensor
+  package/fixtures will be included in the runtime checkpoint commit. Its
+  README explicitly marks app Properties/View wiring as unfinished; the full
+  user-guide update stays with the later app feature commit.
+
+- Focused runtime verification passed **72 extension tests** and full Clippy,
+  including temporary compilation of the native scene renderer. Corrected a
+  test helper that incorrectly decoded a Properties failure as a scalar result
+  and one test-only needless lifetime. The coordinator removed the temporary
+  renderer module declaration before standalone-runtime final checks, keeping
+  the next commit independent of app UI wiring.
+- New tests cover exact scalar text limits, Properties field normalization and
+  missing/duplicate/foreign bindings, per-field semantic errors, child/host
+  aggregate bounds, host scene revalidation, blank cells/sparse rows/invalid
+  geometry, and all three exact-package helper results. Existing process
+  cancellation/deadline/cleanup regressions remain part of that focused suite.
+
+### 2026-10-17 — Verify typed contribution execution
+
+- Generalized the internal protocol to v2 and retained the scalar column API as
+  a wrapper. Added typed Properties field results and viewer scenes, strict Lua
+  conversion and host revalidation. All requests share the existing queue,
+  broker, deadline, cancellation and child-reaping owner.
+- Sol approved the final source/tests after replacing diagnostic-text matching
+  with the actual budget counter and correcting the sparse-row regression.
+  An overlapping temporary renderer module edit was removed before verification;
+  the runtime owner held edits during the final coordinator check window.
+- Final checks passed after those fixes: `cargo fmt --check`,
+  `cargo clippy --all-targets -- -D warnings`, `cargo test --quiet`: **665
+  tests, zero failures/ignored**, and `cargo build`. No dependency was added.
+- Production helper smoke passed **10 checks** without DISPLAY/WAYLAND_DISPLAY:
+  complete/truncated/malformed sensor data across column, Properties and viewer;
+  explicit numeric/completeness/graph assertions; old protocol rejection. All
+  children exited/reaped and no scratch config/data/cache directories were
+  created. Evidence: `/tmp/fyle-worker-v2-1_ahp3zn/results.json`.
+- Included the exact example package/fixtures used by runtime tests. Its README
+  still marks application integration unfinished. The native scene renderer and
+  Properties adapter/view remain uncommitted drafts; no new app Properties/View
+  behavior is claimed. Next: immutable startup feature handles, independent
+  Properties/preview wiring, original-source/cancellation tests and live proof.

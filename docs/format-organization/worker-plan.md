@@ -1,10 +1,11 @@
-# Extension worker: slice 4b handoff
+# Extension worker contract
 
 Read this when implementing or reviewing the supervised reader worker. Slice
 4a supplies validated manifests and bounded, unevaluated entry source. The
 owner approved the proposed Lua worker and explicit enablement on 2026-10-16.
-This document settles the worker implementation choices; it does not authorize
-the later renderer checkpoint.
+The owner approved the bounded renderer scope on 2026-10-17. This document
+records the execution boundary; [renderer-plan.md](renderer-plan.md) specifies
+the scene and multi-presentation result contracts added in slice 5.
 
 ## Delivery boundary
 
@@ -13,10 +14,10 @@ and process supervision under `src/extensions/`. Add the reserved helper branch
 as the first operation in `main`, before settings, command-line directory
 handling or GPUI initialization. Keep all tests inline, following AGENTS.md.
 
-Slice 4b has no settings, Columns catalog or presentation registry integration.
-Slice 4c will wire explicit enabled IDs and package columns into the app and
-extend the native column seam to retain completeness. Properties/View adapters
-and scene rendering remain later work. Existing Tools Lua plugins stay separate.
+Slices 4b/4c implemented execution, explicit settings and column registration.
+Slice 5 extends the same supervisor to typed Properties and viewer requests;
+feature integration and native rendering follow the standalone runtime
+checkpoint. Existing Tools Lua plugins stay separate.
 
 Use focused files: `protocol.rs` for bounded wire types, `worker.rs` for Lua,
 `broker.rs` for authorized file reads, `model.rs` for queue policy and
@@ -25,7 +26,7 @@ Use focused files: `protocol.rs` for bounded wire types, `worker.rs` for Lua,
 ## Host API and ownership
 
 Use one shared supervisor instance, with one active helper and 64 pending
-requests. Create no process until a request is admitted. A suitable public API
+requests. Create no process until a request is admitted. The scalar compatibility API
 is `Supervisor::new() -> io::Result<Self>`, `submit(ColumnWork) ->
 io::Result<Ticket>`, and `Ticket::wait() -> io::Result<ResultState<Value>>`.
 `wait` and final shutdown are blocking background operations. `submit` performs
@@ -36,7 +37,10 @@ original `Location`, captured display name/directory flag and the caller's
 generation cancellation token. Resolve its provider, field and demand from the
 validated package, rather than accepting independently supplied definitions.
 Reject missing/non-column contributions and nonlocal/directory sources before
-execution. Open and inspect the source in background execution.
+execution. `submit_contribution(ContributionWork)` adds a typed contribution
+ticket for columns, Properties and viewers; its `wait` returns `PreparedResult`.
+The scalar API wraps that ticket and retains its existing return type. All
+requests share the same queue, cancellation and cleanup owner. Open and inspect the source in background execution.
 
 A ticket owns a separate cancellation token: dropping/cancelling it must not
 set a generation token shared with other requests. Either token cancels its
@@ -54,17 +58,17 @@ UI generations and stale cell acceptance remain with the metadata queue in 4c.
 ## Protocol and Lua callback
 
 Use a four-byte unsigned big-endian length followed by UTF-8 JSON. Check the
-length before allocation. Every message has `version = 1` and an explicit
+length before allocation. Every message has `version = 2` and an explicit
 `kind`; deny unknown keys and reject unexpected messages, duplicate terminal
 responses, partial frames and EOF before completion. Keep serde's recursion
 limit enabled. Wire values are typed DTOs, not unrestricted JSON trees.
 
 | Direction | Message and payload |
 | --- | --- |
-| Host → worker | `Init`: script source, package/provider/contribution IDs, expected field ID/type/unit, declaration demand, captured name/is_dir and opaque source handle |
+| Host → worker | `Init`: script source, package/provider/contribution IDs, presentation request/schema, declaration demand, captured name/is_dir and opaque source handle |
 | Worker → host | `Read`: monotonically increasing read ID, source handle, unsigned offset and length |
 | Host → worker | `ReadResult`: matching read ID, byte array, EOF flag; or a bounded read error |
-| Worker → host | `Result`: ready typed value with completeness, absent, unavailable reason, or failed reason |
+| Worker → host | `Result`: presentation-tagged scalar, Properties field results or scene result; each has terminal availability and appropriate completeness |
 
 Use JSON byte arrays with the existing serde dependencies. Only the host knows
 the native source path. The child receives neither a reopenable path nor a
@@ -74,10 +78,10 @@ An abnormal exit or malformed output fails the request even if it emitted a
 plausible result first. The worker emits its terminal result and exits directly.
 
 The module returns a table keyed by declared contribution ID. The requested
-column entry is `{ applies = optional_function, read = function }`. Validate
+contribution entry is `{ applies = optional_function, read = function }`. Validate
 that this entry exists and contains the required callback. Executable exports
-cannot register new IDs or override declarations. Other declared presentation
-callbacks need no implementation in 4b.
+cannot register new IDs or override declarations. Only the selected callback executes. The version bump is internal to the
+same executable; manifest API 1 and existing column Lua remain compatible.
 
 Pass `ctx = {source, name, is_dir, demand={max_bytes,max_items}}`. Expose only
 the host function `fyle.read(source, offset, length)` for bounded source access;
@@ -89,7 +93,7 @@ applicability is always a prerequisite, evaluated before module execution;
 honest captured facts: format/context evidence is empty until supplied by an
 actual feature owner. A missing `applies` adds no further restriction.
 
-`read(ctx)` returns one explicit result table:
+A column `read(ctx)` returns one explicit result table:
 
 ```lua
 return {
@@ -108,6 +112,12 @@ oversized strings. Ready results must name exactly the selected column's bound
 field; reject sibling/undeclared field IDs. Validate again in the host against
 that field's schema. A partial ready value retains its completeness; reaching a limit never
 silently converts partial work into complete output.
+
+Properties and viewers use separate typed output schemas. Properties returns
+the exact declared field set, with independent terminal states/completeness;
+viewers return a validated scene with complete/truncated coverage. See the
+[renderer contract](renderer-plan.md#typed-worker-requests-and-results) for those
+shapes and the [package guide](../extensions.md) for authoring examples.
 
 ## Execution limits and brokerage
 

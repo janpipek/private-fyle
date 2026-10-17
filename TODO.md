@@ -165,6 +165,12 @@ not to pursue an item.
 
 ## Done
 
+- [x] Data-provider migration, slice 5 runtime: prepare separate typed
+      Properties field and viewer scene results through the shared supervised
+      worker. Validate child/host output independently, preserve column Lua
+      compatibility, and exercise the exact sensor package through all three
+      contribution APIs. Application Properties/View wiring remains in progress.
+
 - [x] Data-provider migration, slice 5 model: define validated static extension
       scenes for stacks, selectable text, typed tables and path canvases, with
       explicit schema, identity, geometry and aggregate resource bounds. Runtime

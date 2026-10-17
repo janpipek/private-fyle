@@ -8,14 +8,15 @@ use std::{
 use mlua::{Function, HookTriggers, Lua, LuaOptions, LuaString, StdLib, Table, Value, VmState};
 
 use super::protocol::{
-    self, Completeness, ContributionResult, FieldType, HostMessage, Init, OutputState, OutputValue,
-    ReadRequest, Unit, VERSION, WorkerFrame, WorkerMessage,
+    self, ContributionOutput, ContributionResult, HostMessage, Init, OutputState, ReadRequest,
+    Request, VERSION, WorkerFrame, WorkerMessage,
 };
+
+mod convert;
 
 const MEMORY_LIMIT: usize = 32 * 1024 * 1024;
 const INSTRUCTION_LIMIT: u64 = 5_000_000;
 const HOOK_INTERVAL: u32 = 1_000;
-const MAX_TRAVERSAL_NODES: usize = 4_096;
 const MAX_READ_BYTES: u64 = 64 * 1024;
 const MAX_NAME_BYTES: usize = 4_096;
 
@@ -31,18 +32,13 @@ pub fn run<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> io::Result<()> 
     };
     let result = match execute(&init, reader, writer) {
         Ok(result) => result,
-        Err(error) => ContributionResult {
-            field: None,
-            state: OutputState::Failed {
-                reason: bounded_error(&error),
-            },
-        },
+        Err(error) => failed_output(&init.request, bounded_error(&error)),
     };
     protocol::write_worker_frame(
         writer,
         &WorkerFrame {
             version: VERSION,
-            message: WorkerMessage::Result(result),
+            message: WorkerMessage::Result { output: result },
         },
     )?;
     writer.flush()
@@ -52,21 +48,42 @@ fn execute<R: Read, W: Write>(
     init: &Init,
     reader: &mut R,
     writer: &mut W,
-) -> io::Result<ContributionResult> {
+) -> io::Result<ContributionOutput> {
     let package = super::manifest::PackageId::new(init.package.clone())?;
     let provider = crate::data_providers::ProviderId::new(init.provider.clone())?;
     crate::data_providers::ContributionId::new(init.contribution.clone())?;
-    crate::data_providers::FieldId::new(init.field.clone())?;
-    let package_prefix = format!("extension.{}.", package.as_str());
     let owner_prefix = format!("{}.", provider.as_str());
+    let package_prefix = format!("extension.{}.", package.as_str());
+    let valid_request = match &init.request {
+        Request::Column { field, .. } => {
+            crate::data_providers::FieldId::new(field.clone()).is_ok()
+                && field.len() <= 256
+                && field.starts_with(&owner_prefix)
+        }
+        Request::Properties { fields } => {
+            !fields.is_empty()
+                && fields.len() <= super::manifest::MAX_FIELDS_PER_PROVIDER
+                && fields.iter().enumerate().all(|(index, field)| {
+                    field.field.len() <= 256
+                        && field.field.starts_with(&owner_prefix)
+                        && crate::data_providers::FieldId::new(field.field.clone()).is_ok()
+                        && fields[..index]
+                            .iter()
+                            .all(|earlier| earlier.field != field.field)
+                })
+        }
+        Request::Viewer {
+            representation,
+            version,
+        } => representation == "fyle.scene" && *version == 1,
+    };
     if init.script.len() > super::manifest::SCRIPT_BYTES
         || init.name.len() > MAX_NAME_BYTES
         || init.provider.len() > 256
         || init.contribution.len() > 256
-        || init.field.len() > 256
         || !init.provider.starts_with(&package_prefix)
         || !init.contribution.starts_with(&owner_prefix)
-        || !init.field.starts_with(&owner_prefix)
+        || !valid_request
         || init.is_dir
         || init.demand.max_bytes == 0
         || init.demand.max_bytes > super::manifest::MAX_DEMAND_BYTES
@@ -212,12 +229,10 @@ fn execute<R: Read, W: Write>(
                 match applies_result {
                     Value::Boolean(true) => {}
                     Value::Boolean(false) => {
-                        return Ok(ContributionResult {
-                            field: None,
-                            state: OutputState::Unavailable {
-                                reason: "contribution does not apply".into(),
-                            },
-                        });
+                        return Ok(unavailable_output(
+                            &init.request,
+                            "contribution does not apply".into(),
+                        ));
                     }
                     _ => {
                         return Err(mlua::Error::external(invalid(
@@ -231,10 +246,42 @@ fn execute<R: Read, W: Write>(
             })?;
             let ctx = context(&lua, init).map_err(lua_error)?;
             let value: Value = callback.call(ctx).map_err(lua_error)?;
-            convert_result(&value, init).map_err(mlua::Error::external)
+            convert::convert_result(&value, init).map_err(mlua::Error::external)
         })
         .map_err(lua_error)?;
     Ok(result)
+}
+
+fn failed_output(request: &Request, reason: String) -> ContributionOutput {
+    match request {
+        Request::Column { .. } => ContributionOutput::Column(ContributionResult {
+            field: None,
+            state: OutputState::Failed { reason },
+        }),
+        Request::Properties { .. } => {
+            ContributionOutput::Properties(super::protocol::PropertiesOutput::Failed { reason })
+        }
+        Request::Viewer { .. } => {
+            ContributionOutput::Viewer(super::protocol::ViewerOutput::Failed { reason })
+        }
+    }
+}
+
+fn unavailable_output(request: &Request, reason: String) -> ContributionOutput {
+    match request {
+        Request::Column { .. } => ContributionOutput::Column(ContributionResult {
+            field: None,
+            state: OutputState::Unavailable { reason },
+        }),
+        Request::Properties { .. } => {
+            ContributionOutput::Properties(super::protocol::PropertiesOutput::Unavailable {
+                reason,
+            })
+        }
+        Request::Viewer { .. } => {
+            ContributionOutput::Viewer(super::protocol::ViewerOutput::Unavailable { reason })
+        }
+    }
 }
 
 fn context(lua: &Lua, init: &Init) -> mlua::Result<Table> {
@@ -247,144 +294,6 @@ fn context(lua: &Lua, init: &Init) -> mlua::Result<Table> {
     demand.set("max_items", init.demand.max_items)?;
     ctx.set("demand", demand)?;
     Ok(ctx)
-}
-
-fn convert_result(value: &Value, init: &Init) -> io::Result<ContributionResult> {
-    let table = match value {
-        Value::Table(table) => table,
-        _ => return Err(invalid("read callback must return a result table")),
-    };
-    check_table(
-        table,
-        &["state", "field", "value", "completeness", "reason"],
-    )?;
-    let state = required_string(table, "state", 32)?;
-    let result = match state.as_str() {
-        "absent" => ContributionResult {
-            field: None,
-            state: OutputState::Absent,
-        },
-        "unavailable" | "failed" => {
-            check_table(table, &["state", "reason"])?;
-            let reason = bounded_lua_string(table.raw_get("reason").map_err(lua_error)?)?;
-            let state = if state == "unavailable" {
-                OutputState::Unavailable { reason }
-            } else {
-                OutputState::Failed { reason }
-            };
-            ContributionResult { field: None, state }
-        }
-        "ready" => {
-            check_table(table, &["state", "field", "value", "completeness"])?;
-            let field = required_string(table, "field", 256)?;
-            if field != init.field {
-                return Err(invalid("result field does not match selected column"));
-            }
-            let lua_value: Table = table.raw_get("value").map_err(lua_error)?;
-            check_table(&lua_value, &["kind", "value", "unit"])?;
-            let kind = required_string(&lua_value, "kind", 16)?;
-            let output_value = match (init.field_type, kind.as_str()) {
-                (FieldType::Text, "text") => {
-                    check_table(&lua_value, &["kind", "value"])?;
-                    let value = bounded_lua_string(lua_value.raw_get("value").map_err(lua_error)?)?;
-                    OutputValue::Text { value }
-                }
-                (FieldType::Quantity(expected), "quantity") => {
-                    let value = required_number(&lua_value, "value")?;
-                    let unit_name = required_string(&lua_value, "unit", 16)?;
-                    let unit = match unit_name.as_str() {
-                        "seconds" => Unit::Seconds,
-                        "metres" => Unit::Metres,
-                        _ => return Err(invalid("unknown quantity unit")),
-                    };
-                    if unit != expected || !value.is_finite() || value < 0.0 {
-                        return Err(invalid("quantity does not match declared field"));
-                    }
-                    OutputValue::Quantity { value, unit }
-                }
-                _ => return Err(invalid("value does not match declared field type")),
-            };
-            let completeness: Table = table.raw_get("completeness").map_err(lua_error)?;
-            check_table(&completeness, &["kind", "reason"])?;
-            let completeness_kind = required_string(&completeness, "kind", 32)?;
-            let completeness = match completeness_kind.as_str() {
-                "complete" => {
-                    check_table(&completeness, &["kind"])?;
-                    Completeness::Complete
-                }
-                "lower_bound" => {
-                    check_table(&completeness, &["kind"])?;
-                    Completeness::LowerBound
-                }
-                "truncated" => Completeness::Truncated {
-                    reason: {
-                        check_table(&completeness, &["kind", "reason"])?;
-                        bounded_lua_string(completeness.raw_get("reason").map_err(lua_error)?)?
-                    },
-                },
-                _ => return Err(invalid("unknown completeness state")),
-            };
-            ContributionResult {
-                field: Some(field),
-                state: OutputState::Ready {
-                    value: output_value,
-                    completeness,
-                },
-            }
-        }
-        _ => return Err(invalid("unknown contribution result state")),
-    };
-    match &result.state {
-        OutputState::Absent => check_table(table, &["state"])?,
-        OutputState::Unavailable { .. } | OutputState::Failed { .. } => {
-            check_table(table, &["state", "reason"])?;
-        }
-        OutputState::Ready { .. } => {}
-    }
-    Ok(result)
-}
-
-fn check_table(table: &Table, allowed: &[&str]) -> io::Result<()> {
-    if table.metatable().is_some() {
-        return Err(invalid("Lua result tables cannot have metatables"));
-    }
-    let mut nodes = 0usize;
-    for pair in table.clone().pairs::<Value, Value>() {
-        nodes += 1;
-        if nodes > MAX_TRAVERSAL_NODES {
-            return Err(invalid("Lua result exceeds traversal limit"));
-        }
-        let (key, _value) = pair.map_err(lua_error)?;
-        let key = match key {
-            Value::String(key) => key.to_str().map_err(lua_error)?,
-            _ => return Err(invalid("Lua result keys must be strings")),
-        };
-        if !allowed.iter().any(|allowed| key.as_ref() == *allowed) {
-            return Err(invalid("Lua result contains an unknown field"));
-        }
-    }
-    Ok(())
-}
-
-fn required_string(table: &Table, key: &str, max_bytes: usize) -> io::Result<String> {
-    match table.raw_get::<Value>(key).map_err(lua_error)? {
-        Value::String(value) => {
-            if value.as_bytes().len() > max_bytes {
-                return Err(invalid("result field is too long"));
-            }
-            let value = value.to_str().map_err(lua_error)?;
-            Ok(value.to_string())
-        }
-        _ => Err(invalid("result field must be a string")),
-    }
-}
-
-fn required_number(table: &Table, key: &str) -> io::Result<f64> {
-    match table.raw_get::<Value>(key).map_err(lua_error)? {
-        Value::Integer(value) => Ok(value as f64),
-        Value::Number(value) => Ok(value),
-        _ => Err(invalid("quantity must be a number")),
-    }
 }
 
 fn integer_u32(value: Value) -> mlua::Result<u32> {
@@ -405,18 +314,6 @@ fn integer_u64(value: Value) -> mlua::Result<u64> {
             "read range must use unsigned integers".into(),
         )),
     }
-}
-
-fn bounded_lua_string(value: Value) -> io::Result<String> {
-    let value = match value {
-        Value::String(value) => value,
-        _ => return Err(invalid("result text must be a string")),
-    };
-    let value = value.to_str().map_err(lua_error)?;
-    if value.len() > protocol::MAX_RESULT_TEXT_BYTES {
-        return Err(invalid("result text exceeds size limit"));
-    }
-    Ok(value.to_string())
 }
 
 fn bounded_error(error: &io::Error) -> String {
@@ -445,8 +342,8 @@ mod tests {
 
     use super::run;
     use crate::extensions::protocol::{
-        self, Demand, FieldType, HostFrame, HostMessage, Init, OutputState, ReadRequest, Unit,
-        WorkerMessage,
+        self, Demand, FieldType, HostFrame, HostMessage, Init, OutputState, ReadRequest, Request,
+        Unit, WorkerMessage,
     };
 
     fn init(script: &str, field_type: FieldType) -> Init {
@@ -454,8 +351,10 @@ mod tests {
             package: "sensor".into(),
             provider: "extension.sensor.reader".into(),
             contribution: "extension.sensor.reader.distance-cell".into(),
-            field: "extension.sensor.reader.distance".into(),
-            field_type,
+            request: Request::Column {
+                field: "extension.sensor.reader.distance".into(),
+                field_type,
+            },
             demand: Demand {
                 max_bytes: 1024,
                 max_items: 10,
@@ -488,7 +387,10 @@ mod tests {
             .expect("worker result frame decodes")
             .message
         {
-            WorkerMessage::Result(result) => result,
+            WorkerMessage::Result {
+                output: protocol::ContributionOutput::Column(result),
+            } => result,
+            WorkerMessage::Result { .. } => panic!("unexpected non-column result"),
             WorkerMessage::Read(_) => panic!("unexpected unhandled read"),
         }
     }
@@ -501,7 +403,10 @@ mod tests {
                 .message
             {
                 WorkerMessage::Read(_) => {}
-                WorkerMessage::Result(result) => return result,
+                WorkerMessage::Result {
+                    output: protocol::ContributionOutput::Column(result),
+                } => return result,
+                WorkerMessage::Result { .. } => panic!("unexpected non-column result"),
             }
         }
     }
@@ -680,7 +585,10 @@ mod tests {
         let terminal = protocol::read_worker_frame(&mut output_reader)
             .unwrap()
             .message;
-        let WorkerMessage::Result(terminal) = terminal else {
+        let WorkerMessage::Result {
+            output: protocol::ContributionOutput::Column(terminal),
+        } = terminal
+        else {
             panic!("expected terminal result after read reply");
         };
         assert!(matches!(
@@ -810,6 +718,26 @@ mod tests {
             OutputState::Failed { .. }
         ));
 
+        let mut duplicate_fields = init(script, FieldType::Text);
+        duplicate_fields.contribution = "extension.sensor.reader.summary".into();
+        let duplicate_field = protocol::FieldSchema {
+            field: "extension.sensor.reader.distance".into(),
+            field_type: FieldType::Text,
+        };
+        duplicate_fields.request = Request::Properties {
+            fields: vec![duplicate_field.clone(), duplicate_field],
+        };
+        assert!(matches!(
+            protocol::read_worker_frame(&mut Cursor::new(invoke(duplicate_fields, &[])))
+                .expect("invalid Properties init receives a terminal frame")
+                .message,
+            WorkerMessage::Result {
+                output: protocol::ContributionOutput::Properties(
+                    protocol::PropertiesOutput::Failed { .. }
+                )
+            }
+        ));
+
         let script = r#"return { ["extension.sensor.reader.distance-cell"] = {
             read=function(ctx)
                 fyle.read(ctx.source, "0", 1)
@@ -830,7 +758,7 @@ mod tests {
                 r#"{state="ready", field="extension.sensor.reader.distance",
                    value={kind="quantity", value="1", unit="metres"},
                    completeness={kind="complete"}}"#,
-                "quantity must be a number",
+                "field must be a number",
             ),
             (
                 FieldType::Text,
@@ -866,5 +794,185 @@ mod tests {
                 "expected {expected:?}, got {reason:?}"
             );
         }
+    }
+
+    #[test]
+    fn scalar_text_accepts_the_full_documented_boundary() {
+        let text = "x".repeat(protocol::MAX_RESULT_TEXT_BYTES);
+        let script = format!(
+            "return {{ ['extension.sensor.reader.distance-cell'] = {{ read=function() return {{state='ready',field='extension.sensor.reader.distance',value={{kind='text',value='{}'}},completeness={{kind='complete'}} }} end }} }}",
+            text
+        );
+        let OutputState::Ready {
+            value: protocol::OutputValue::Text { value },
+            ..
+        } = result(&invoke(init(&script, FieldType::Text), &[])).state
+        else {
+            panic!("exactly 64 KiB scalar text must remain valid");
+        };
+        assert_eq!(value.len(), protocol::MAX_RESULT_TEXT_BYTES);
+    }
+
+    #[test]
+    fn properties_bad_quantity_isolated_from_valid_sibling() {
+        let mut request = init("", FieldType::Text);
+        request.request = Request::Properties {
+            fields: vec![
+                protocol::FieldSchema {
+                    field: "extension.sensor.reader.distance".into(),
+                    field_type: FieldType::Quantity(Unit::Metres),
+                },
+                protocol::FieldSchema {
+                    field: "extension.sensor.reader.duration".into(),
+                    field_type: FieldType::Quantity(Unit::Seconds),
+                },
+            ],
+        };
+        request.contribution = "extension.sensor.reader.summary".into();
+        request.script = r#"return { ["extension.sensor.reader.summary"] = { read=function()
+            return {state="ready", fields={
+                {field="extension.sensor.reader.distance", state="ready",
+                 value={kind="quantity", value=-1, unit="metres"}, completeness={kind="complete"}},
+                {field="extension.sensor.reader.duration", state="ready",
+                 value={kind="quantity", value=30, unit="seconds"}, completeness={kind="complete"}}}}
+        end } }"#.into();
+        let WorkerMessage::Result {
+            output:
+                protocol::ContributionOutput::Properties(protocol::PropertiesOutput::Ready { fields }),
+        } = protocol::read_worker_frame(&mut Cursor::new(invoke(request, &[])))
+            .expect("worker frame decodes")
+            .message
+        else {
+            panic!("expected independent Properties field outcomes");
+        };
+        assert!(matches!(
+            fields[0].state,
+            protocol::FieldOutputState::Failed { .. }
+        ));
+        assert!(matches!(
+            fields[1].state,
+            protocol::FieldOutputState::Ready { .. }
+        ));
+    }
+
+    #[test]
+    fn properties_aggregate_text_overflow_fails_the_contribution() {
+        let first = "a".repeat(40 * 1024);
+        let second = "b".repeat(30 * 1024);
+        let mut request = init("", FieldType::Text);
+        request.request = Request::Properties {
+            fields: vec![
+                protocol::FieldSchema {
+                    field: "extension.sensor.reader.first".into(),
+                    field_type: FieldType::Text,
+                },
+                protocol::FieldSchema {
+                    field: "extension.sensor.reader.second".into(),
+                    field_type: FieldType::Text,
+                },
+            ],
+        };
+        request.contribution = "extension.sensor.reader.summary".into();
+        request.script = format!(
+            r#"return {{ ["extension.sensor.reader.summary"] = {{ read=function()
+                return {{state="ready",fields={{
+                    {{field="extension.sensor.reader.first",state="ready",value={{kind="text",value="{first}"}},completeness={{kind="complete"}}}},
+                    {{field="extension.sensor.reader.second",state="ready",value={{kind="text",value="{second}"}},completeness={{kind="complete"}}}}
+                }}}}
+            end }} }}"#
+        );
+        let WorkerMessage::Result {
+            output:
+                protocol::ContributionOutput::Properties(protocol::PropertiesOutput::Failed { reason }),
+        } = protocol::read_worker_frame(&mut Cursor::new(invoke(request, &[])))
+            .expect("worker frame decodes")
+            .message
+        else {
+            panic!("aggregate text overflow must fail the whole contribution");
+        };
+        assert!(reason.contains("aggregate text limit"));
+    }
+
+    #[test]
+    fn viewer_accepts_false_blank_cells_and_rejects_sparse_or_invalid_scenes() {
+        let mut request = init("", FieldType::Text);
+        request.contribution = "extension.sensor.reader.graph".into();
+        request.request = Request::Viewer {
+            representation: "fyle.scene".into(),
+            version: 1,
+        };
+        let valid = r#"return { ["extension.sensor.reader.graph"] = { read=function()
+            return {state="ready",completeness={kind="complete"},scene={version=1,root={
+                kind="table",id="samples",columns={{id="time",label="Time",kind={kind="text"}}},rows={{false}}
+            }}}
+        end } }"#;
+        let WorkerMessage::Result {
+            output:
+                protocol::ContributionOutput::Viewer(protocol::ViewerOutput::Ready { scene, .. }),
+        } = protocol::read_worker_frame(&mut Cursor::new(invoke(
+            Init {
+                script: valid.into(),
+                ..request.clone()
+            },
+            &[],
+        )))
+        .expect("viewer frame decodes")
+        .message
+        else {
+            panic!("false is an explicit blank table-cell sentinel");
+        };
+        let crate::preview_scene::NodeDto::Table { rows, .. } = scene.root else {
+            panic!("expected a table scene");
+        };
+        assert_eq!(rows, vec![vec![None]]);
+
+        let invalid_scenes = [
+            r#"{version=1,root={kind="table",id="samples",columns={{id="time",label="Time",kind={kind="text"}}},rows={{[1]=false,[3]=false}}}}"#,
+            r#"{version=1,root={kind="canvas",id="plot",width=-1,height=10,paths={}}}"#,
+        ];
+        for scene in invalid_scenes {
+            let script = format!(
+                r#"return {{ ["extension.sensor.reader.graph"] = {{ read=function() return {{state="ready",completeness={{kind="complete"}},scene={scene}}} end }} }}"#
+            );
+            let WorkerMessage::Result {
+                output:
+                    protocol::ContributionOutput::Viewer(protocol::ViewerOutput::Failed { reason }),
+            } = protocol::read_worker_frame(&mut Cursor::new(invoke(
+                Init {
+                    script,
+                    ..request.clone()
+                },
+                &[],
+            )))
+            .expect("viewer failure frame decodes")
+            .message
+            else {
+                panic!("invalid scene structure must fail before host delivery");
+            };
+            if scene.contains("rows=") {
+                assert!(
+                    reason.contains("sparse") || reason.contains("extra keys"),
+                    "sparse row should fail for its shape, got {reason:?}"
+                );
+            }
+        }
+
+        let mut deep_root = r#"{kind="text",id="leaf",text="x",role="body"}"#.to_owned();
+        for level in 0..crate::preview_scene::MAX_DEPTH {
+            deep_root = format!(
+                "{{kind='stack',id='n{level}',axis='row',gap='small',children={{{deep_root}}}}}"
+            );
+        }
+        let script = format!(
+            r#"return {{ ["extension.sensor.reader.graph"] = {{ read=function() return {{state="ready",completeness={{kind="complete"}},scene={{version=1,root={deep_root}}}}} end }} }}"#
+        );
+        assert!(matches!(
+            protocol::read_worker_frame(&mut Cursor::new(invoke(Init { script, ..request }, &[],)))
+                .expect("depth failure frame decodes")
+                .message,
+            WorkerMessage::Result {
+                output: protocol::ContributionOutput::Viewer(protocol::ViewerOutput::Failed { .. })
+            }
+        ));
     }
 }

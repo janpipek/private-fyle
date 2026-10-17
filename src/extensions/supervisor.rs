@@ -1,4 +1,4 @@
-//! Shared bounded supervisor for package-column requests.
+//! Shared bounded supervisor for package contribution requests.
 
 use std::io;
 use std::process::Command;
@@ -9,21 +9,22 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 
-use crate::data_providers::{ApplicabilityContext, FieldKind, ResultState, Subject, Unit, Value};
+use crate::data_providers::{ApplicabilityContext, FieldKind, Subject, Unit};
 use crate::location::Location;
 
 use super::Package;
 use super::model::QueueModel;
-use super::protocol::{Demand, FieldType, Init};
+use super::protocol::{Demand, FieldSchema, FieldType, Init, Request};
+use super::results::PreparedResult;
 
 mod process;
 
-/// Work selected by the host for one declared package column.
+/// Work selected by the host for one declared package contribution.
 #[derive(Clone, Debug)]
-pub struct ColumnWork {
+pub struct ContributionWork {
     /// Validated, unevaluated package retained for the request lifetime.
     pub package: Arc<Package>,
-    /// Declared column contribution to prepare.
+    /// Declared contribution to prepare.
     pub contribution: crate::data_providers::ContributionId,
     /// Original typed source identity.
     pub source: Location,
@@ -35,12 +36,15 @@ pub struct ColumnWork {
     pub generation_cancelled: Arc<AtomicBool>,
 }
 
+/// Backward-compatible name for a column contribution request.
+pub type ColumnWork = ContributionWork;
+
 #[derive(Clone, Debug)]
 /// Internal queued request passed to the platform process backend.
 pub struct Pending {
     init: Init,
     source: Location,
-    response: Sender<ResultState<Value>>,
+    response: Sender<PreparedResult>,
 }
 
 struct State {
@@ -72,19 +76,24 @@ pub struct Supervisor {
 
 /// A result ticket whose drop cancels only this request.
 pub struct Ticket {
-    receiver: Option<Receiver<ResultState<Value>>>,
+    inner: ContributionTicket,
+}
+
+/// A result ticket for any declared presentation contribution.
+pub struct ContributionTicket {
+    receiver: Option<Receiver<PreparedResult>>,
     cancelled: Arc<AtomicBool>,
     completed: bool,
 }
 
-impl Ticket {
+impl ContributionTicket {
     /// Signals this request's cancellation token.
     pub fn cancel(&self) {
         self.cancelled.store(true, Ordering::Release);
     }
 
     /// Waits for completion; call from a background task, never the UI thread.
-    pub fn wait(mut self) -> io::Result<ResultState<Value>> {
+    pub fn wait(mut self) -> io::Result<PreparedResult> {
         let result = self
             .receiver
             .take()
@@ -96,7 +105,27 @@ impl Ticket {
     }
 }
 
-impl Drop for Ticket {
+impl Ticket {
+    /// Signals this request's cancellation token.
+    pub fn cancel(&self) {
+        self.inner.cancel();
+    }
+
+    /// Waits for completion; call from a background task, never the UI thread.
+    pub fn wait(
+        self,
+    ) -> io::Result<crate::data_providers::ResultState<crate::data_providers::Value>> {
+        match self.inner.wait()? {
+            PreparedResult::Column(result) => Ok(result),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "column ticket received a different presentation result",
+            )),
+        }
+    }
+}
+
+impl Drop for ContributionTicket {
     fn drop(&mut self) {
         if !self.completed {
             self.cancelled.store(true, Ordering::Release);
@@ -140,6 +169,25 @@ impl Supervisor {
 
     /// Admits a request or returns a completed ticket for captured inapplicability.
     pub fn submit(&self, work: ColumnWork) -> io::Result<Ticket> {
+        let is_column = work.package.manifest.providers.iter().any(|provider| {
+            provider
+                .columns
+                .iter()
+                .any(|column| column.header.id == work.contribution)
+        });
+        if !is_column {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "column request does not name a declared column contribution",
+            ));
+        }
+        Ok(Ticket {
+            inner: self.submit_contribution(work)?,
+        })
+    }
+
+    /// Admits one declared Properties, column or viewer contribution request.
+    pub fn submit_contribution(&self, work: ContributionWork) -> io::Result<ContributionTicket> {
         if self.controller.state.closing.load(Ordering::Acquire) {
             return Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
@@ -148,41 +196,42 @@ impl Supervisor {
         }
         let prepared = prepare(work)?;
         let (sender, receiver) = mpsc::channel();
-        if let Some((init, source, generation_cancelled)) = prepared {
-            let pending = Pending {
-                init,
-                source,
-                response: sender,
-            };
-            let mut queue = self
-                .controller
-                .state
-                .queue
-                .lock()
-                .expect("extension queue mutex is not poisoned");
-            if self.controller.state.closing.load(Ordering::Acquire) {
-                return Err(io::Error::new(
-                    io::ErrorKind::BrokenPipe,
-                    "extension supervisor is shutting down",
-                ));
+        match prepared {
+            PreparedWork::Queued(init, source, generation_cancelled) => {
+                let pending = Pending {
+                    init,
+                    source,
+                    response: sender,
+                };
+                let mut queue = self
+                    .controller
+                    .state
+                    .queue
+                    .lock()
+                    .expect("extension queue mutex is not poisoned");
+                if self.controller.state.closing.load(Ordering::Acquire) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::BrokenPipe,
+                        "extension supervisor is shutting down",
+                    ));
+                }
+                let (_, ticket_cancelled) = queue.submit(pending, generation_cancelled)?;
+                self.controller.state.wake.notify_one();
+                Ok(ContributionTicket {
+                    receiver: Some(receiver),
+                    cancelled: ticket_cancelled,
+                    completed: false,
+                })
             }
-            let (_, ticket_cancelled) = queue.submit(pending, generation_cancelled)?;
-            self.controller.state.wake.notify_one();
-            Ok(Ticket {
-                receiver: Some(receiver),
-                cancelled: ticket_cancelled,
-                completed: false,
-            })
-        } else {
-            let cancelled = Arc::new(AtomicBool::new(false));
-            let _ = sender.send(ResultState::Unavailable(
-                "captured source facts do not match this contribution".into(),
-            ));
-            Ok(Ticket {
-                receiver: Some(receiver),
-                cancelled,
-                completed: false,
-            })
+            PreparedWork::Immediate(result) => {
+                let cancelled = Arc::new(AtomicBool::new(false));
+                let _ = sender.send(result);
+                Ok(ContributionTicket {
+                    receiver: Some(receiver),
+                    cancelled,
+                    completed: false,
+                })
+            }
         }
     }
 
@@ -219,35 +268,98 @@ impl Supervisor {
     }
 }
 
-fn prepare(work: ColumnWork) -> io::Result<Option<(Init, Location, Arc<AtomicBool>)>> {
-    if work.is_dir || work.source.as_local_path().is_none() {
-        return Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "extension columns require a local regular file",
-        ));
-    }
+enum PreparedWork {
+    Queued(Init, Location, Arc<AtomicBool>),
+    Immediate(PreparedResult),
+}
+
+fn prepare(work: ContributionWork) -> io::Result<PreparedWork> {
     let mut selected = None;
     for provider in &work.package.manifest.providers {
         if let Some(column) = provider
             .columns
             .iter()
-            .find(|column| column.header.id == work.contribution)
+            .find(|item| item.header.id == work.contribution)
         {
-            selected = Some((provider, column));
+            let field = provider
+                .fields
+                .iter()
+                .find(|field| field.id == column.field)
+                .ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidData, "column field is undeclared")
+                })?;
+            selected = Some((
+                provider,
+                &column.header,
+                Request::Column {
+                    field: field.id.as_str().to_owned(),
+                    field_type: field_type(field.kind),
+                },
+            ));
+            break;
+        }
+        if let Some(properties) = provider
+            .properties
+            .iter()
+            .find(|item| item.header.id == work.contribution)
+        {
+            let fields = properties
+                .fields
+                .iter()
+                .map(|id| {
+                    let field = provider
+                        .fields
+                        .iter()
+                        .find(|field| field.id == *id)
+                        .ok_or_else(|| {
+                            io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                "Properties field is undeclared",
+                            )
+                        })?;
+                    Ok(FieldSchema {
+                        field: field.id.as_str().to_owned(),
+                        field_type: field_type(field.kind),
+                    })
+                })
+                .collect::<io::Result<Vec<_>>>()?;
+            if fields.is_empty() || fields.len() > super::manifest::MAX_FIELDS_PER_PROVIDER {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Properties contribution has an invalid field count",
+                ));
+            }
+            selected = Some((provider, &properties.header, Request::Properties { fields }));
+            break;
+        }
+        if let Some(viewer) = provider
+            .viewers
+            .iter()
+            .find(|item| item.header.id == work.contribution)
+        {
+            selected = Some((
+                provider,
+                &viewer.header,
+                Request::Viewer {
+                    representation: viewer.representation.clone(),
+                    version: viewer.version,
+                },
+            ));
             break;
         }
     }
-    let Some((provider, column)) = selected else {
+    let Some((provider, header, request)) = selected else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "package does not declare this column contribution",
+            "package does not declare this contribution",
         ));
     };
-    let field = provider
-        .fields
-        .iter()
-        .find(|field| field.id == column.field)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "column field is undeclared"))?;
+    if work.is_dir || work.source.as_local_path().is_none() {
+        return Ok(PreparedWork::Immediate(PreparedResult::unavailable(
+            &request,
+            "extension contributions require a local regular file",
+        )));
+    }
     let context = ApplicabilityContext {
         subject: Subject::Item(work.source.clone()),
         name: work.name.clone(),
@@ -255,30 +367,50 @@ fn prepare(work: ColumnWork) -> io::Result<Option<(Init, Location, Arc<AtomicBoo
         formats: Vec::new(),
         context_identity: None,
     };
-    if !column.header.applicability.matches(&context) {
-        return Ok(None);
+    if !header.applicability.matches(&context) {
+        return Ok(PreparedWork::Immediate(PreparedResult::unavailable(
+            &request,
+            "captured source facts do not match this contribution",
+        )));
     }
-    let field_type = match field.kind {
-        FieldKind::Text => FieldType::Text,
-        FieldKind::Quantity(Unit::Seconds) => FieldType::Quantity(super::protocol::Unit::Seconds),
-        FieldKind::Quantity(Unit::Metres) => FieldType::Quantity(super::protocol::Unit::Metres),
-    };
+    if let Request::Viewer {
+        representation,
+        version,
+    } = &request
+        && (representation != "fyle.scene" || *version != 1)
+    {
+        return Ok(PreparedWork::Immediate(PreparedResult::unavailable(
+            &request,
+            "viewer representation is not supported",
+        )));
+    }
     let init = Init {
         package: work.package.manifest.id.as_str().to_owned(),
         provider: provider.id.as_str().to_owned(),
-        contribution: column.header.id.as_str().to_owned(),
-        field: field.id.as_str().to_owned(),
-        field_type,
+        contribution: work.contribution.as_str().to_owned(),
+        request,
         demand: Demand {
-            max_bytes: column.header.demand.max_bytes,
-            max_items: column.header.demand.max_items,
+            max_bytes: header.demand.max_bytes,
+            max_items: header.demand.max_items,
         },
         name: work.name,
         is_dir: work.is_dir,
         source_handle: 1,
         script: work.package.source.clone(),
     };
-    Ok(Some((init, work.source, work.generation_cancelled)))
+    Ok(PreparedWork::Queued(
+        init,
+        work.source,
+        work.generation_cancelled,
+    ))
+}
+
+fn field_type(kind: FieldKind) -> FieldType {
+    match kind {
+        FieldKind::Text => FieldType::Text,
+        FieldKind::Quantity(Unit::Seconds) => FieldType::Quantity(super::protocol::Unit::Seconds),
+        FieldKind::Quantity(Unit::Metres) => FieldType::Quantity(super::protocol::Unit::Metres),
+    }
 }
 
 fn request_shutdown(state: &State) {
@@ -288,8 +420,9 @@ fn request_shutdown(state: &State) {
         .lock()
         .expect("extension queue mutex is not poisoned");
     for job in queue.cancel_all() {
-        let _ = job.work.response.send(ResultState::Failed(
-            "extension supervisor shut down before the request started".into(),
+        let _ = job.work.response.send(PreparedResult::failed(
+            &job.work.init.request,
+            "extension supervisor shut down before the request started",
         ));
     }
     state.wake.notify_all();
@@ -327,7 +460,7 @@ fn supervisor_loop(state: Arc<State>) {
             || generation_cancelled.load(Ordering::Acquire)
             || state.closing.load(Ordering::Acquire)
         {
-            ResultState::Failed("extension request was cancelled".into())
+            PreparedResult::failed(&pending.init.request, "extension request was cancelled")
         } else {
             process::execute(
                 &pending,
@@ -365,3 +498,5 @@ impl Drop for FinishGuard {
         self.0.finished_wake.notify_all();
     }
 }
+#[cfg(test)]
+mod sensor;

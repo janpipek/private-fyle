@@ -7,9 +7,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::Pending;
-use crate::data_providers::{ResultState, Value};
 use crate::extensions::broker::SourceBroker;
 use crate::extensions::protocol::{self, HostFrame, HostMessage, ReadResult, WorkerMessage};
+use crate::extensions::results::PreparedResult;
 
 #[cfg(target_os = "linux")]
 mod transport;
@@ -31,18 +31,23 @@ pub fn execute(
     cancelled: impl Fn() -> bool,
     launcher: &Arc<dyn Fn() -> io::Result<Command> + Send + Sync>,
     fixture_protocol_stderr: bool,
-) -> ResultState<Value> {
+) -> PreparedResult {
     #[cfg(target_os = "linux")]
     {
         let result = launcher().and_then(|command| {
             execute_command(pending, cancelled, command, fixture_protocol_stderr)
         });
-        result.unwrap_or_else(|error| ResultState::Failed(bounded_reason(&error.to_string())))
+        result.unwrap_or_else(|error| {
+            PreparedResult::failed(&pending.init.request, bounded_reason(&error.to_string()))
+        })
     }
     #[cfg(not(target_os = "linux"))]
     {
         let _ = (pending, cancelled, launcher, fixture_protocol_stderr);
-        ResultState::Failed("extension workers are unsupported on this platform".into())
+        PreparedResult::failed(
+            &pending.init.request,
+            "extension workers are unsupported on this platform",
+        )
     }
 }
 
@@ -69,7 +74,7 @@ fn execute_command(
     cancelled: impl Fn() -> bool,
     mut command: Command,
     fixture_protocol_stderr: bool,
-) -> io::Result<ResultState<Value>> {
+) -> io::Result<PreparedResult> {
     if cancelled() {
         return Err(io::Error::new(
             io::ErrorKind::Interrupted,
@@ -155,7 +160,7 @@ fn supervise(
     input: std::process::ChildStdin,
     mut broker: SourceBroker,
     context: RunContext<'_>,
-) -> io::Result<ResultState<Value>> {
+) -> io::Result<PreparedResult> {
     let (mut protocol_pipe, mut diagnostic_pipe) = pipes;
     let init = context.init;
     let deadline = context.deadline;
@@ -170,7 +175,7 @@ fn supervise(
     let mut protocol_eof = false;
     let mut diagnostic_eof = false;
     let mut input = Some(input);
-    let mut terminal: Option<ResultState<Value>> = None;
+    let mut terminal: Option<PreparedResult> = None;
     let mut exit_status: Option<ExitStatus> = None;
 
     loop {
@@ -265,8 +270,9 @@ fn supervise(
                         };
                         append_host_frame(&mut outgoing, HostMessage::ReadResult(response))?;
                     }
-                    WorkerMessage::Result(result) => {
-                        terminal = Some(protocol::validate_result(init, &result)?);
+                    WorkerMessage::Result { output: result } => {
+                        terminal =
+                            Some(crate::extensions::results::prepare(result, &init.request)?);
                     }
                 }
             }
@@ -410,6 +416,29 @@ max_items = 10
         Supervisor::with_launcher(launcher(mode), true).expect("fixture supervisor starts")
     }
 
+    #[test]
+    fn legacy_column_submit_rejects_other_presentation_before_launch() {
+        let temp = TempDir::new().expect("temporary column fixture directory");
+        let mut work = work(temp.path(), "source.bin", normal_script());
+        work.contribution = ContributionId::new("extension.sensor.reader.summary")
+            .expect("summary contribution ID is valid");
+        let launches = Arc::new(AtomicUsize::new(0));
+        let count = launches.clone();
+        let supervisor = Supervisor::with_launcher(
+            Arc::new(move || {
+                count.fetch_add(1, Ordering::SeqCst);
+                Err(io::Error::other("column API must reject before launch"))
+            }),
+            true,
+        )
+        .expect("fixture supervisor starts");
+        assert!(supervisor.submit(work).is_err());
+        assert_eq!(launches.load(Ordering::SeqCst), 0);
+        supervisor
+            .shutdown()
+            .expect("fixture supervisor shuts down");
+    }
+
     fn ready_pid(path: &std::path::Path) -> u32 {
         let started = Instant::now();
         loop {
@@ -501,10 +530,14 @@ max_items = 10
                 let mut output = stderr.lock();
                 let frame = protocol::WorkerFrame {
                     version: protocol::VERSION,
-                    message: protocol::WorkerMessage::Result(protocol::ContributionResult {
-                        field: None,
-                        state: protocol::OutputState::Absent,
-                    }),
+                    message: protocol::WorkerMessage::Result {
+                        output: protocol::ContributionOutput::Column(
+                            protocol::ContributionResult {
+                                field: None,
+                                state: protocol::OutputState::Absent,
+                            },
+                        ),
+                    },
                 };
                 protocol::write_worker_frame(&mut output, &frame).unwrap();
                 protocol::write_worker_frame(&mut output, &frame).unwrap();
@@ -520,10 +553,14 @@ max_items = 10
                     &mut output,
                     &protocol::WorkerFrame {
                         version: protocol::VERSION,
-                        message: protocol::WorkerMessage::Result(protocol::ContributionResult {
-                            field: None,
-                            state: protocol::OutputState::Absent,
-                        }),
+                        message: protocol::WorkerMessage::Result {
+                            output: protocol::ContributionOutput::Column(
+                                protocol::ContributionResult {
+                                    field: None,
+                                    state: protocol::OutputState::Absent,
+                                },
+                            ),
+                        },
                     },
                 )
                 .unwrap();

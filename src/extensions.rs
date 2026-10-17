@@ -11,6 +11,8 @@ pub mod manifest;
 pub mod model;
 /// Bounded wire schema and frame codec for supervised extension requests.
 pub mod protocol;
+/// Typed result values validated against the selected manifest contribution.
+pub mod results;
 /// Supervised single-request Lua worker and bounded process transport.
 pub mod supervisor;
 /// Restricted Lua callback execution used only by the reserved helper mode.
@@ -18,7 +20,7 @@ pub mod worker;
 
 pub use loading::{LoadReport, Package, PackageDiagnostic, load_enabled};
 pub use manifest::PackageId;
-pub use supervisor::{ColumnWork, Supervisor, Ticket};
+pub use supervisor::{ColumnWork, ContributionTicket, ContributionWork, Supervisor, Ticket};
 
 /// Dispatches the reserved helper invocation before application startup touches settings or GPUI.
 pub fn run_worker_if_requested() {

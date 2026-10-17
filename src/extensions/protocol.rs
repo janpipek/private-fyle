@@ -5,7 +5,7 @@ use std::io::{self, Read, Write};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 /// Protocol version used by the helper and host.
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 /// Maximum JSON payload in one frame.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 /// Maximum cumulative worker-to-host frame bytes, including length prefixes.
@@ -50,7 +50,10 @@ pub enum WorkerMessage {
     /// Requests a bounded read from the selected source handle.
     Read(ReadRequest),
     /// Completes the selected contribution exactly once.
-    Result(ContributionResult),
+    Result {
+        /// Prepared output for the selected presentation contribution.
+        output: ContributionOutput,
+    },
 }
 
 /// Initial package and source context sent to a fresh helper.
@@ -61,12 +64,10 @@ pub struct Init {
     pub package: String,
     /// Provider owning the selected contribution.
     pub provider: String,
-    /// Selected column contribution.
+    /// Selected contribution.
     pub contribution: String,
-    /// Exact field ID bound by that contribution.
-    pub field: String,
-    /// Expected field schema.
-    pub field_type: FieldType,
+    /// Presentation-specific request contract from the validated manifest.
+    pub request: Request,
     /// Declared acquisition limits.
     pub demand: Demand,
     /// Captured display name, never a lookup instruction.
@@ -77,6 +78,41 @@ pub struct Init {
     pub source_handle: u32,
     /// Bounded package entry source.
     pub script: String,
+}
+
+/// One declared presentation contract selected by the host.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Request {
+    /// One typed column cell.
+    Column {
+        /// Exact field ID bound by the column.
+        field: String,
+        /// Expected field schema.
+        field_type: FieldType,
+    },
+    /// The exact manifest field set for one Properties section.
+    Properties {
+        /// Declared fields and their schemas, in manifest order.
+        fields: Vec<FieldSchema>,
+    },
+    /// One supported display-scene representation.
+    Viewer {
+        /// Representation name selected by the host.
+        representation: String,
+        /// Representation version selected by the host.
+        version: u32,
+    },
+}
+
+/// One declared semantic field and its expected wire schema.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FieldSchema {
+    /// Stable field identity.
+    pub field: String,
+    /// Expected type and unit.
+    pub field_type: FieldType,
 }
 
 /// Declared value type for the selected provider field.
@@ -150,6 +186,119 @@ pub struct ContributionResult {
     pub field: Option<String>,
     /// Terminal contribution state.
     pub state: OutputState,
+}
+
+/// One terminal result for the selected presentation kind.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    content = "output",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub enum ContributionOutput {
+    /// Existing single-value column result.
+    Column(ContributionResult),
+    /// Typed multi-field Properties section.
+    Properties(PropertiesOutput),
+    /// Bounded static extension scene.
+    Viewer(ViewerOutput),
+}
+
+/// One terminal Properties section result.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
+pub enum PropertiesOutput {
+    /// Exactly one field output for every declared field.
+    Ready {
+        /// Per-field state, normalized by the host to manifest order.
+        fields: Vec<FieldOutput>,
+    },
+    /// No fields apply to this source.
+    Absent,
+    /// The contribution does not support captured facts.
+    Unavailable {
+        /// Bounded reason.
+        reason: String,
+    },
+    /// Reading or validating the section failed.
+    Failed {
+        /// Bounded diagnostic.
+        reason: String,
+    },
+}
+
+/// One field result inside a Properties contribution.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FieldOutput {
+    /// Stable field ID from the manifest.
+    pub field: String,
+    /// Field value or independent terminal state.
+    pub state: FieldOutputState,
+}
+
+/// A typed field's terminal output state.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
+pub enum FieldOutputState {
+    /// A typed value with explicit completeness.
+    Ready {
+        /// Typed field value.
+        value: OutputValue,
+        /// Completeness claim for this field.
+        completeness: Completeness,
+    },
+    /// This declared field has no value.
+    Absent,
+    /// This field does not apply to the source.
+    Unavailable {
+        /// Bounded reason.
+        reason: String,
+    },
+    /// This field failed independently.
+    Failed {
+        /// Bounded diagnostic.
+        reason: String,
+    },
+}
+
+/// One terminal viewer result.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ViewerOutput {
+    /// A validated scene candidate with an explicit completeness claim.
+    Ready {
+        /// Untrusted scene DTO, validated again by the host.
+        scene: crate::preview_scene::SceneDto,
+        /// Whether the bounded scene is complete.
+        completeness: ViewerCompleteness,
+    },
+    /// No scene is available for the source.
+    Absent,
+    /// Captured facts do not support this viewer.
+    Unavailable {
+        /// Bounded reason.
+        reason: String,
+    },
+    /// Reading, conversion or scene validation failed.
+    Failed {
+        /// Bounded diagnostic.
+        reason: String,
+    },
+}
+
+/// Scene completeness excludes scalar lower-bound results.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ViewerCompleteness {
+    /// All requested scene elements are present.
+    Complete,
+    /// Scene output stopped at a documented limit.
+    Truncated {
+        /// Bounded reason.
+        reason: String,
+    },
 }
 
 /// Result state returned by one contribution.
@@ -331,18 +480,21 @@ pub fn validate_result(
     result: &ContributionResult,
 ) -> io::Result<crate::data_providers::ResultState<crate::data_providers::Value>> {
     use crate::data_providers::{Quantity, ResultState, Unit as ModelUnit, Value};
+    let Request::Column { field, field_type } = &init.request else {
+        return Err(invalid("column result requires a column request"));
+    };
 
     let state = match &result.state {
         OutputState::Ready {
             value,
             completeness,
         } => {
-            if result.field.as_deref() != Some(init.field.as_str()) {
+            if result.field.as_deref() != Some(field.as_str()) {
                 return Err(invalid(
                     "worker result field does not match selected column",
                 ));
             }
-            let value = match (init.field_type, value) {
+            let value = match (*field_type, value) {
                 (FieldType::Text, OutputValue::Text { value })
                     if value.len() <= MAX_RESULT_TEXT_BYTES =>
                 {
@@ -402,8 +554,8 @@ fn invalid(message: &str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::{
-        Completeness, ContributionResult, FieldType, Init, MAX_FRAME_BYTES, OutputState,
-        OutputValue, Unit, read_frame, validate_result, write_frame,
+        Completeness, ContributionOutput, ContributionResult, FieldType, Init, MAX_FRAME_BYTES,
+        OutputState, OutputValue, Request, Unit, read_frame, validate_result, write_frame,
     };
     use crate::data_providers::{ResultState, Unit as ModelUnit};
     use std::io::Cursor;
@@ -413,8 +565,10 @@ mod tests {
             package: "sensor".into(),
             provider: "extension.sensor.reader".into(),
             contribution: "extension.sensor.reader.distance".into(),
-            field: "extension.sensor.reader.metres".into(),
-            field_type: FieldType::Quantity(Unit::Metres),
+            request: Request::Column {
+                field: "extension.sensor.reader.metres".into(),
+                field_type: FieldType::Quantity(Unit::Metres),
+            },
             demand: super::Demand {
                 max_bytes: 100,
                 max_items: 10,
@@ -430,10 +584,12 @@ mod tests {
     fn frame_codec_roundtrips_and_rejects_invalid_truncated_and_oversize_frames() {
         let frame = super::WorkerFrame {
             version: super::VERSION,
-            message: super::WorkerMessage::Result(ContributionResult {
-                field: None,
-                state: OutputState::Absent,
-            }),
+            message: super::WorkerMessage::Result {
+                output: ContributionOutput::Column(ContributionResult {
+                    field: None,
+                    state: OutputState::Absent,
+                }),
+            },
         };
         let mut bytes = Vec::new();
         write_frame(&mut bytes, &frame).unwrap();
@@ -448,12 +604,15 @@ mod tests {
             ))
             .is_err()
         );
-        let extra_key = br#"{"version":1,"message":{"kind":"result","field":null,"state":{"kind":"absent"},"extra":true}}"#;
+        let extra_key = br#"{"version":2,"message":{"kind":"result","output":{"kind":"column","output":{"field":null,"state":{"kind":"absent"}}},"extra":true}}"#;
         let mut bytes = (extra_key.len() as u32).to_be_bytes().to_vec();
         bytes.extend_from_slice(extra_key);
         assert!(read_frame::<super::WorkerFrame, _>(&mut Cursor::new(bytes)).is_err());
         let mut too_large = frame.clone();
-        if let super::WorkerMessage::Result(result) = &mut too_large.message {
+        if let super::WorkerMessage::Result {
+            output: ContributionOutput::Column(result),
+        } = &mut too_large.message
+        {
             result.state = OutputState::Failed {
                 reason: "x".repeat(MAX_FRAME_BYTES),
             };
@@ -464,11 +623,13 @@ mod tests {
     #[test]
     fn checked_frame_entrypoints_reject_other_versions() {
         let frame = super::WorkerFrame {
-            version: 2,
-            message: super::WorkerMessage::Result(ContributionResult {
-                field: None,
-                state: OutputState::Absent,
-            }),
+            version: 3,
+            message: super::WorkerMessage::Result {
+                output: ContributionOutput::Column(ContributionResult {
+                    field: None,
+                    state: OutputState::Absent,
+                }),
+            },
         };
         let mut encoded = Vec::new();
         write_frame(&mut encoded, &frame).unwrap();
@@ -480,7 +641,7 @@ mod tests {
     fn result_validation_checks_field_type_unit_completeness_and_text_bounds() {
         let init = init();
         let ready = ContributionResult {
-            field: Some(init.field.clone()),
+            field: Some("extension.sensor.reader.metres".into()),
             state: OutputState::Ready {
                 value: OutputValue::Quantity {
                     value: 0.0,

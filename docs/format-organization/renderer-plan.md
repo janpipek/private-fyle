@@ -57,8 +57,12 @@ this proof and are excluded.
 
 The model implementation's DTO/getters are the source of truth for exact Rust
 names. Table column IDs are unique within their table; each nonempty cell must
-match its column type/unit. Empty cells use `None`, not a fabricated zero.
-Quantities remain typed until native presentation formats them.
+match its column type/unit. Empty DTO cells use `None`/JSON `null`, not a
+fabricated zero. Lua encodes a blank cell as the explicit boolean `false`;
+`true` is invalid. Lua rows must be dense arrays with exactly the declared
+column count. Reject nil holes, omitted trailing cells and extra/noninteger
+keys rather than filling them implicitly. Quantities remain typed until native
+presentation formats them.
 
 | Cumulative scene limit | Value |
 | --- | --- |
@@ -161,6 +165,17 @@ existing local-regular-file branch. Remote/archive inspection remains listing
 only, even after View downloads/extracts the item. Existing filesystem, EXIF and
 native additional groups survive any package failure.
 
+The adapter in `extensions/properties.rs` exposes a cloneable `Handle` created
+from `Arc<Package>`, contribution ID and the shared `Supervisor`. Its
+`read(&Selection, &Arc<AtomicBool>) -> io::Result<PreparedSection>` receives the
+original selection, checks cancellation before submission and after waiting,
+and accepts only a Properties response. Nonlocal/directory selections produce
+an unavailable section without starting a helper. `failure(&io::Error)` builds
+an independent failed section; orchestration propagates Interrupted instead.
+`PreparedSection { id, label, result: PropertiesResult }` remains typed.
+The existing Properties registry owns the immutable handle vector; Inspection
+retains its prepared sections alongside native groups.
+
 Keep native `PropertyGroup`/`PropertyValue` models intact. Attach separate typed
 extension sections to `Inspection`: contribution ID, manifest label and
 `PropertiesResult`. Field labels can humanize the last field-ID segment; the
@@ -168,6 +183,11 @@ current field declaration has no label key. Format typed values only in the
 view, preserving partial/lower-bound markers and per-field diagnostics. Hide
 absent/unavailable sections; show failed sections and failed fields beside
 readable siblings. Reuse native selectable-text behavior.
+The new view module accepts a native text factory supplied by its parent,
+`render(section, cx, text_factory) -> Option<AnyElement>`, to share Properties'
+document order without exposing its private selection helper. This host-owned
+factory is unrelated to executable package callbacks. Partial reasons are
+selectable visible text, not solely hover diagnostics.
 
 Preview requires an explicit source request carrying readable path, original
 identity and cancellation. A path-only wrapper is native-only. Package readers

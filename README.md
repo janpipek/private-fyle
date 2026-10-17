@@ -601,6 +601,10 @@ catalog from enabled packages; callbacks execute only through background
 metadata demand. Ready values retain completeness through the cache and pure
 cell projection. Main retains the shared supervisor and shuts it down after
 GPUI exits. Existing Tools plugins retain their separate behavior; package
+`extensions/results.rs` prepares separate typed column, Properties field and
+scene results. The internal protocol is version 2; existing column Lua source
+remains compatible. Both the worker and host validate scenes, and Properties
+retains per-field completeness and independent failures. Application
 Properties/View adapters remain later work. `preview_scene` defines a pure,
 validated static scene model for that next slice: stacks, selectable text, typed
 tables and bounded paths, with private construction after schema/resource checks.

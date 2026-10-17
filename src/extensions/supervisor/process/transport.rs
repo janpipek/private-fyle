@@ -184,16 +184,19 @@ fn invalid(message: &str) -> io::Error {
 mod tests {
     use super::FrameDecoder;
     use crate::extensions::protocol::{
-        self, ContributionResult, MAX_FRAME_BYTES, OutputState, VERSION, WorkerFrame, WorkerMessage,
+        self, ContributionOutput, ContributionResult, MAX_FRAME_BYTES, OutputState, VERSION,
+        WorkerFrame, WorkerMessage,
     };
 
     fn absent_frame() -> WorkerFrame {
         WorkerFrame {
             version: VERSION,
-            message: WorkerMessage::Result(ContributionResult {
-                field: None,
-                state: OutputState::Absent,
-            }),
+            message: WorkerMessage::Result {
+                output: ContributionOutput::Column(ContributionResult {
+                    field: None,
+                    state: OutputState::Absent,
+                }),
+            },
         }
     }
 
@@ -230,15 +233,20 @@ mod tests {
     fn decoder_accepts_a_maximum_frame_coalesced_with_the_next_prefix() {
         let mut maximum = WorkerFrame {
             version: VERSION,
-            message: WorkerMessage::Result(ContributionResult {
-                field: None,
-                state: OutputState::Failed {
-                    reason: String::new(),
-                },
-            }),
+            message: WorkerMessage::Result {
+                output: ContributionOutput::Column(ContributionResult {
+                    field: None,
+                    state: OutputState::Failed {
+                        reason: String::new(),
+                    },
+                }),
+            },
         };
         let base = serde_json::to_vec(&maximum).expect("base worker frame serializes");
-        let WorkerMessage::Result(result) = &mut maximum.message else {
+        let WorkerMessage::Result {
+            output: ContributionOutput::Column(result),
+        } = &mut maximum.message
+        else {
             unreachable!("absent frame has a result message")
         };
         result.state = OutputState::Failed {
