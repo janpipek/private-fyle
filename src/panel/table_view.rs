@@ -11,7 +11,7 @@ use gpui_kit::component::{ActiveTheme as _, Icon, IconName, h_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::columns::ColumnKind;
+use crate::columns::{Catalog, ColumnId, ColumnKind};
 use crate::context_menu::{self, ContextMenuBuilder};
 use crate::entry::Sort;
 use crate::fs_ops;
@@ -25,9 +25,10 @@ use super::{PanelDrag, drag_ghost, metadata, native_drag_payload};
 /// Adapts a [`Folder`] to gpui-component's table.
 pub struct FileTable {
     folder: Entity<Folder>,
-    columns: Vec<ColumnKind>,
+    columns: Vec<ColumnId>,
+    catalog: Arc<Catalog>,
     metadata: Entity<metadata::MetadataState>,
-    git: Option<Arc<git_status::Status>>,
+    git: Option<Arc<git_status::Snapshot>>,
     context_menu: Option<ContextMenuBuilder>,
     focus: Option<FocusHandle>,
     context_row: Rc<Cell<Option<usize>>>,
@@ -38,13 +39,15 @@ impl FileTable {
     /// Creates a list adapter sharing the panel's folder, metadata and drop target.
     pub fn new(
         folder: Entity<Folder>,
-        columns: Vec<ColumnKind>,
+        columns: Vec<ColumnId>,
+        catalog: Arc<Catalog>,
         metadata: Entity<metadata::MetadataState>,
         drop_row: Rc<Cell<Option<usize>>>,
     ) -> Self {
         Self {
             folder,
             columns,
+            catalog,
             metadata,
             git: None,
             context_menu: None,
@@ -55,18 +58,18 @@ impl FileTable {
     }
 
     /// Visible columns in display order.
-    pub fn columns(&self) -> &[ColumnKind] {
+    pub fn columns(&self) -> &[ColumnId] {
         &self.columns
     }
 
     /// Replaces the visible columns; the panel shell refreshes the table.
-    pub fn set_columns(&mut self, columns: Vec<ColumnKind>) {
+    pub fn set_columns(&mut self, columns: Vec<ColumnId>) {
         self.columns = columns;
     }
 
     /// Installs the Git status computed by the panel's background worker.
-    pub fn set_git_status(&mut self, status: Option<git_status::Status>) {
-        self.git = status.map(Arc::new);
+    pub fn set_git_snapshot(&mut self, snapshot: Option<Arc<git_status::Snapshot>>) {
+        self.git = snapshot;
     }
 
     /// Shares the panel's command builder and focus for row context menus.
@@ -160,9 +163,10 @@ impl TableDelegate for FileTable {
     }
 
     fn column(&self, col_ix: usize, cx: &App) -> Column {
-        let kind = self.columns[col_ix];
-        let mut column = Column::new(kind.id(), kind.title()).width(px(kind.width()));
-        if let Some(key) = kind.sort_key() {
+        let descriptor = self.catalog.display_descriptor(&self.columns[col_ix]);
+        let mut column = Column::new(descriptor.id.as_str().to_owned(), descriptor.title)
+            .width(px(descriptor.width));
+        if let Some(key) = descriptor.sort_key {
             let sort = self.folder.read(cx).sort();
             column = column.sort(match sort.key == key {
                 true if sort.descending => ColumnSort::Descending,
@@ -170,7 +174,7 @@ impl TableDelegate for FileTable {
                 false => ColumnSort::Default,
             });
         }
-        if kind == ColumnKind::Size {
+        if descriptor.builtin == Some(ColumnKind::Size) {
             column.text_right()
         } else {
             column
@@ -185,7 +189,11 @@ impl TableDelegate for FileTable {
         cx: &mut Context<TableState<Self>>,
     ) {
         // The table's "unsorted" state means the default order: name, ascending.
-        let Some(key) = self.columns[col_ix].sort_key() else {
+        let Some(key) = self
+            .catalog
+            .descriptor(&self.columns[col_ix])
+            .and_then(|item| item.sort_key)
+        else {
             return;
         };
         let sort = match sort {
@@ -208,7 +216,66 @@ impl TableDelegate for FileTable {
         _: &mut Window,
         cx: &mut Context<TableState<Self>>,
     ) -> impl IntoElement {
-        let kind = self.columns[col_ix];
+        let id = self.columns[col_ix].clone();
+        let Some(kind) = id.builtin() else {
+            let (location, name, is_dir, is_parent, generation, uid, link) = {
+                let folder = self.folder.read(cx);
+                let Some(row) = folder.entries().get(row_ix) else {
+                    return div().into_any_element();
+                };
+                (
+                    row.location.clone(),
+                    row.entry.name.clone(),
+                    row.is_dir,
+                    row.is_parent,
+                    folder.generation(),
+                    row.entry.attrs.uid,
+                    row.entry.link.clone(),
+                )
+            };
+            let Some(path) = location.as_local_path().filter(|_| !is_parent) else {
+                return div().into_any_element();
+            };
+            let path = path.to_path_buf();
+            let applies = self.catalog.provider_applies(&id, &location, &name, is_dir);
+            let fields = applies
+                .then_some(metadata::Field::Provider(id.clone()))
+                .into_iter()
+                .collect::<Vec<_>>();
+            let display = self
+                .metadata
+                .read(cx)
+                .get(&path, generation)
+                .and_then(|values| values.provider_cell(&id))
+                .map(crate::columns::cell::project)
+                .unwrap_or_default();
+            self.metadata.update(cx, |metadata, cx| {
+                metadata.request_row(
+                    metadata::RowRequest {
+                        location,
+                        generation,
+                        fields,
+                        uid,
+                        link,
+                        row: Some(metadata::model::CapturedRow { name, is_dir }),
+                    },
+                    cx,
+                )
+            });
+            let mut cell = div()
+                .id(("provider", row_ix))
+                .w_full()
+                .h_full()
+                .truncate()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(display.text);
+            if let Some(tip) = display.tooltip {
+                let tip = format!("{}: {tip}", path.display());
+                cell = cell.tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx));
+            }
+            return cell.into_any_element();
+        };
         if matches!(
             kind,
             ColumnKind::Owner
@@ -236,7 +303,9 @@ impl TableDelegate for FileTable {
                 return div().into_any_element();
             };
             let path = path.to_path_buf();
-            let fields = metadata::fields_for_row(&self.columns, &name, is_dir, uid);
+            let builtin_columns: Vec<_> =
+                self.columns.iter().filter_map(ColumnId::builtin).collect();
+            let fields = metadata::fields_for_row(&builtin_columns, &name, is_dir, uid);
             let text = self
                 .metadata
                 .read(cx)
@@ -245,7 +314,17 @@ impl TableDelegate for FileTable {
                 .unwrap_or_default()
                 .to_owned();
             self.metadata.update(cx, |metadata, cx| {
-                metadata.request(location, generation, &fields, uid, link, cx);
+                metadata.request_row(
+                    metadata::RowRequest {
+                        location,
+                        generation,
+                        fields,
+                        uid,
+                        link,
+                        row: Some(metadata::model::CapturedRow { name, is_dir }),
+                    },
+                    cx,
+                );
             });
             let theme = cx.theme();
             return div()
@@ -300,7 +379,7 @@ impl TableDelegate for FileTable {
         } else {
             theme.foreground
         };
-        match self.columns[col_ix] {
+        match kind {
             ColumnKind::Name => {
                 let expanded = folder.is_expanded(&row.location);
                 let icon = glyph(icons::icon_for(
@@ -352,7 +431,7 @@ impl TableDelegate for FileTable {
                             .truncate()
                             .when(row.hit_line.is_some(), |d| d.flex_none())
                             // The extension has its own column when Ext is shown.
-                            .child(if self.columns.contains(&ColumnKind::Ext) {
+                            .child(if self.columns.contains(&ColumnId::from(ColumnKind::Ext)) {
                                 entry.stem().to_string()
                             } else {
                                 entry.name.clone()

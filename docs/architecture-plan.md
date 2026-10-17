@@ -117,6 +117,65 @@ EXIF fallback parses selected JPEG bytes without writing to that cache.
 
 ### Preview, Properties and tool registries
 
+The [provider migration](format-organization/implementation-plan.md) provides
+pure contribution contracts in `data_providers` and a GPX/FIT provider-owned
+bundle consumed by both Properties and View. `data_providers/geo.rs` prepares
+typed quantities from the bounded native reader, preserving per-value origin
+and completeness; existing feature adapters still own presentation. These
+contracts do not replace the separate feature registries. The column catalog
+now resolves persisted IDs to built-ins, registered native providers or
+unavailable placeholders, keeping specialized built-in rendering/sorting and
+the existing bounded metadata queue. Provider columns are display-only. Its
+[progress log](format-organization/progress.md) records the implemented boundary
+and next slice; Tools retains its separate planning/execution contract.
+
+`extensions/manifest.rs` validates versioned package declarations against those
+contracts before script access. `extensions/loading.rs` loads only explicitly
+named packages, bounds manifest/script bytes, checks canonical package-local
+paths and retains structured per-package errors. It stores script text without
+evaluation. `extensions/catalog.rs` loads explicitly enabled config packages
+before GPUI starts and prepares immutable columns, Properties providers and
+viewer handles from one package snapshot and shared supervisor. Startup diagnostics retain native paths and I/O errors until main
+formats them for the status line. Unavailable saved IDs remain removable
+placeholders. `extensions/properties.rs` retains typed independent field results;
+`extensions/preview.rs` grants package access only to the exact original local
+regular-file identity. Remote/archive materialization never grants that access.
+`extensions/protocol.rs` defines typed bounded frames and field/completeness
+validation; `results.rs` retains presentation-specific prepared values and
+completeness. Internal protocol v2 preserves the existing column Lua API.
+`broker.rs` owns the selected native regular file and charges byte
+and call budgets; `model.rs` owns FIFO admission and cancellation while keeping
+active occupancy until explicit cleanup. `extensions/worker.rs` evaluates only
+the requested declared callback under Lua allocation/instruction limits, with
+strict result schemas and no ambient file/process/module APIs. The Linux
+supervisor owns one child at a time and pumps nonblocking pipes, including Init
+writes and post-result exit, under cancellation/deadlines. Child cleanup precedes
+slot release. The reserved same-executable helper dispatch runs before settings
+or GPUI. Main retains the shared supervisor and explicitly shuts it down after
+the event loop returns. Column callbacks preserve result completeness; a pure
+`columns/cell.rs` projection prepares partial/lower-bound text and hover reasons.
+Properties keeps native groups and extension sections separate under its existing
+cancellable session. Preview retains specialized built-in priority, then tries
+package/contribution IDs in deterministic order before generic text/binary.
+Absent/unavailable viewers decline; failures remain visible diagnostics.
+`preview/session.rs` captures original identity and owns explicit full-load
+cancellation on replacement, reload, suspension and drop. A path-only preview
+call remains native-only. `preview_scene` validates bounded static layout,
+selectable text, typed tables and paths before `preview_scene_view` renders them;
+rendering performs no I/O or Lua execution.
+
+The contextual Git proof uses one application-owned `data_providers/git::Service`
+for the existing native column and `properties/git` adapter. Both consume the
+provider's validated contribution definition. Pure scoped epochs, subscriber
+leases and a column request model replace the former panel-specific lifecycle;
+Properties captures context separately from source selection. Listing starts
+invalidate local query context and proactively resubscribe visible consumers;
+ancestor fallback also invalidates its actual scope. `git_status` retains the
+Git executable and native status precedence while bounding process output,
+deadline and decoded path index. Cancellation reaps before the shared slot is
+released; main waits for normal-exit shutdown. This repository-specific sharing
+does not introduce a universal cache. See [the implementation boundary](format-organization/git-plan.md).
+
 Keep three domain-specific registries with the same basic extension shape:
 providers or tools register in order, expose a predicate for applicability, and
 return plain model data or an action. Do not introduce a universal registry
@@ -134,7 +193,7 @@ Each feature owns its matching and execution contract.
 
 Columns and Properties remain separate presentation contracts. When both need
 the same format fact, share the semantic reader and stable fact identity, then
-map that fact into the fixed column catalog or the richer Properties groups at
+map that fact into column descriptors or the richer Properties groups at
 each consumer. Do not infer columns automatically from arbitrary property
 groups.
 

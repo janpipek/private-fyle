@@ -9,6 +9,11 @@ implementation. Keep unfinished follow-ups here; move completed items to
 **Done**. **Later** holds deferred goals, and **Dropped** records decisions
 not to pursue an item.
 
+- [ ] Data-provider migration follow-up: review the completed sensor and Git
+      proofs (slice 7) before choosing further built-in migrations (slice 8).
+      Follow the [implementation plan](docs/format-organization/implementation-plan.md)
+      and [handoff log](docs/format-organization/progress.md). New metadata
+      sorting remains a separate design task; extension columns are display-only.
 - [ ] Menus and selection, remaining parts: output/history in Tools.
       Implement missing actions as separate features.
 - [ ] Idea: replace the Git status column's `git` subprocess with a Rust
@@ -142,8 +147,99 @@ not to pursue an item.
 - [ ] The column header should be editable, such as + icon to add a column,
       right-click to show a menu etc.
 - [ ] ID3 properties for audio files.
+- [ ] Properties for RPM, AppImage and DEB packages: show package/application
+      metadata through bounded readers. Decide the fields and parsing approach
+      for each format before implementation.
+- [ ] Show extended attributes (xattrs) in Properties, including their names
+      and values through bounded local reads. The existing xattrs column shows
+      names; reuse its native reader where appropriate and represent binary or
+      truncated values explicitly.
 
 ## Done
+
+- [x] Data-provider/contribution initial delivery (slices 1–6): shared contracts,
+      GPX/FIT adapter, extensible display-only columns, explicitly enabled
+      supervised Lua packages, and the sensor Properties/column/custom-viewer
+      proof. Contextual Git contributes shared status snapshots to columns and
+      Properties. Both proofs are implemented and verified; broader migrations
+      remain subject to the open proof review. See the
+      [implementation plan](docs/format-organization/implementation-plan.md).
+
+- [x] Data-provider migration, slice 6: share bounded contextual Git snapshots
+      between the existing status column and a new local Git Properties group.
+      Capture scope/refresh revisions separately from file metadata; preserve
+      status priorities and native paths, independent cancellation, stale-result
+      rejection and process cleanup. Explicit refresh/listing reloads invalidate
+      context; continuous watching and a Git library replacement stay deferred.
+      See the [Git boundary](docs/format-organization/git-plan.md) and
+      [verification log](docs/format-organization/progress.md).
+
+- [x] Data-provider migration, slice 5: enabled local reader packages contribute
+      independent typed Properties sections and custom View scenes alongside
+      columns. Native code renders bounded selectable layouts, typed tables and
+      path graphs; original-source grants and explicit cancellation exclude
+      remote/archive copies and stale work. The sensor example and package-only
+      edits are verified in the running app. See the
+      [package guide](docs/extensions.md) and [handoff log](docs/format-organization/progress.md).
+
+- [x] Data-provider migration, slice 5 runtime: prepare separate typed
+      Properties field and viewer scene results through the shared supervised
+      worker. Validate child/host output independently, preserve column Lua
+      compatibility, and exercise the exact sensor package through all three
+      contribution APIs. Application Properties/View wiring remains in progress.
+
+- [x] Data-provider migration, slice 5 model: define validated static extension
+      scenes for stacks, selectable text, typed tables and path canvases, with
+      explicit schema, identity, geometry and aggregate resource bounds. Runtime
+      output and application rendering remain in progress.
+
+- [x] Data-provider migration, slice 4c: activate config-only packages through
+      explicit enabled IDs and register their display-only columns at startup.
+      Preserve typed completeness through background reads/cache; show partial
+      and lower-bound markers plus useful diagnostics. One shared supervisor
+      cleans up before normal app exit. Defaults, native sorting, unavailable
+      column selections and config comments remain intact. See the
+      [reader package guide](docs/extensions.md).
+
+- [x] Data-provider migration, slice 4b runtime: execute declared Lua column
+      readers in a headless helper with bounded allocation/instructions, file
+      brokerage, nonblocking Linux process supervision and cancellation/deadline
+      cleanup. Child reaping precedes slot release; app enablement/catalog
+      integration remains in slice 4c.
+
+- [x] Data-provider migration, slice 4b foundation: add bounded versioned
+      frames, typed field/completeness validation, retained-file byte/call
+      brokerage and queue/cancellation models. Lua execution and supervision
+      remain in progress; startup/catalog integration follows in 4c.
+
+- [x] Data-provider migration, slice 4a: validate versioned package manifests
+      and load bounded, unevaluated script text for explicitly named packages.
+      Enforce package-local paths and retain independent filesystem diagnostics.
+      App startup/settings integration and supervised execution remain open in
+      slice 4; see the [handoff log](docs/format-organization/progress.md).
+
+- [x] Data-provider migration, slice 3: persist extensible column IDs, preserve
+      unavailable selections across settings edits, and share a descriptor
+      catalog across dialog/table/background metadata. Native provider cells
+      use the existing bounded queue and validate typed results. New provider
+      columns are display-only; built-in columns/defaults/sorting are unchanged.
+      Package loading remains pending; see the
+      [handoff log](docs/format-organization/progress.md).
+
+- [x] Data-provider migration, slice 2: route GPX/FIT Properties and View
+      through one provider-owned contribution bundle and bounded native reader.
+      Duration/distance retain recorded/inferred provenance, typed units and
+      independent completeness/failure. Existing valid rendering, route outlines,
+      read limits, registry ordering and feature lifecycles are preserved.
+      See the [handoff log](docs/format-organization/progress.md).
+
+- [x] Data-provider migration, slice 1: add UI-independent provider-owned
+      contribution definitions, validated IDs and typed quantities, captured
+      applicability, independent result completeness, and source/context
+      freshness separate from UI generations. Sensor and contextual Git model
+      examples cover the first seams. Existing presentation registries and user
+      behavior are unchanged; see the
+      [handoff log](docs/format-organization/progress.md) for the next slice.
 
 - [x] Manage server remotes in a dialog from Go, Tools and Locations. Edit,
       add, remove, test and connect entries in `remotes.toml`; rclone remotes

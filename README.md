@@ -122,6 +122,26 @@ inspection cancellation. The stream analysis requests a 10 MB probe size
 and five-second analysis window. Video View still extracts a frame, while
 audio View shows format and tag details.
 
+Local entries in a Git working tree also show a Git Properties group with the
+repository root, queried panel directory, repository-relative selected path and
+status. The Git column and Properties share bounded snapshots for the same
+query scope and refresh epoch; directory marks keep their existing aggregation.
+“No changes reported” means Git returned no record for that path, including
+when it groups an ignored or untracked parent directory. Ctrl-R, listing reloads
+and operations refresh repository context even if the selected file is unchanged;
+there is no continuous Git watcher. Git remains an optional executable; failed
+queries appear independently in Properties. Remote and archive items never run
+these queries.
+
+On Linux, explicitly enabled [reader packages](docs/extensions.md) can add
+Properties sections and custom View layouts for local regular files. Sections
+retain independent field failures and partial/lower-bound measurements. Package
+viewers follow specialized built-ins and precede generic text/binary; they offer
+selectable text, typed tables and bounded native path graphs. Remote/archive
+copies do not authorize package inspection. The [sensor example](examples/extensions/sensor/README.md)
+demonstrates Properties, a display-only column and a custom graph without
+rebuilding fyle; restart after editing the package.
+
 Text in Properties, including labels, paths, values, table contents and errors,
 can be selected with the mouse and copied with Ctrl-C. When Properties text is
 selected, Ctrl-C copies it instead of yanking panel files. Changing the
@@ -156,6 +176,8 @@ independently for local regular files; remote and archive Properties continue
 to show listing facts only. Readers cap source files at 16 MiB and route outlines
 at 100,000 points. The FIT decoder validates the file CRC; its bounded decode
 call cannot be interrupted mid-file.
+Invalid duration or distance values show a field-level error while other
+readable facts and the route outline remain available.
 
 F3 previews XLSX, XLSM, XLS, XLSB and ODS workbooks as tables using the pure-Rust
 `calamine` reader (no external programs). One sheet shows at a time with
@@ -254,6 +276,13 @@ names leave out their extension
 and SELinux values load for visible
 local rows in the background; remote and archive locations are never treated
 as native paths for these fields.
+Saved column IDs that are unavailable in the current build remain in settings
+and show blank cells. Columns… lists them with their ID and an unavailable
+explanation; changing other columns preserves them, while unchecking one removes
+it. On Linux, explicitly enabled [reader packages](docs/extensions.md) can add
+columns for local regular files. Partial values show `…` and lower bounds `≥`;
+hover explains partial values and blank failed/unavailable cells. These columns
+are display-only. Built-in sorting and default columns are unchanged.
 
 Windows: ".." from a drive root lists all drives; files with the hidden
 attribute count as hidden.
@@ -323,6 +352,10 @@ Store apps. macOS associations are not read yet.
 All keys are optional; see [`config.example.toml`](config.example.toml) for
 every key with its default. Errors (including unknown keys) are shown in the
 status line and the defaults are used. Settings are read at startup.
+Linux reader packages live in the config directory's `extensions/<id>/` folders.
+`[extensions] enabled = []` is the default; adding IDs authorizes automatic
+read-time execution for selected columns, Properties and View. Package and enablement changes need
+a restart. See the [package example and execution contract](docs/extensions.md).
 The View menu's workspace layout choice is saved automatically in
 `[workspace] layout`.
 View › Custom Title Bar saves `window.custom_titlebar` (default `true`) for
@@ -565,6 +598,48 @@ dev container.
 This is the current module map. The
 [`architecture refactoring record`](docs/architecture-plan.md) explains the
 ownership boundaries and completed migration slices.
+The [data-provider implementation plan](docs/format-organization/implementation-plan.md)
+and [progress log](docs/format-organization/progress.md) track the contribution
+and extension migration. Its initial contracts live in `src/data_providers.rs`
+and `src/data_providers/`: provider-owned presentation definitions, validated
+IDs and quantities, captured applicability, result completeness and
+source/context freshness independent of UI generations. These contracts perform
+no I/O. `data_providers/geo.rs` owns the GPX/FIT contribution bundle and bounded
+native acquisition used by the existing Properties and View adapters. Its typed
+quantities retain recorded/inferred provenance and independent completeness;
+format readers remain under `formats/geo`. Each feature keeps its own registry,
+scheduling and rendering. `columns::Catalog` resolves persisted IDs to built-in,
+registered native-provider or unavailable descriptors; its native provider
+readers run through the existing metadata worker queue. `extensions` validates
+versioned manifests and loads bounded, unevaluated scripts for explicitly named
+packages, preserving per-package filesystem diagnostics. Its standalone Linux
+supervisor runs one Lua request at a time in the same executable's headless
+helper mode, with bounded source brokerage, protocol output, Lua allocation,
+instructions and wall time. Cancellation kills and reaps the helper before
+releasing its slot. Static startup preparation builds one immutable snapshot
+of feature registries from enabled packages; callbacks execute only through background
+feature demand. Ready values retain completeness through the cache and pure
+cell projection. Main retains the shared supervisor and shuts it down after
+GPUI exits. Existing Tools plugins retain their separate behavior.
+`extensions/results.rs` prepares separate typed column, Properties field and
+scene results. The internal protocol is version 2; existing column Lua source
+remains compatible. Both the worker and host validate scenes, and Properties
+retains per-field completeness and independent failures. Application Properties
+and preview adapters use the same immutable enabled package snapshot and supervisor, while retaining separate selection, cancellation
+and stale-result policies. `preview_scene` defines validated stacks, selectable
+text, typed tables and bounded paths, with private construction after schema and
+resource checks; `preview_scene_view` draws them with native theme and selection
+behavior. Preview requests retain their original source and explicitly cancel
+package work on replacement, reload or suspension.
+
+`data_providers/git.rs` owns one contextual Git contribution definition, scoped
+refresh epochs, independent subscriber leases, the tested column request model
+and bounded shared snapshots. The column and `properties/git.rs` consume that
+same provider/service. `git_status.rs` owns native-path porcelain parsing and
+background process acquisition: Linux drains bounded nonblocking pipes under
+one three-second deadline, kills/reaps cancelled children and rejects incomplete
+or oversized output. Main waits for Git service shutdown after the GUI exits.
+See the [Git boundary](docs/format-organization/git-plan.md) for limits and policy.
 
 Model first: `src/model.rs` holds each panel's state (`Folder`: typed
 `PanelContent` with `Directory(Location)`, `Search { root, title }` and
@@ -664,18 +739,21 @@ Where things live (`src/`):
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
 | `entry.rs`, `model.rs`, `location.rs`, `location/`, `location_codec.rs` | Shared `Entry`/`Attrs` and pure sort rules; `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; pure local, remote and archive address semantics; versioned lossless location persistence |
 | `formats.rs`, `formats/` | Semantic EXIF fields, bounded RAW embedded-JPEG selection, Parquet footer validation/decoding, and shared bounded GPX/FIT route/activity readers used by Preview and Properties |
+| `data_providers.rs`, `data_providers/` | Pure contribution/identity contracts; `geo.rs` owns the GPX/FIT Properties/viewer bundle and typed quantities; `git.rs` owns contextual Git contributions, shared bounded snapshots, scope revisions and subscriber/request lifecycles; presentation adapters keep their existing selection, scheduling and rendering policies |
+| `extensions.rs`, `extensions/` | Static manifest/package validation, enabled-package Columns/Properties/View registration, typed protocol/result validation and retained-file brokerage; restricted Lua worker and shared Linux supervisor with bounded queue, cancellation/deadline and child reaping. Reserved helper dispatch precedes config/GUI startup; main owns normal-exit cleanup. |
 | `copy_path.rs` | UI-independent selection path policy: local native paths, provider supplied standard URLs and no archive pseudo-paths |
 | `listing.rs`, `listing/contracts.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; shared request/result values and bounded per-panel remote listing cache |
 | `panel.rs`, `panel/header_view.rs`, `panel/table_view.rs`, `panel/metadata.rs`, `panel/metadata/` | `FolderView` owns input/menu lifecycle, focus and list/icon coordination; `header_view.rs` renders breadcrumbs, location editing and header buttons; `table_view.rs` owns `FileTable` rendering and forwarding to `Folder`; `metadata/model.rs` owns bounded request/cache policy; `metadata/reader.rs` reads optional local values; `metadata.rs` schedules GPUI workers shared by list and icon views; `metadata/exif.rs` composes semantic EXIF values into stable column keys |
 | `thumbnails.rs`, `thumb_queue.rs`, `raw_preview.rs` | Icon view thumbnails: the freedesktop cache (URI and MD5 names, validity by `Thumb::MTime`, atomic writes, failure records), RAW preview cache identity and atomic JPEG materialization, and the load scheduler with its LRU, all UI-independent and tested |
 | `grid.rs`, `icon_view.rs`, `glyphs.rs`, `context_menu.rs` | Icon view: `ViewMode`, icon sizes, `Layout` (columns for a width) and cursor moves (UI-independent, tested); the lazy `IconGrid` view; the `FileIcon` → glyph table and the right-click menu shared with the list |
 | `workspace.rs`, `inspector_view.rs` | Workspace layout and active panel roles; the inspector tab controller retains View/Properties selection while the inspector is closed or dock layout changes. |
-| `columns.rs` | `ColumnKind` catalog, grouped, ids like `exif.iso`. A new column is a variant here and in `ColumnKind::ALL`, plus a renderer in `panel.rs`. |
+| `columns.rs`, `columns/` | Persisted `ColumnId`s, mandatory Name/selection normalization, shared descriptor `Catalog` and native provider reader seam; `ColumnKind` retains specialized built-in rendering/sorting. Unknown IDs survive settings changes, provider cells use typed validated values, and provider/unavailable columns remain unsortable. |
 | `fs_ops.rs`, `transfer.rs`, `jobs.rs` | Native metadata/account adapters and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
 | `remote.rs`, `remote/` | Remote providers: `Provider` trait; compatibility `Location` alias to `location::RemoteLocation`; Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`) and management persistence (`manage.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `LocalCopy` keeps a typed source address separate from the cache path used at native I/O boundaries; `model/remote.rs` holds cached listings |
 | `archive.rs`, `archive/extraction.rs`, `dirsize.rs`, `links.rs` | Archive index; safe extraction; recursive sizes; symlink state |
 | `preview/`, `preview_view.rs`, `notebook_view.rs`, `presentation_view.rs` | `Previewer`s and their `Registry` (including bounded nbformat 4 notebook parsing, PowerPoint parsing and GPX/FIT outline generation); one render arm per `Content`; notebooks and presentations render through variable-height lazy lists; `PreviewSession` owns target identity, reloads, navigation and stale-result acceptance; GUI resources stay in the pane |
-| `properties.rs`, `properties/`, `properties_view.rs` | `properties.rs` owns shared result contracts, section/group policy, the multi-provider `Registry` and cancellable `PropertiesSession`; `properties/filesystem.rs` reads local metadata and symlink facts; `properties/exif_reader.rs` reads EXIF; format modules map shared Parquet, media and GPX/FIT readers into groups, while `properties/sqlite.rs` reads database structure; the GPUI controller limits inspection to one active worker with the latest selection queued; selectable text runs support cross-field copying and Ctrl-C takes priority over panel file yank while a text selection exists |
+| `properties.rs`, `properties/`, `properties_view.rs` | `properties.rs` owns shared result contracts, section/group policy and cancellable `PropertiesSession`; `properties/registry.rs` orchestrates native providers and enabled typed extension sections; `properties/filesystem.rs` reads local metadata and symlink facts; `properties/exif_reader.rs` reads EXIF; format modules map shared Parquet, media and GPX/FIT readers into groups, while `properties/sqlite.rs` reads database structure; the GPUI controller limits inspection to one active worker with the latest selection queued; selectable text runs support cross-field copying and Ctrl-C takes priority over panel file yank while a text selection exists |
+| `preview_scene.rs`, `preview_scene/`, `preview_scene_view.rs` | Pure strict scene DTOs and bounded validation; native selectable stacks/tables and clipped path painting from validated data only |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and separate editor windows |
 | `tools/`, `tools_view.rs` | Tool, Action and Registry model; `defaults.toml`; built-ins; Lua plugins; `exec.rs` runs them |
 | `search.rs`, `places.rs`, `breadcrumbs.rs`, `remote_labels.rs`, `rename.rs`, `openers.rs`, `terminal.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs`, `zoom.rs` | Further UI-independent models, each with tests |

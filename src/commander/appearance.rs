@@ -15,7 +15,7 @@ use super::Commander;
 use super::keys::{
     About, OpenConfig, SelectColumns, SelectTheme, ToggleCustomTitlebar, ZoomIn, ZoomOut, ZoomReset,
 };
-use crate::columns::ColumnKind;
+use crate::columns::ColumnId;
 use crate::editor::Document;
 use crate::settings::{self};
 use crate::theme_picker::{self, ThemePickerDelegate};
@@ -85,22 +85,30 @@ impl Commander {
             };
             let shown = commander.read(cx).views[0].read(cx).columns(cx);
             let muted = cx.theme().muted_foreground;
-            let groups = crate::columns::catalog()
+            let selected = shown.clone();
+            let catalog = commander.read(cx).columns.clone();
+            let groups = catalog
+                .dialog_groups(&selected)
                 .into_iter()
                 .map(|(group, columns)| {
                     v_flex()
                         .gap_1()
-                        .child(div().text_xs().text_color(muted).child(group.to_string()))
+                        .child(div().text_xs().text_color(muted).child(group))
                         .children(columns.into_iter().map(|column| {
                             let this = this.clone();
-                            let id = SharedString::from(format!("column-{}", column.id()));
+                            let column_id = column.id.clone();
+                            let selected_id = column_id.clone();
+                            let id = SharedString::from(format!("column-{}", column.id.as_str()));
                             Checkbox::new(id)
-                                .label(column.label())
-                                .checked(shown.contains(&column))
-                                .disabled(column == ColumnKind::Name)
+                                .label(column.label)
+                                .checked(shown.contains(&column_id))
+                                .disabled(
+                                    column_id.builtin() == Some(crate::columns::ColumnKind::Name),
+                                )
                                 .on_click(move |checked, _, cx| {
+                                    let selected_id = selected_id.clone();
                                     let _ = this.update(cx, |this, cx| {
-                                        this.toggle_column(column, *checked, cx);
+                                        this.toggle_column(selected_id, *checked, cx);
                                     });
                                 })
                         }))
@@ -115,9 +123,9 @@ impl Commander {
         });
     }
 
-    pub fn toggle_column(&mut self, column: ColumnKind, show: bool, cx: &mut Context<Self>) {
+    pub fn toggle_column(&mut self, column: ColumnId, show: bool, cx: &mut Context<Self>) {
         let current = self.views[0].read(cx).columns(cx);
-        let columns = crate::columns::toggle(&current, column, show);
+        let columns = crate::columns::toggle(&current, &column, show);
         for view in &self.views {
             view.update(cx, |view, cx| view.set_columns(columns.clone(), cx));
         }

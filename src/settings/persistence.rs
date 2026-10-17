@@ -241,14 +241,14 @@ pub fn ensure_file_at(path: &Path) -> Result<(), String> {
 
 /// Writes `[panels] columns` into the settings file, keeping the rest of
 /// the file intact. Creates the file if needed.
-pub fn save_columns(columns: &[crate::columns::ColumnKind]) -> Result<PathBuf, String> {
+pub fn save_columns(columns: &[crate::columns::ColumnId]) -> Result<PathBuf, String> {
     let path = path().ok_or("No config directory on this platform")?;
     save_columns_to(&path, columns)?;
     Ok(path)
 }
 
 /// Saves visible columns at a supplied config path without changing other panel keys.
-pub fn save_columns_to(path: &Path, columns: &[crate::columns::ColumnKind]) -> Result<(), String> {
+pub fn save_columns_to(path: &Path, columns: &[crate::columns::ColumnId]) -> Result<(), String> {
     let error = |e: &dyn std::fmt::Display| format!("{}: {e}", path.display());
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
@@ -259,7 +259,10 @@ pub fn save_columns_to(path: &Path, columns: &[crate::columns::ColumnKind]) -> R
     if !doc.contains_table("panels") {
         doc["panels"] = toml_edit::table();
     }
-    let ids: toml_edit::Array = columns.iter().map(|c| c.id()).collect();
+    let ids: toml_edit::Array = columns
+        .iter()
+        .map(crate::columns::ColumnId::as_str)
+        .collect();
     doc["panels"]["columns"] = toml_edit::value(ids);
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| error(&e))?;
@@ -594,15 +597,19 @@ mod tests {
 
         std::fs::write(
             &path,
-            "# mine\nshow_hidden = true # keep\ntheme = \"dark\"\n",
+            "# mine\nshow_hidden = true # keep\ntheme = \"dark\"\n\n[extensions]\n# packages are explicit\nenabled = [\"sensor\", \"future-reader\"] # keep IDs\n",
         )
         .unwrap();
         save_theme_to(&path, "Tokyo Night").unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("# mine") && text.contains("show_hidden = true # keep"));
+        assert!(text.contains("# packages are explicit"));
+        assert!(text.contains("enabled = [\"sensor\", \"future-reader\"] # keep IDs"));
         let settings = Settings::parse(&text).unwrap();
         assert_eq!(settings.theme, "Tokyo Night");
         assert!(settings.show_hidden);
+        assert_eq!(settings.extensions.enabled.len(), 2);
+        assert_eq!(settings.extensions.enabled[1].as_str(), "future-reader");
     }
 
     #[test]
@@ -637,7 +644,7 @@ mod tests {
 
     #[test]
     fn save_columns_keeps_other_panel_settings() {
-        use crate::columns::{ColumnKind, ExifField};
+        use crate::columns::{ColumnId, ColumnKind, ExifField};
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
         let path = dir.join("config.toml");
@@ -645,7 +652,11 @@ mod tests {
             ColumnKind::Name,
             ColumnKind::Size,
             ColumnKind::Exif(ExifField::Iso),
-        ];
+        ]
+        .map(ColumnId::from)
+        .into_iter()
+        .chain([ColumnId::new("future.ext.column").unwrap()])
+        .collect::<Vec<_>>();
         save_columns_to(&path, &columns).unwrap(); // no file yet
         assert_eq!(load_from(&path).0.panels.columns, columns);
 
@@ -658,6 +669,7 @@ mod tests {
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("tree = true # mine"), "{text}");
         assert!(text.contains(r#""exif.iso""#), "{text}");
+        assert!(text.contains(r#""future.ext.column""#), "{text}");
         assert_eq!(Settings::parse(&text).unwrap().panels.columns, columns);
     }
 

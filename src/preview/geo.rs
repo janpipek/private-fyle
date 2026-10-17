@@ -5,7 +5,8 @@ use std::io;
 use image::{Rgba, RgbaImage};
 
 use super::{Content, PreviewStyle, Previewer, Probe, cache_file};
-use crate::formats::geo::{self, GeoData, Point};
+use crate::data_providers::geo::{self, GeoViewer, PreparedGeo};
+use crate::formats::geo::{self as geo_format, GeoData, Point};
 
 const WIDTH: u32 = 960;
 const HEIGHT: u32 = 540;
@@ -13,7 +14,18 @@ const PADDING: f64 = 24.0;
 const MAX_DRAW_STEPS: i32 = 400_000;
 
 /// Previewer for GPX and FIT routes and activities.
-pub struct GeoPreviewer;
+pub struct GeoPreviewer {
+    provider: GeoViewer,
+}
+
+impl GeoPreviewer {
+    /// Builds the View adapter over the shared geo provider.
+    pub fn new() -> Self {
+        Self {
+            provider: geo::viewer(),
+        }
+    }
+}
 
 impl Previewer for GeoPreviewer {
     fn name(&self) -> &'static str {
@@ -21,7 +33,7 @@ impl Previewer for GeoPreviewer {
     }
 
     fn matches(&self, probe: &Probe) -> bool {
-        !probe.is_dir && matches!(probe.ext.as_str(), "gpx" | "fit")
+        !probe.is_dir && self.provider.matches_extension(&probe.ext)
     }
 
     fn load(&self, probe: &Probe) -> io::Result<Content> {
@@ -29,20 +41,22 @@ impl Previewer for GeoPreviewer {
     }
 
     fn load_styled(&self, probe: &Probe, style: PreviewStyle) -> io::Result<Content> {
-        let data = geo::read(&probe.path, || false)?;
+        let prepared = self.provider.read(&probe.path, || false)?;
+        let data = &prepared.data;
         let outline = if data.points > 0 {
-            Some(render_outline(&probe.path, &data, style)?)
+            Some(render_outline(&probe.path, data, style)?)
         } else {
             None
         };
         Ok(Content::Geo {
-            info: summary(&data),
+            info: summary(&prepared),
             outline,
         })
     }
 }
 
-fn summary(data: &GeoData) -> Vec<(String, String)> {
+fn summary(prepared: &PreparedGeo) -> Vec<(String, String)> {
+    let data = &prepared.data;
     let mut fields = vec![("Format".into(), data.format.into())];
     for (label, value) in [
         ("Type", data.kind.as_ref()),
@@ -54,12 +68,12 @@ fn summary(data: &GeoData) -> Vec<(String, String)> {
             fields.push((label.into(), value.clone()));
         }
     }
-    if let Some(seconds) = data.duration_seconds {
-        fields.push(("Duration".into(), format_duration(seconds)));
-    }
-    if let Some(meters) = data.distance_meters {
-        fields.push(("Distance".into(), format!("{:.2} km", meters / 1000.0)));
-    }
+    append_metric(&mut fields, "Duration", &prepared.duration, |seconds| {
+        format_duration(seconds)
+    });
+    append_metric(&mut fields, "Distance", &prepared.distance, |meters| {
+        format!("{:.2} km", meters / 1000.0)
+    });
     for (label, meters) in [
         ("Ascent", data.ascent_meters),
         ("Descent", data.descent_meters),
@@ -82,10 +96,26 @@ fn summary(data: &GeoData) -> Vec<(String, String)> {
     if data.truncated {
         fields.push((
             "Read limit".into(),
-            format!("first {} GPS points", geo::MAX_POINTS),
+            format!("first {} GPS points", geo_format::MAX_POINTS),
         ));
     }
     fields
+}
+
+fn append_metric(
+    fields: &mut Vec<(String, String)>,
+    label: &str,
+    state: &crate::data_providers::ResultState<crate::data_providers::geo::PreparedQuantity>,
+    format: impl FnOnce(f64) -> String,
+) {
+    use crate::data_providers::ResultState;
+    match state {
+        ResultState::Ready { value, .. } => {
+            fields.push((label.into(), format(value.quantity.value())))
+        }
+        ResultState::Failed(reason) => fields.push((label.into(), reason.clone())),
+        ResultState::Pending | ResultState::Absent | ResultState::Unavailable(_) => {}
+    }
 }
 
 fn format_duration(seconds: f64) -> String {
@@ -232,7 +262,8 @@ fn dot(image: &mut RgbaImage, center: (i32, i32), radius: i32, color: Rgba<u8>) 
 
 #[cfg(test)]
 mod tests {
-    use super::{GeoData, Point, PreviewStyle, render_outline};
+    use super::{GeoData, Point, PreviewStyle, render_outline, summary};
+    use crate::data_providers::geo;
 
     #[test]
     fn dense_track_remains_continuous() {
@@ -294,5 +325,35 @@ mod tests {
         );
         let dark_image = image::open(path_dark).expect("decode dark").into_rgba8();
         assert_eq!(dark_image.get_pixel(480, 270).0, [240, 235, 225, 255]);
+    }
+
+    #[test]
+    fn summary_keeps_existing_duration_and_distance_formatting() {
+        let directory = tempfile::TempDir::new().expect("temporary directory");
+        let source = directory.path().join("route.gpx");
+        std::fs::write(
+            &source,
+            r#"<gpx version="1.1" creator="test"><trk><name>Loop</name><trkseg><trkpt lat="0" lon="0"><time>2020-01-01T00:00:00Z</time></trkpt><trkpt lat="0" lon="0.001"><time>2020-01-01T00:01:01Z</time></trkpt></trkseg></trk></gpx>"#,
+        )
+        .expect("write GPX fixture");
+        let prepared = geo::viewer()
+            .read(&source, || false)
+            .expect("read GPX fixture");
+        let fields = summary(&prepared);
+        assert!(
+            fields
+                .iter()
+                .any(|(label, value)| label == "Duration" && value == "1:01")
+        );
+        assert!(
+            fields
+                .iter()
+                .any(|(label, value)| label == "Distance" && value == "0.11 km")
+        );
+        assert!(
+            fields
+                .iter()
+                .any(|(label, value)| label == "Name" && value == "Loop")
+        );
     }
 }

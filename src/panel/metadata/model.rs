@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::columns::ColumnKind;
+use crate::columns::{ColumnId, ColumnKind};
+use crate::data_providers::{ResultState, Value};
 use crate::links::LinkState;
 use crate::location::Location;
 
@@ -14,7 +15,7 @@ const QUEUE_CAPACITY: usize = 512;
 const JOB_CAPACITY: usize = 4;
 
 /// One kind of optional metadata needed by a visible row.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Field {
     /// Duration of a candidate local media file.
     Duration,
@@ -28,6 +29,8 @@ pub enum Field {
     Owner,
     /// Canonical target path for a working symlink tooltip.
     ResolvedLink,
+    /// One typed provider-defined column value.
+    Provider(ColumnId),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -48,6 +51,18 @@ pub struct Request {
     pub link: LinkState,
     /// Cancellation shared by all reads from this listing generation.
     pub cancel: Arc<AtomicBool>,
+    /// Name captured from the directory listing.
+    /// Captured facts used to evaluate provider applicability.
+    pub row: Option<CapturedRow>,
+}
+
+/// Stable row facts supplied by the directory listing, never inferred by a reader.
+#[derive(Clone, Debug, Default)]
+pub struct CapturedRow {
+    /// Name captured from the directory listing.
+    pub name: String,
+    /// Whether the captured row is a directory.
+    pub is_dir: bool,
 }
 
 impl Request {
@@ -72,6 +87,8 @@ pub struct Values {
     pub owner: Option<String>,
     /// Completed symlink lookup, with no path when resolution failed.
     pub resolved_link: Option<Option<PathBuf>>,
+    /// Typed provider-column values, including completed absence and failures.
+    pub providers: HashMap<ColumnId, ResultState<Value>>,
 }
 
 /// Loaded display values for one local path.
@@ -107,6 +124,11 @@ impl MetadataValues {
             .resolved_link
             .as_ref()
             .map(|path| path.as_deref())
+    }
+
+    /// Returns a completed typed value for a provider column.
+    pub fn provider_cell(&self, id: &ColumnId) -> Option<&ResultState<Value>> {
+        self.values.providers.get(id)
     }
 }
 
@@ -146,6 +168,19 @@ impl MetadataQueue {
         uid: Option<u32>,
         link: LinkState,
     ) {
+        self.request_row(location, generation, fields, uid, link, None);
+    }
+
+    /// Requests metadata with name and directory facts captured from the listing.
+    pub fn request_row(
+        &mut self,
+        location: &Location,
+        generation: u64,
+        fields: &[Field],
+        uid: Option<u32>,
+        link: LinkState,
+        row: Option<CapturedRow>,
+    ) {
         self.sync_generation(generation);
         if self.generation != Some(generation) {
             return;
@@ -160,7 +195,7 @@ impl MetadataQueue {
             generation,
             path: path.to_path_buf(),
         };
-        let mut missing: HashSet<_> = fields.iter().copied().collect();
+        let mut missing: HashSet<_> = fields.iter().cloned().collect();
         if let Some(cached) = self.cached.get(&key.path) {
             missing.retain(|field| !cached.loaded.contains(field));
         }
@@ -175,6 +210,9 @@ impl MetadataQueue {
             }
             if !matches!(link, LinkState::NotLink) {
                 pending.link = link;
+            }
+            if row.is_some() {
+                pending.row = row;
             }
             return;
         }
@@ -200,6 +238,7 @@ impl MetadataQueue {
                 .as_ref()
                 .expect("generation token exists")
                 .clone(),
+            row,
         });
     }
 
@@ -238,6 +277,18 @@ impl MetadataQueue {
         }
         if request.fields.contains(&Field::ResolvedLink) {
             cached.values.resolved_link = values.resolved_link;
+        }
+        for field in &request.fields {
+            if let Field::Provider(id) = field {
+                cached.values.providers.insert(
+                    id.clone(),
+                    values
+                        .providers
+                        .get(id)
+                        .cloned()
+                        .unwrap_or(ResultState::Absent),
+                );
+            }
         }
         cached.loaded.extend(request.fields);
         self.touch(&request.key.path);
@@ -304,6 +355,7 @@ mod tests {
         CACHE_CAPACITY, Field, JOB_CAPACITY, MetadataQueue, QUEUE_CAPACITY, Values, fields_for_row,
     };
     use crate::columns::{ColumnKind, ExifField};
+    use crate::data_providers::ResultState;
     use crate::links::LinkState;
     use crate::location::Location;
     use std::path::PathBuf;
@@ -384,6 +436,43 @@ mod tests {
                 .and_then(|values| values.column(ColumnKind::Duration)),
             Some("01:05")
         );
+    }
+
+    #[test]
+    fn stale_provider_completion_is_rejected_and_releases_its_active_slot() {
+        use crate::columns::ColumnId;
+        use crate::data_providers::{Completeness, Unit, Value};
+        let mut queue = MetadataQueue::default();
+        let path = test_path("provider-item");
+        let location = Location::local(path.clone()).unwrap();
+        let id = ColumnId::new("extension.sensor.reader.distance").unwrap();
+        queue.request(
+            &location,
+            1,
+            &[Field::Provider(id.clone())],
+            None,
+            LinkState::NotLink,
+        );
+        let old = queue.take_next().unwrap();
+        queue.request(
+            &location,
+            2,
+            &[Field::Provider(id.clone())],
+            None,
+            LinkState::NotLink,
+        );
+        let mut values = Values::default();
+        values.providers.insert(
+            id,
+            ResultState::Ready {
+                value: Value::quantity(2.0, Unit::Metres).unwrap(),
+                completeness: Completeness::Complete,
+            },
+        );
+        assert!(!queue.complete(old, values));
+        assert!(queue.active.is_empty());
+        assert!(queue.get(&path, 2).is_none());
+        assert!(queue.take_next().is_some());
     }
 
     #[test]
