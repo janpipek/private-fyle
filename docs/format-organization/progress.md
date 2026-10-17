@@ -14,7 +14,7 @@ can be reconstructed without the chat.
 - Slice 4a static package validation/loading is committed as `c2913dc`, and the
   protocol/broker/queue foundation as `cf11f3b`. Standalone worker execution and
   Linux supervision are committed as `a2f7021`. Settings/catalog integration
-  (4c) is complete and verified; next is slice 5 after the renderer decision.
+  (4c) is complete and verified as `0db1dbd`; slice 5 is now in progress.
   Luna owns the Rust extension files and helper dispatch; Sol reviews; the
   coordinator owns documentation, final checks and commits. Read
   [worker-plan.md](worker-plan.md) before joining 4b.
@@ -24,7 +24,8 @@ can be reconstructed without the chat.
   before slice 3 implementation resumed.
 - Existing GPX/FIT presentation and scheduling are preserved by the shared
   adapter. The owner approved the proposed Lua worker and explicit package
-  enablement; the renderer scope checkpoint remains pending.
+  enablement. Static layout, selectable text, typed tables and a bounded path
+  canvas were approved on 2026-10-17; native code owns interaction.
   The owner approved display-only extension columns first; new
   metadata sorting remains a separate design task.
 - Keep the unrelated, pre-existing untracked `title.png` out of commits.
@@ -695,9 +696,9 @@ changes separate from the completed column commit.
 
 ## Slice 5 handoff
 
-Wait for the owner's renderer-scope choice before implementing the grammar.
-The proposal is static layout, selectable text, typed tables and bounded path
-canvas; native code owns interaction, with no arbitrary callbacks/widgets.
+The owner approved static layout, selectable text, typed tables and a bounded
+path canvas on 2026-10-17. Native code owns interaction, with no arbitrary
+callbacks/widgets. Slice 5 implementation may proceed.
 Then follow the plan's sensor package proof across Properties, a column and a
 custom graph. Keep source/permissions and feature lifecycles independent; do not
 infer format/context evidence or label partial results complete. The user guide's
@@ -712,7 +713,77 @@ Contextual Git and the proof review follow before remaining built-in migrations.
 | 2. Existing GPX/FIT adapter | Complete | Astra approved; fmt/clippy/build and all 573 tests passed; 11 live inspector comparisons identical |
 | 3. Dynamic columns | Complete | Sol approved; fmt/clippy/build and all 579 tests passed; unavailable-ID persistence/removal and native UI checked |
 | 4. Packages and worker | Complete | Explicit config activation and display-only columns; Sol approved, 644 tests/fmt/clippy/build and live UI/active-helper normal-exit checks pass |
-| 5. Sensor renderer proof | Pending | Requires renderer scope decision |
+| 5. Sensor renderer proof | In progress | Renderer scope approved on 2026-10-17; Sol architecture, Luna implementation |
 | 6. Contextual Git | Pending | New Git Properties behavior is within the authorized proof scope |
 | 7. Review proof | Pending | Both sensor and Git cases must work before broader migration |
 | 8. Remaining built-ins | Pending | Depends on slice 7 |
+
+### 2026-10-17 — Approve and start the sensor renderer proof
+
+- The owner answered “Yes please” to the clarified renderer scope: static
+  layout, selectable text, typed tables and a bounded path canvas. Native code
+  owns interaction; arbitrary Lua callbacks/widgets remain deferred. Recorded
+  the decision in TODO and the implementation plan before coding.
+- Resumed Sol architecture/review and Luna implementation. Sol first owns
+  `renderer-plan.md`, specifying the validated model, result boundaries and
+  integration sequence. Luna inspects the existing feature lifecycles and
+  reports seams before edits. The coordinator owns decision/handoff records,
+  final verification, UI checks and commits.
+- Starting point is `0db1dbd`, 644 passing tests and no tracked changes. The
+  unrelated untracked `title.png` remains untouched. Package-format and xattr
+  Properties TODOs remain separate open work.
+
+- Sol settled the first pure grammar: row/column stacks, selectable text, typed
+  table cells and canvas polylines with semantic theme roles. No fills, curves,
+  resources, URLs or callbacks. Validation caps depth at 8, nodes at 128, text
+  at 4 KiB per string / 64 KiB total, rows at 256, cells at 2048, canvas
+  dimensions at 4096 and points at 8192. Coordinates must be finite and inside
+  their canvas; IDs are bounded and unique.
+- Assigned `/root/lua_worker` only `src/preview_scene.rs` and focused files
+  under `preview_scene/`, including inline model tests. It exposes validated
+  read-only data and depends on existing semantic values, not GPUI/protocol.
+  Sol owns the renderer plan; `/root/contract_implementation` waits for the
+  worker-result API before touching shared runtime files.
+
+- The coordinator drafted the sensor example format and complete/malformed/
+  sample-limited fixtures under `examples/extensions/sensor/`. Samples carry
+  monotonic elapsed seconds and cumulative metres; bounded partial readings
+  report lower-bound totals and an explicitly partial graph. The README marks
+  this as work in progress until callbacks and live integration are verified.
+
+- Settled internal protocol v2 with separate typed Column, Properties and Viewer
+  requests/results. Existing column Lua output remains source-compatible.
+  Properties returns the exact declared field set with independent terminal
+  states/completeness; viewers return a versioned scene with complete/truncated
+  coverage. Neither typed native Properties nor preview models are erased.
+- Assigned `/root/contract_implementation` protocol, worker and supervisor
+  generalization only for this checkpoint. Root owns the example manifest/Lua
+  and fixtures; the runtime tests should exercise that exact package, including
+  its malformed and sample-truncated data. Feature/startup/UI wiring follows
+  review of these independently testable models.
+
+- Exercised the exact draft Lua column callback through the existing production
+  helper: complete input returns 95 m, 140-sample input stops at sample 128
+  and returns a 381 m lower bound, and non-monotonic input fails with a package
+  line diagnostic. All three helpers exited successfully and were reaped.
+  Results: `/tmp/fyle-sensor-parser-1dhrmj53/results.json`. This verifies the
+  parser only; new Properties/scene output still awaits protocol integration.
+
+### 2026-10-17 — Verify the pure scene model
+
+- Added `preview_scene.rs` with strict serde DTOs and focused validation modules.
+  Validated scenes have private storage and read-only accessors; typed cells
+  convert through the existing quantity constructor. No GPUI, Lua execution or
+  filesystem work enters this model.
+- Sol approved schema, identity, geometry and aggregate resource checks. His
+  repository-rule review requested inline tests; the coordinator moved the
+  boundary tests into the 600-line root module and removed the external test
+  file. Fixed two split-import compile errors before final verification.
+- Final checks after that move passed: `cargo fmt --check`,
+  `cargo clippy --all-targets -- -D warnings` and `cargo test --quiet`: **652
+  tests, zero failures/ignored**. No dependencies or application behavior
+  changed, so no live UI check was needed for this standalone model.
+- Added [renderer-plan.md](renderer-plan.md) with the concrete model/runtime/UI
+  handoff. The example and typed runtime draft remain uncommitted work owned by
+  their assigned agents. Next: review and verify generalized worker results,
+  then wire Properties/View and run the sensor proof in the application.

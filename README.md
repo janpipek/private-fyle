@@ -601,7 +601,10 @@ catalog from enabled packages; callbacks execute only through background
 metadata demand. Ready values retain completeness through the cache and pure
 cell projection. Main retains the shared supervisor and shuts it down after
 GPUI exits. Existing Tools plugins retain their separate behavior; package
-Properties/View adapters remain later work.
+Properties/View adapters remain later work. `preview_scene` defines a pure,
+validated static scene model for that next slice: stacks, selectable text, typed
+tables and bounded paths, with private construction after schema/resource checks.
+It is not yet rendered in the application.
 
 Model first: `src/model.rs` holds each panel's state (`Folder`: typed
 `PanelContent` with `Directory(Location)`, `Search { root, title }` and

@@ -3,7 +3,9 @@
 Status: started with owner authorization on 2026-10-16, after planning commit
 `5da8dee`. Slices 1–4 are complete. The owner approved
 display-only extension columns first and the proposed supervised Lua worker
-with explicit package enablement; the renderer scope decision remains pending.
+with explicit package enablement. On 2026-10-17 the owner approved static
+layout, selectable text, typed tables and a bounded path canvas for slice 5;
+native code owns interaction, with no arbitrary Lua callbacks or widgets.
 This makes the [synthesis](synthesis.md) actionable.
 The [progress and handoff log](progress.md) records implementation steps,
 verification and current ownership. The [TODO](../../TODO.md) remains the
@@ -71,7 +73,7 @@ the corresponding model and tests.
 | First feature scope | Sensor package plus contextual Git, with a new Git Properties section; authorized when the owner asked to start this plan on 2026-10-16 | Scope settled; slice 1 complete |
 | Extension execution | Owner approved the proposed supervised Lua helper on 2026-10-16; dispatch before GUI/config startup and reuse vendored `mlua` | Scope settled for slice 4 |
 | Loading and trust | Owner approved explicit enabled package IDs and config-directory-only packages on 2026-10-16; no project auto-loading; enabling permits automatic declared read-time work | Scope settled for slice 4 |
-| Initial renderer | Static layout, selectable text, typed table and bounded path canvas; no worker-defined native widgets or arbitrary callbacks | Slice 5 |
+| Initial renderer | Owner approved static layout, selectable text, typed tables and bounded path canvas on 2026-10-17; native interaction, no arbitrary callbacks/widgets | Scope settled for slice 5 |
 | Metadata sorting | Owner approved “Display-only first; design sorting separately” on 2026-10-16. Existing sortable columns keep their behavior | Scope settled for slice 3; new metadata sorting is deferred |
 
 The synthesis's sortable-column example remains a follow-up acceptance goal
@@ -306,7 +308,7 @@ Never push or open a PR without a request.
 
 ## Completion record
 
-Slices 1–4 are complete; slice 5 awaits the renderer-scope decision. See the [progress and handoff log](progress.md) for
+Slices 1–4 are complete; slice 5 is in progress with its renderer scope approved. See the [progress and handoff log](progress.md) for
 ownership, completed steps, checks and the next task. The owner's start request
 authorizes the initial proof scope; later decision checkpoints remain attached
 to their respective slices. Unrelated deferred TODO features stay deferred.

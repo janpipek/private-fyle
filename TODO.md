@@ -20,7 +20,8 @@ not to pursue an item.
       before migrating the remaining built-ins. The owner approved display-only
       extension columns first; design new metadata sorting separately.
       The proposed Lua worker and explicit package enablement are approved;
-      the renderer scope checkpoint remains for its later slice.
+      static layout, selectable text, typed tables and a bounded path canvas are
+      approved for slice 5, with native interaction and no arbitrary callbacks.
 - [ ] Menus and selection, remaining parts: output/history in Tools.
       Implement missing actions as separate features.
 - [ ] Idea: replace the Git status column's `git` subprocess with a Rust
@@ -163,6 +164,11 @@ not to pursue an item.
       truncated values explicitly.
 
 ## Done
+
+- [x] Data-provider migration, slice 5 model: define validated static extension
+      scenes for stacks, selectable text, typed tables and path canvases, with
+      explicit schema, identity, geometry and aggregate resource bounds. Runtime
+      output and application rendering remain in progress.
 
 - [x] Data-provider migration, slice 4c: activate config-only packages through
       explicit enabled IDs and register their display-only columns at startup.

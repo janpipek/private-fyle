@@ -57,6 +57,8 @@ mod panels;
 mod places;
 mod presentation_view;
 mod preview;
+/// Validated static display scenes for extension viewers.
+pub mod preview_scene;
 mod preview_view;
 pub mod properties;
 mod properties_view;
