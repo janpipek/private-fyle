@@ -148,8 +148,13 @@ impl Commander {
                 location: entry.location.clone(),
                 entry: entry.entry,
             });
+            let git_context = self.folders[self.active]
+                .read(cx)
+                .location()
+                .and_then(|location| location.as_local_path())
+                .map(|scope| self.git.key_for_scope(scope));
             self.properties.update(cx, |properties, cx| {
-                properties.set_target(selection, window, cx)
+                properties.set_contextual_target(selection, git_context, window, cx)
             });
             return;
         }

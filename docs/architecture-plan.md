@@ -164,6 +164,18 @@ call remains native-only. `preview_scene` validates bounded static layout,
 selectable text, typed tables and paths before `preview_scene_view` renders them;
 rendering performs no I/O or Lua execution.
 
+The contextual Git proof uses one application-owned `data_providers/git::Service`
+for the existing native column and `properties/git` adapter. Both consume the
+provider's validated contribution definition. Pure scoped epochs, subscriber
+leases and a column request model replace the former panel-specific lifecycle;
+Properties captures context separately from source selection. Listing starts
+invalidate local query context and proactively resubscribe visible consumers;
+ancestor fallback also invalidates its actual scope. `git_status` retains the
+Git executable and native status precedence while bounding process output,
+deadline and decoded path index. Cancellation reaps before the shared slot is
+released; main waits for normal-exit shutdown. This repository-specific sharing
+does not introduce a universal cache. See [the implementation boundary](format-organization/git-plan.md).
+
 Keep three domain-specific registries with the same basic extension shape:
 providers or tools register in order, expose a predicate for applicability, and
 return plain model data or an action. Do not introduce a universal registry

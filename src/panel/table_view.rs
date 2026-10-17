@@ -28,7 +28,7 @@ pub struct FileTable {
     columns: Vec<ColumnId>,
     catalog: Arc<Catalog>,
     metadata: Entity<metadata::MetadataState>,
-    git: Option<Arc<git_status::Status>>,
+    git: Option<Arc<git_status::Snapshot>>,
     context_menu: Option<ContextMenuBuilder>,
     focus: Option<FocusHandle>,
     context_row: Rc<Cell<Option<usize>>>,
@@ -68,8 +68,8 @@ impl FileTable {
     }
 
     /// Installs the Git status computed by the panel's background worker.
-    pub fn set_git_status(&mut self, status: Option<git_status::Status>) {
-        self.git = status.map(Arc::new);
+    pub fn set_git_snapshot(&mut self, snapshot: Option<Arc<git_status::Snapshot>>) {
+        self.git = snapshot;
     }
 
     /// Shares the panel's command builder and focus for row context menus.

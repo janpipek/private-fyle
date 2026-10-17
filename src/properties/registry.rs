@@ -72,6 +72,7 @@ pub trait PropertyProvider: Send + Sync {
 pub struct Registry {
     providers: Vec<Box<dyn PropertyProvider>>,
     extensions: Vec<Handle>,
+    git: Option<super::git::Provider>,
 }
 
 impl Registry {
@@ -88,6 +89,24 @@ impl Registry {
     /// Adds a provider after existing providers.
     pub fn register(&mut self, provider: Box<dyn PropertyProvider>) {
         self.providers.push(provider);
+    }
+
+    /// Registers contextual Git using the same snapshot service as the panels.
+    pub fn register_git(&mut self, service: crate::data_providers::git::Service) {
+        self.git = Some(super::git::Provider::new(service));
+    }
+
+    /// Reads repository context only for the captured original local selection.
+    pub fn read_context(
+        &self,
+        selection: &Selection,
+        key: Option<&crate::data_providers::git::Key>,
+        cancel: &Arc<AtomicBool>,
+    ) -> io::Result<Vec<PropertyGroup>> {
+        match (&self.git, key) {
+            (Some(provider), Some(key)) => provider.read(selection, key, cancel),
+            _ => Ok(Vec::new()),
+        }
     }
 
     /// Registers a section from the immutable enabled-extension snapshot.

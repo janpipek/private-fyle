@@ -79,6 +79,9 @@ impl Commander {
         cx: &mut Context<Self>,
     ) {
         let path = target.panel_path();
+        if let PanelTarget::Location(crate::location::Location::Local(scope)) = &target {
+            self.invalidate_git_scope(scope.as_path(), window, cx);
+        }
         self.cancel_remote(panel);
         let request = self.navigation[panel].begin(target.clone());
         let (mut listing, guard) = {
@@ -127,6 +130,12 @@ impl Commander {
                 }
                 match result {
                     Ok(outcome) => {
+                        if outcome.snapshot.target != target
+                            && let PanelTarget::Location(crate::location::Location::Local(scope)) =
+                                &outcome.snapshot.target
+                        {
+                            this.invalidate_git_scope(scope.as_path(), window, cx);
+                        }
                         let warnings = outcome.snapshot.warnings.join("; ");
                         let first_error = outcome.first_error.map(|error| {
                             format!(
@@ -188,6 +197,20 @@ impl Commander {
                 cx.notify();
             });
         });
+    }
+
+    fn invalidate_git_scope(
+        &mut self,
+        scope: &std::path::Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.git.invalidate(scope);
+        // A second panel may already show this scope without a listing change.
+        for view in &self.views {
+            view.update(cx, |view, cx| view.refresh_git(cx));
+        }
+        self.update_preview(window, cx);
     }
 
     /// Discovers locations in the background, then opens them for the panel

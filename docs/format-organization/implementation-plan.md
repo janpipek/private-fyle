@@ -1,7 +1,7 @@
 # Data providers and contributions: implementation plan
 
 Status: started with owner authorization on 2026-10-16, after planning commit
-`5da8dee`. Slices 1–5 are complete. The owner approved
+`5da8dee`. Slices 1–6 are complete. The owner approved
 display-only extension columns first and the proposed supervised Lua worker
 with explicit package enablement. On 2026-10-17 the owner approved static
 layout, selectable text, typed tables and a bounded path canvas for slice 5;
@@ -209,7 +209,8 @@ Do not claim hostile-code OS isolation; document the trusted-package contract.
 
 Complete on 2026-10-17. The [renderer contract](renderer-plan.md) records the
 implemented boundary; the [step log](progress.md) contains final checks and live
-evidence. Contextual Git is the next proof before broader migration.
+evidence. Contextual Git is also complete; the proof review precedes broader
+migration.
 
 Touch: new pure `src/preview_scene.rs` and thin `src/preview_scene_view.rs`,
 `src/preview.rs`, `src/preview_view.rs`, extension adapters and an example
@@ -236,6 +237,10 @@ selection changes, package disable/restart, stale scenes and request cleanup.
 If the grammar cannot express this real example, revise it before expanding it.
 
 ### 6. Prove contextual applicability with Git
+
+Complete on 2026-10-17. The [Git boundary](git-plan.md) records the implemented
+scope/epoch, subscriber, native-path and process limits. The [step log](progress.md)
+records 706 passing tests and the final-build scratch repository checks.
 
 Touch: new `src/data_providers/git.rs`, `src/git_status.rs`,
 `src/panel.rs`/`table_view.rs`, Properties registration and view formatting.
@@ -312,8 +317,8 @@ Never push or open a PR without a request.
 
 ## Completion record
 
-Slices 1–5 are complete. Contextual Git (slice 6) and the proof review precede
-remaining built-in migrations. See the [progress and handoff log](progress.md)
+Slices 1–6 are complete. The proof review (slice 7) precedes remaining built-in
+migrations. See the [progress and handoff log](progress.md)
 for ownership, completed steps, checks and the next task. The owner's start request
 authorizes the initial proof scope; later decision checkpoints remain attached
 to their respective slices. Unrelated deferred TODO features stay deferred.

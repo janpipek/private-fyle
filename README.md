@@ -122,6 +122,17 @@ inspection cancellation. The stream analysis requests a 10 MB probe size
 and five-second analysis window. Video View still extracts a frame, while
 audio View shows format and tag details.
 
+Local entries in a Git working tree also show a Git Properties group with the
+repository root, queried panel directory, repository-relative selected path and
+status. The Git column and Properties share bounded snapshots for the same
+query scope and refresh epoch; directory marks keep their existing aggregation.
+“No changes reported” means Git returned no record for that path, including
+when it groups an ignored or untracked parent directory. Ctrl-R, listing reloads
+and operations refresh repository context even if the selected file is unchanged;
+there is no continuous Git watcher. Git remains an optional executable; failed
+queries appear independently in Properties. Remote and archive items never run
+these queries.
+
 On Linux, explicitly enabled [reader packages](docs/extensions.md) can add
 Properties sections and custom View layouts for local regular files. Sections
 retain independent field failures and partial/lower-bound measurements. Package
@@ -621,6 +632,15 @@ resource checks; `preview_scene_view` draws them with native theme and selection
 behavior. Preview requests retain their original source and explicitly cancel
 package work on replacement, reload or suspension.
 
+`data_providers/git.rs` owns one contextual Git contribution definition, scoped
+refresh epochs, independent subscriber leases, the tested column request model
+and bounded shared snapshots. The column and `properties/git.rs` consume that
+same provider/service. `git_status.rs` owns native-path porcelain parsing and
+background process acquisition: Linux drains bounded nonblocking pipes under
+one three-second deadline, kills/reaps cancelled children and rejects incomplete
+or oversized output. Main waits for Git service shutdown after the GUI exits.
+See the [Git boundary](docs/format-organization/git-plan.md) for limits and policy.
+
 Model first: `src/model.rs` holds each panel's state (`Folder`: typed
 `PanelContent` with `Directory(Location)`, `Search { root, title }` and
 `Places` modes, rows, cursor, marks, sort, hidden files, tree expansion) with
@@ -719,7 +739,7 @@ Where things live (`src/`):
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
 | `entry.rs`, `model.rs`, `location.rs`, `location/`, `location_codec.rs` | Shared `Entry`/`Attrs` and pure sort rules; `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; pure local, remote and archive address semantics; versioned lossless location persistence |
 | `formats.rs`, `formats/` | Semantic EXIF fields, bounded RAW embedded-JPEG selection, Parquet footer validation/decoding, and shared bounded GPX/FIT route/activity readers used by Preview and Properties |
-| `data_providers.rs`, `data_providers/` | Pure contribution/identity contracts; `geo.rs` owns one GPX/FIT Properties/viewer bundle, typed quantity preparation with provenance/completeness, and bounded native read entrypoints; presentation adapters keep their existing selection, scheduling and rendering policies |
+| `data_providers.rs`, `data_providers/` | Pure contribution/identity contracts; `geo.rs` owns the GPX/FIT Properties/viewer bundle and typed quantities; `git.rs` owns contextual Git contributions, shared bounded snapshots, scope revisions and subscriber/request lifecycles; presentation adapters keep their existing selection, scheduling and rendering policies |
 | `extensions.rs`, `extensions/` | Static manifest/package validation, enabled-package Columns/Properties/View registration, typed protocol/result validation and retained-file brokerage; restricted Lua worker and shared Linux supervisor with bounded queue, cancellation/deadline and child reaping. Reserved helper dispatch precedes config/GUI startup; main owns normal-exit cleanup. |
 | `copy_path.rs` | UI-independent selection path policy: local native paths, provider supplied standard URLs and no archive pseudo-paths |
 | `listing.rs`, `listing/contracts.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; shared request/result values and bounded per-panel remote listing cache |

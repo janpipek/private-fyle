@@ -71,6 +71,8 @@ struct EditorWindow {
 pub struct ProviderRegistries {
     /// Built-in and enabled extension columns.
     pub columns: Arc<crate::columns::Catalog>,
+    /// Shared local Git snapshot service for columns and Properties.
+    pub git: crate::data_providers::git::Service,
     /// Built-in and enabled extension Properties providers.
     pub properties: Arc<crate::properties::Registry>,
     /// Built-in and enabled extension preview providers.
@@ -80,6 +82,7 @@ pub struct ProviderRegistries {
 pub struct Commander {
     /// Immutable column catalog shared by both panels and the appearance dialog.
     columns: Arc<crate::columns::Catalog>,
+    git: crate::data_providers::git::Service,
     folders: [Entity<Folder>; 2],
     views: [Entity<FolderView>; 2],
     /// Content pane used by the inspector.
@@ -245,7 +248,10 @@ impl Commander {
                 FolderView::new(
                     folders[ix].clone(),
                     columns.clone(),
-                    registries.columns.clone(),
+                    crate::panel::Providers {
+                        columns: registries.columns.clone(),
+                        git: registries.git.clone(),
+                    },
                     mode,
                     panels.icon_size,
                     window,
@@ -362,6 +368,7 @@ impl Commander {
         }
         let this = Self {
             columns: registries.columns.clone(),
+            git: registries.git.clone(),
             folders,
             views,
             preview,

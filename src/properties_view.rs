@@ -52,10 +52,21 @@ impl PropertiesPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.set_contextual_target(selection, None, window, cx);
+    }
+
+    /// Selects an original source together with its captured repository revision.
+    pub fn set_contextual_target(
+        &mut self,
+        selection: Option<Selection>,
+        git_context: Option<crate::data_providers::git::Key>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.target_selection() != selection.as_ref() {
             TextSelection::clear(window, cx);
         }
-        if let Some(request) = self.session.set_target(selection) {
+        if let Some(request) = self.session.set_contextual_target(selection, git_context) {
             self.pending = Some(request);
         } else if matches!(self.session.state(), State::Empty) {
             self.pending = None;
@@ -85,10 +96,11 @@ impl PropertiesPane {
         self._load = cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    crate::properties::inspect_with_registry(
+                    crate::properties::inspect_with_context(
                         &worker_request.selection,
                         &worker_request.cancel,
                         &registry,
+                        worker_request.git_context.as_ref(),
                     )
                     .map_err(|error| {
                         format!("{}: {error}", worker_request.selection.entry.path.display())
@@ -238,7 +250,9 @@ fn render_listing(
 
 fn render_group(group: &PropertyGroup, cx: &App, selection: &mut PropertiesText) -> AnyElement {
     let mut content = v_flex().w_full().gap_1().child(section_title(
-        if group.id.0 == "sqlite" {
+        if group.id.0 == "builtin.git.properties" {
+            "Git".into()
+        } else if group.id.0 == "sqlite" {
             "SQLite".into()
         } else {
             humanize(&group.id.0)

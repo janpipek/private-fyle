@@ -13,9 +13,9 @@ not to pursue an item.
       follow the
       [implementation plan](docs/format-organization/implementation-plan.md)
       and [handoff log](docs/format-organization/progress.md).
-      Slices 1–5 are complete, including the enabled sensor package across
-      Properties, a display-only column and a custom viewer; contextual Git
-      (slice 6) is next.
+      Slices 1–6 are complete, including the enabled sensor package across
+      Properties, a display-only column and a custom viewer, plus shared contextual
+      Git columns/Properties. Review both proofs (slice 7) before broader migration.
       Prove a local user-defined
       reader, Properties section, column and custom viewer plus contextual Git
       before migrating the remaining built-ins. The owner approved display-only
@@ -165,6 +165,15 @@ not to pursue an item.
       truncated values explicitly.
 
 ## Done
+
+- [x] Data-provider migration, slice 6: share bounded contextual Git snapshots
+      between the existing status column and a new local Git Properties group.
+      Capture scope/refresh revisions separately from file metadata; preserve
+      status priorities and native paths, independent cancellation, stale-result
+      rejection and process cleanup. Explicit refresh/listing reloads invalidate
+      context; continuous watching and a Git library replacement stay deferred.
+      See the [Git boundary](docs/format-organization/git-plan.md) and
+      [verification log](docs/format-organization/progress.md).
 
 - [x] Data-provider migration, slice 5: enabled local reader packages contribute
       independent typed Properties sections and custom View scenes alongside

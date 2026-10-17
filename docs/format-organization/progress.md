@@ -9,15 +9,18 @@ can be reconstructed without the chat.
 ## Current state
 
 - The owner authorized starting the plan after the planning commit `5da8dee`.
-- Completed: slices 1–5, contracts, the GPX/FIT adapter, display-only columns,
-  supervised packages and the sensor Properties/custom-viewer proof.
+- Completed: slices 1–6, contracts, the GPX/FIT adapter, display-only columns,
+  supervised packages, the sensor Properties/custom-viewer proof and contextual
+  Git columns/Properties. Next: the proof review (slice 7).
 - Slice 4a static package validation/loading is committed as `c2913dc`, and the
   protocol/broker/queue foundation as `cf11f3b`. Standalone worker execution and
   Linux supervision are committed as `a2f7021`. Settings/catalog integration
   (4c) is complete and verified as `0db1dbd`; slice 5 is complete.
   Its pure scene model is committed as `0e179cd` (652 tests), and typed
   contribution execution as `ca1bc84` (665 tests). Final app integration passes
-  681 tests, fmt/clippy/build and the live sensor proof; contextual Git is next.
+  681 tests, fmt/clippy/build and the live sensor proof (commit `b44de7d`).
+  Contextual Git (slice 6) is also complete: 706 tests, fmt/clippy/build and
+  final-build live checks pass; see [git-plan.md](git-plan.md) and the latest log.
   Luna owns the Rust extension files and helper dispatch; Sol reviews; the
   coordinator owns documentation, final checks and commits. Read
   [worker-plan.md](worker-plan.md) for execution and
@@ -700,10 +703,11 @@ changes separate from the completed column commit.
 
 ## Current handoff
 
-The sensor proof is complete. Read [renderer-plan.md](renderer-plan.md) for the
-implemented model, worker and feature seams, and [docs/extensions.md](../extensions.md)
-for the authoring API. Next is authorized contextual Git (slice 6), followed by
-the sensor/Git proof review before migrating more built-ins. Preserve separate
+The sensor and contextual Git proofs are complete. Read
+[renderer-plan.md](renderer-plan.md) and [git-plan.md](git-plan.md) for the
+implemented boundaries, and [docs/extensions.md](../extensions.md) for the
+package authoring API. Next is the sensor/Git proof review (slice 7), before
+migrating more built-ins. Preserve separate
 feature lifecycles and original-source access policies. Metadata sorting,
 package-format Properties and xattrs remain their separate open TODOs.
 
@@ -716,7 +720,7 @@ package-format Properties and xattrs remain their separate open TODOs.
 | 3. Dynamic columns | Complete | Sol approved; fmt/clippy/build and all 579 tests passed; unavailable-ID persistence/removal and native UI checked |
 | 4. Packages and worker | Complete | Explicit config activation and display-only columns; Sol approved, 644 tests/fmt/clippy/build and live UI/active-helper normal-exit checks pass |
 | 5. Sensor renderer proof | Complete | Sol approved; 681 tests/fmt/clippy/build, package-only graph edits, source/failure/fallback/copy and active-helper quit verified |
-| 6. Contextual Git | Pending | New Git Properties behavior is within the authorized proof scope |
+| 6. Contextual Git | Complete | Sol reviewed; 706 tests/fmt/clippy/build, shared column/Properties scopes, unchanged-file index refresh, archive exclusion and active-child quit verified |
 | 7. Review proof | Pending | Both sensor and Git cases must work before broader migration |
 | 8. Remaining built-ins | Pending | Depends on slice 7 |
 
@@ -996,3 +1000,96 @@ package-format Properties and xattrs remain their separate open TODOs.
   TODO, architecture/worker plans and package guidance. Only unrelated untracked
   `title.png` should remain after commit. Next: contextual Git; keep broader
   migrations behind the planned proof review.
+
+
+### 2026-10-17 — Start contextual Git (slice 6)
+
+- The owner asked to continue after completed slice 5. Re-read TODO, README,
+  architecture/implementation plans and navigation lifecycle before editing.
+  The authorized proof scope includes contextual Git; the separate idea of
+  replacing the Git executable with a library remains deferred.
+- Ownership: Sol reviews the architecture and writes `git-plan.md`; one Luna
+  owns `git_status.rs` and its bounded native-path runner/parser; another Luna
+  owns `data_providers/git.rs` and the shared request/snapshot service. The
+  coordinator integrates the existing controllers, records progress and runs
+  final automated/live verification. No dependencies are planned.
+- Existing Git work uses unbounded `Command::output`, lossy path conversion and
+  a panel task without completion identity checks. Preserve status priorities,
+  ignored/renamed/directory marks while replacing these boundaries.
+- Design: capture the local panel query scope and service refresh epoch without
+  disk access; resolve repository root in background work. Identical keys share
+  pending/prepared snapshots, with independent subscriber cancellation. Listing
+  reloads invalidate repository context even when selected file metadata stays
+  unchanged; continuous watching is outside this slice. Properties must retain
+  the panel scope, original selected identity and independent native sections.
+- Implementation and verification are pending. Keep unrelated `title.png`
+  untouched; no push or PR.
+
+
+### 2026-10-17 — Integrate and review contextual Git
+
+- Implemented native-byte porcelain parsing, lexical-to-canonical scope mapping,
+  literal pathspecs and bounded Linux nonblocking process acquisition. Timeout,
+  cancellation and output limits kill/reap the direct child. Captured/fake
+  executable tests replace the former test requiring an installed Git.
+- Implemented one shared service with eight active jobs (including cancelled jobs
+  until runner cleanup), 64 subscribers per job, 16 cached snapshots/16 MiB and
+  256 explicit scope revisions. Revision overflow safely invalidates all cached
+  contexts. Main explicitly shuts down the service after the event loop.
+- Both production adapters consume the same provider definition. Properties
+  captures its context inside its independent session request; changing only the
+  epoch cancels/replaces an unchanged selected file. Native path values and
+  independent baseline facts survive contextual failures.
+- Sol review caught and resolved repeated unchanged-demand restarts, shutdown
+  ownership, ancestor-fallback invalidation and unused production descriptors.
+  Root added proactive invalidation/resubscription for both panels and the
+  active Properties perspective at the common listing boundary. Existing
+  editor/tool/job reload paths already pass through it.
+- Git may collapse ignored/untracked parent directories. Preserve existing
+  column marks and label a successful missing path record “No changes reported”
+  rather than asserting “Clean”. Tests cover grouped descendants explicitly.
+- Initial live check: `/tmp/fyle-git-ui-yw0cbt_j` shows matching file/directory,
+  ignored and renamed marks/Properties, return from View to Properties, and
+  both panels on one scope. Staging `30-untracked.txt` changed no file size or
+  modification time; Ctrl-R changed both columns and Properties from Untracked
+  to Added. The owned app/Xvfb were stopped and reaped.
+- Initial full suite found one outdated test expectation (“Clean”) after the
+  wording correction; it is updated. Final checks and final-build UI evidence
+  remain pending; decoded-index memory/item limits are being tightened before
+  that final run.
+
+
+### 2026-10-17 — Finish contextual Git verification
+
+- Tightened checked porcelain decoding to 100,000 records and a conservative
+  16 MiB index estimate before allocating the path map. Both acquisition output
+  and retained decoded data are bounded; provider demand uses named limits.
+- Discovery now returns absence only for the stable non-repository diagnostic;
+  per-child `LC_ALL=C` makes that classification deterministic. Other errors,
+  including ownership failures, preserve bounded diagnostics. Linux spawn retries
+  only executable-busy errors within the same deadline/cancellation policy.
+- The first full suite exposed an executable-busy race in a newly written fake
+  executable. The bounded retry fixes that case. Final exact-source checks pass:
+  `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
+  `cargo test --quiet` (**706 passed, zero failed/ignored**) and `cargo build`.
+  No dependency changes. No Windows build or real remote-account UI run.
+- Final-build evidence is in `/tmp/fyle-git-ui-1ck__zjx`: `final-columns.png`,
+  `final-no-changes.png`, `final-added.png`, `final-nested.png` and
+  `final-renamed.png` show native mark/Properties agreement, distinct root versus
+  nested query scope, corrected no-record wording and return from View.
+  Staging again preserved file size/mtime and Ctrl-R updated both panels and
+  Properties. `archive-properties.png` is listing-only with blank Git marks;
+  `outside-properties.png` retains native facts without a Git section.
+- Navigation through nested, archive and outside directories then back to the
+  repository ends on the selected Added entry (`rapid-final.png`), with no stale
+  Properties or column marks. `deadline-properties.png` shows a deliberately
+  blocked scratch Git wrapper timing out without hiding filesystem facts.
+- Normal Ctrl-Q while the scratch Git wrapper was actively running exited 0 in
+  **0.069 seconds**, and its direct child was reaped before the app returned;
+  `quit.json` records PID 58429 and the check. App 58084 and Xvfb 58082 were
+  stopped/reaped; both UI harness state files now say `ui_stopped: true`.
+  The wrapper, repositories, config and data are scratch-only. Application logs
+  were empty. Real config/history and unrelated `title.png` remain untouched.
+- README, TODO and architecture/implementation/Git plans describe the resulting
+  behavior and handoff. Next: slice 7 proof review; compare the sensor and Git
+  authoring/acquisition boundaries before choosing any broader built-in migration.

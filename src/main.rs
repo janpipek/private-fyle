@@ -98,15 +98,19 @@ fn main() {
     let (settings, settings_error) = settings::persistence::load();
     let config_directory =
         settings::persistence::path().and_then(|path| path.parent().map(PathBuf::from));
-    let prepared_extensions =
+    let mut prepared_extensions =
         extensions::catalog::prepare(config_directory.as_deref(), &settings.extensions.enabled);
+    let git = data_providers::git::Service::new();
+    prepared_extensions.properties.register_git(git.clone());
     let mut preview_registry = preview::Registry::with_defaults();
     preview_registry.register_extensions(prepared_extensions.viewers);
     let registries = std::sync::Arc::new(commander::ProviderRegistries {
         columns: std::sync::Arc::new(prepared_extensions.catalog),
+        git,
         properties: std::sync::Arc::new(prepared_extensions.properties),
         preview: std::sync::Arc::new(preview_registry),
     });
+    let git_service = registries.git.clone();
     let supervisor = prepared_extensions.supervisor;
     let extension_diagnostics = prepared_extensions.diagnostics;
 
@@ -210,6 +214,7 @@ fn main() {
             .expect("failed to open window");
             cx.activate(true);
         });
+    git_service.shutdown();
     if let Some(supervisor) = supervisor
         && let Err(error) = supervisor.shutdown()
     {

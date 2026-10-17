@@ -13,6 +13,7 @@ use crate::location::Location;
 mod exif_reader;
 mod filesystem;
 mod geo;
+mod git;
 mod media;
 mod parquet;
 mod registry;
@@ -184,6 +185,8 @@ pub struct Request {
     pub generation: u64,
     /// Selected original source and listing facts.
     pub selection: Selection,
+    /// Captured repository scope and revision, separate from source identity.
+    pub git_context: Option<crate::data_providers::git::Key>,
     /// Cancellation signal shared with the worker.
     pub cancel: Arc<AtomicBool>,
 }
@@ -210,6 +213,7 @@ pub enum State {
 pub struct PropertiesSession {
     generation: u64,
     selection: Option<Selection>,
+    git_context: Option<crate::data_providers::git::Key>,
     state: State,
 }
 
@@ -221,9 +225,19 @@ impl PropertiesSession {
 
     /// Selects a new source and returns its cancellable background request.
     pub fn set_target(&mut self, target: Option<Selection>) -> Option<Request> {
-        if self.selection == target {
+        self.set_contextual_target(target, None)
+    }
+
+    /// Captures repository revision independently of selected file metadata.
+    pub fn set_contextual_target(
+        &mut self,
+        target: Option<Selection>,
+        git_context: Option<crate::data_providers::git::Key>,
+    ) -> Option<Request> {
+        if self.selection == target && self.git_context == git_context {
             return None;
         }
+        self.git_context = git_context;
         self.cancel_current();
         self.generation = self.generation.wrapping_add(1);
         self.selection = target.clone();
@@ -234,6 +248,7 @@ impl PropertiesSession {
         let request = Request {
             generation: self.generation,
             selection,
+            git_context: self.git_context.clone(),
             cancel: Arc::new(AtomicBool::new(false)),
         };
         self.state = State::Loading(request.clone());
@@ -244,7 +259,7 @@ impl PropertiesSession {
     pub fn invalidate(&mut self) -> Option<Request> {
         let target = self.selection.clone();
         self.selection = None;
-        self.set_target(target)
+        self.set_contextual_target(target, self.git_context.clone())
     }
 
     /// Applies a completion only when it still belongs to the active request.
@@ -301,6 +316,16 @@ pub fn inspect_with_registry(
     cancel: &Arc<AtomicBool>,
     registry: &Registry,
 ) -> io::Result<Inspection> {
+    inspect_with_context(selection, cancel, registry, None)
+}
+
+/// Reads native and extension facts with an explicitly captured local query context.
+pub fn inspect_with_context(
+    selection: &Selection,
+    cancel: &Arc<AtomicBool>,
+    registry: &Registry,
+    git_context: Option<&crate::data_providers::git::Key>,
+) -> io::Result<Inspection> {
     if cancel.load(Ordering::Relaxed) {
         return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
     }
@@ -346,7 +371,8 @@ pub fn inspect_with_registry(
                     Err(error) => Section::Failed(error.to_string()),
                 }
             };
-            let additional_groups = registry.read(path.as_path(), cancel)?;
+            let mut additional_groups = registry.read(path.as_path(), cancel)?;
+            additional_groups.extend(registry.read_context(selection, git_context, cancel)?);
             // Metadata follows a selected symlink like native readers do; the
             // worker still receives the original selection and brokered path.
             let extension_sections = if regular_file && !selection.entry.is_dir {
@@ -801,5 +827,36 @@ mod tests {
         assert!(matches!(session.state(), State::Ready { .. }));
         let refresh = session.invalidate().expect("refresh request");
         assert!(refresh.generation > second.generation);
+    }
+
+    #[test]
+    fn context_epoch_replaces_same_selection_and_rejects_earlier_result() {
+        let temp = TempDir::new().expect("temporary directory");
+        let item = selection(temp.path().join("unchanged"));
+        let key = crate::data_providers::git::Key {
+            scope: temp.path().into(),
+            epoch: 1,
+        };
+        let mut session = PropertiesSession::default();
+        let first = session
+            .set_contextual_target(Some(item.clone()), Some(key.clone()))
+            .expect("first request");
+        assert!(
+            session
+                .set_contextual_target(Some(item.clone()), Some(key.clone()))
+                .is_none()
+        );
+        let mut next_key = key;
+        next_key.epoch += 1;
+        let second = session
+            .set_contextual_target(Some(item), Some(next_key.clone()))
+            .expect("index refresh request");
+        assert!(first.cancel.load(std::sync::atomic::Ordering::Acquire));
+        assert!(!session.complete(&first, Err("old result".into())));
+        assert_eq!(second.git_context, Some(next_key.clone()));
+        assert!(session.complete(&second, Err("current failure".into())));
+        let refreshed = session.invalidate().expect("explicit reload");
+        assert_eq!(refreshed.git_context, Some(next_key));
+        assert!(refreshed.generation > second.generation);
     }
 }
