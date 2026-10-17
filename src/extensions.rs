@@ -9,6 +9,10 @@ mod loading;
 pub mod manifest;
 /// Queue admission and active-slot lifecycle for supervised requests.
 pub mod model;
+/// Adapts validated viewer contributions to native preview requests.
+pub mod preview;
+/// Adapts declared Properties contributions to the application inspector.
+pub mod properties;
 /// Bounded wire schema and frame codec for supervised extension requests.
 pub mod protocol;
 /// Typed result values validated against the selected manifest contribution.

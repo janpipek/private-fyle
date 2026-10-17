@@ -9,14 +9,15 @@ can be reconstructed without the chat.
 ## Current state
 
 - The owner authorized starting the plan after the planning commit `5da8dee`.
-- Completed: slices 1–4, contracts, the GPX/FIT adapter, display-only columns and
-  explicitly enabled reader packages with supervised execution.
+- Completed: slices 1–5, contracts, the GPX/FIT adapter, display-only columns,
+  supervised packages and the sensor Properties/custom-viewer proof.
 - Slice 4a static package validation/loading is committed as `c2913dc`, and the
   protocol/broker/queue foundation as `cf11f3b`. Standalone worker execution and
   Linux supervision are committed as `a2f7021`. Settings/catalog integration
-  (4c) is complete and verified as `0db1dbd`; slice 5 is now in progress.
-  Its pure scene model is committed as `0e179cd` (652 tests); typed runtime
-  results, feature integration and the live sensor proof remain unfinished.
+  (4c) is complete and verified as `0db1dbd`; slice 5 is complete.
+  Its pure scene model is committed as `0e179cd` (652 tests), and typed
+  contribution execution as `ca1bc84` (665 tests). Final app integration passes
+  681 tests, fmt/clippy/build and the live sensor proof; contextual Git is next.
   Luna owns the Rust extension files and helper dispatch; Sol reviews; the
   coordinator owns documentation, final checks and commits. Read
   [worker-plan.md](worker-plan.md) for execution and
@@ -697,16 +698,14 @@ changes separate from the completed column commit.
   normal-shutdown guarantee. Package Properties/View and renderer grammar remain
   slice 5, whose named owner checkpoint is still pending.
 
-## Slice 5 handoff
+## Current handoff
 
-The owner approved static layout, selectable text, typed tables and a bounded
-path canvas on 2026-10-17. Native code owns interaction, with no arbitrary
-callbacks/widgets. Slice 5 implementation may proceed.
-Then follow the plan's sensor package proof across Properties, a column and a
-custom graph. Keep source/permissions and feature lifecycles independent; do not
-infer format/context evidence or label partial results complete. The user guide's
-distance-column example is already verified and can inform the authoring API.
-Contextual Git and the proof review follow before remaining built-in migrations.
+The sensor proof is complete. Read [renderer-plan.md](renderer-plan.md) for the
+implemented model, worker and feature seams, and [docs/extensions.md](../extensions.md)
+for the authoring API. Next is authorized contextual Git (slice 6), followed by
+the sensor/Git proof review before migrating more built-ins. Preserve separate
+feature lifecycles and original-source access policies. Metadata sorting,
+package-format Properties and xattrs remain their separate open TODOs.
 
 ## Completion and next work
 
@@ -716,7 +715,7 @@ Contextual Git and the proof review follow before remaining built-in migrations.
 | 2. Existing GPX/FIT adapter | Complete | Astra approved; fmt/clippy/build and all 573 tests passed; 11 live inspector comparisons identical |
 | 3. Dynamic columns | Complete | Sol approved; fmt/clippy/build and all 579 tests passed; unavailable-ID persistence/removal and native UI checked |
 | 4. Packages and worker | Complete | Explicit config activation and display-only columns; Sol approved, 644 tests/fmt/clippy/build and live UI/active-helper normal-exit checks pass |
-| 5. Sensor renderer proof | In progress | Renderer scope approved on 2026-10-17; Sol architecture, Luna implementation |
+| 5. Sensor renderer proof | Complete | Sol approved; 681 tests/fmt/clippy/build, package-only graph edits, source/failure/fallback/copy and active-helper quit verified |
 | 6. Contextual Git | Pending | New Git Properties behavior is within the authorized proof scope |
 | 7. Review proof | Pending | Both sensor and Git cases must work before broader migration |
 | 8. Remaining built-ins | Pending | Depends on slice 7 |
@@ -872,3 +871,128 @@ Contextual Git and the proof review follow before remaining built-in migrations.
   Properties adapter/view remain uncommitted drafts; no new app Properties/View
   behavior is claimed. Next: immutable startup feature handles, independent
   Properties/preview wiring, original-source/cancellation tests and live proof.
+
+### 2026-10-17 — Start the application proof
+
+- Committed typed execution as `ca1bc84`. Assigned `/root/lua_worker` Properties
+  model/registry/controller rendering and the existing new adapter drafts.
+  It may add only the Properties export in `extensions.rs`. Native types and
+  independent inspection scheduling remain intact. Split the registry by
+  responsibility if the root file would exceed about 1000 lines.
+- Assigned `/root/contract_implementation` startup catalog/main/Commander and
+  preview adapter/registry/session/controller wiring. It owns Cargo coordination
+  and installs the already reviewed native scene renderer. Original source
+  gates, native-only path wrappers, ordered viewer decline and explicit request
+  cancellation are required before live checks.
+- Sol reviews those seams. The coordinator owns docs, the example, final checks,
+  scratch UI evidence and the feature commit. No renderer or Properties draft
+  is yet wired into the running application.
+
+- Checked the standalone runtime build in the scratch app before feature wiring:
+  existing sensor columns still load and the ordinary text preview crop
+  `362x653+870+99` is pixel-identical to the pre-slice baseline (zero differing
+  pixels). Captured `runtime-native-text.png` in the UI scratch directory;
+  that app run quit normally. Xvfb/harness remain owned for the final proof.
+
+### 2026-10-17 — Resume saved integration
+
+- Both Luna agents hit a service usage limit during application wiring. The
+  owner requested continuation; resumed Sol/Luna with the same file ownership
+  and saved tree, without redoing the committed model/runtime work.
+- Confirmed the scratch Xvfb is still the owned `:90` process; the last app
+  already exited normally. The persistent harness remains available for restart.
+  Uncommitted Properties/preview drafts and user-guide updates are preserved;
+  they still require compilation, review and live verification.
+
+- Properties registry extraction and typed section rendering are now drafted.
+  Preserved native symlink policy: metadata/opened-file checks follow an
+  original local symlink to a regular file; retain the selected identity/name
+  rather than fabricating a canonical target identity.
+- Coordinator review found a test setup defect: Properties tests created a
+  production Supervisor inside the test executable, so its child rejected the
+  reserved CLI flag and failure assertions passed for the wrong reason. Luna
+  is replacing this with a controlled real-helper test constructor and launch
+  counters, with actual summary-value/malformed-reason assertions and zero
+  launches for excluded or already-cancelled sources. Sol will review the fix.
+
+- Sol approved the corrected Properties source/tests: controlled helper returns
+  30 s / 95 m, malformed sensor input reports its specific parser error while
+  native groups survive, and excluded/already-cancelled sources assert zero
+  launches. Symlink-to-regular-file dispatch now proves a real successful read.
+- Startup drafts now carry columns, Properties and viewer handles from the same
+  package snapshot/supervisor. Preview has captured original identity and
+  explicit cancellation, with replacement/reload/suspend/drop model tests;
+  deterministic viewer selection/source-gate tests and final compilation are
+  still pending. Removed the unused default PropertiesPane constructor after
+  startup switched to injecting its shared registry.
+
+- The first integrated full run passed **675 tests**. Clippy found a larger
+  enum after adding scenes and a chained string-replacement style warning.
+  Boxed only the new scene payload, preserving existing native preview/session
+  state layout, and fixed the Properties formatter warning without suppressions.
+  Reverification/build is underway before live UI checks.
+
+- Integrated verification reached **678 tests**, fmt/clippy/build passing before
+  live checks. In the scratch app, the exact example produces summary, table and
+  canvas; Properties shows 30 s / 95 m. Partial input shows ≥127 s / ≥381 m
+  and the graph/table disclose partial input and the first-16 sample table.
+  Malformed input leaves native Properties facts visible with its package line.
+- Live checks found three presentation defects and assigned fixes: the accent
+  path used a pale background color (map it to theme primary), scene text lacked
+  padding, and long View errors were centered/clipped (use constrained padded
+  selectable scrolling text). Properties rows are being aligned with native
+  label/value columns and constrained for long error wrapping.
+- Native text fallback with the enabled package remains pixel-identical to the
+  original preview crop (zero differences). Selecting “Sensor” in scene text,
+  copying and pasting into the scratch location input proves text copy priority;
+  after switching to Properties, Ctrl-C yanks the file instead, proving hidden
+  scene selection is cleared. No navigation was committed from the test input.
+  Screenshots: `complete-scene.png`, `complete-properties.png`, `partial-*`,
+  `malformed-*`, `integrated-native-text.png`, `scene-copy.png` and
+  `hidden-scene-copy-cleared.png` in the owned UI scratch directory.
+
+### 2026-10-17 — Complete and verify the sensor application proof
+
+- Registered package columns, Properties and viewer handles from one immutable
+  startup snapshot and shared supervisor. Properties retains independent native
+  groups and typed extension fields. Preview keeps specialized built-in priority,
+  then tries deterministic package/contribution order before text/binary.
+  Path-only, remote, archive and mismatched-local calls cannot invoke packages.
+- Preview requests capture original identity and cancellation; replacement,
+  reload, suspension and drop cancel supervised work, and stale completions are
+  rejected. Native scene rendering handles text/table selection, theme mapping,
+  uniform clipped paths and scrolling. Hidden selections clear; footer text has
+  deterministic final document order.
+- Sol approved the production/source policies and real-helper regression tests.
+  A test-only private-field inspection was replaced with actual package-order
+  dispatch, namespaced scripts and an exact one-launch assertion. Same-package
+  tests verify reversed order, absent-to-ready continuation and failed-first
+  stopping without executing the next candidate.
+- Live checks drove small presentation fixes: visible accent paths, padding,
+  aligned/wrapping Properties rows and selectable/wrapping View diagnostics.
+  Narrowing the inspector exposed an intrinsic-width constraint; shrinkable
+  wrappers now fit the canvas while fixed table content scrolls horizontally.
+  `fixed-narrow-inspector.png` shows the full path inside the smaller viewport.
+- Final source verification after these fixes passed `cargo fmt --check`,
+  `cargo clippy --all-targets -- -D warnings` and `cargo test --quiet`: **681
+  tests, zero failures/ignored**. `cargo build` passed for the same final
+  production source. No dependencies were added; no Windows build or real
+  remote-account UI check ran.
+- Live proof uses `/tmp/fyle-scene-ui-le1si8bh`: package-only Lua title/spacing/
+  path-role edits followed by restart changed the layout/graph with an unchanged
+  binary SHA-256; complete/truncated/malformed results and native fallback were
+  checked; competing packages/contributions selected by ID and declined properly;
+  a failed field preserved its readable sibling/native facts; invalid geometry
+  gave a useful View error. Disable/restart restored native text/Properties and
+  blank saved columns; re-enable restored the package. Rapid selection ended on
+  the correct scene. Config comments and saved IDs remained intact.
+- Graph helper deadline failure was visible and readable. Normal File → Quit
+  with an observed active graph helper took **0.308 seconds**, with the helper
+  reaped before app exit (exit 0). The PID check enumerates children across all
+  app threads; checking only the main thread initially missed the supervisor's
+  child. Evidence: `active-graph-quit.json`. All per-run app logs were empty.
+- Restored the scratch package to the shipped example, stopped/reaped the owned
+  app and Xvfb, and marked the harness state `ui_stopped: true`. Updated README,
+  TODO, architecture/worker plans and package guidance. Only unrelated untracked
+  `title.png` should remain after commit. Next: contextual Git; keep broader
+  migrations behind the planned proof review.

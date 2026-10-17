@@ -15,9 +15,8 @@ as the first operation in `main`, before settings, command-line directory
 handling or GPUI initialization. Keep all tests inline, following AGENTS.md.
 
 Slices 4b/4c implemented execution, explicit settings and column registration.
-Slice 5 extends the same supervisor to typed Properties and viewer requests;
-feature integration and native rendering follow the standalone runtime
-checkpoint. Existing Tools Lua plugins stay separate.
+Slice 5 extends the same supervisor to typed Properties and viewer requests,
+with immutable startup feature registration and native rendering now integrated. Existing Tools Lua plugins stay separate.
 
 Use focused files: `protocol.rs` for bounded wire types, `worker.rs` for Lua,
 `broker.rs` for authorized file reads, `model.rs` for queue policy and

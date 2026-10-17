@@ -13,8 +13,9 @@ not to pursue an item.
       follow the
       [implementation plan](docs/format-organization/implementation-plan.md)
       and [handoff log](docs/format-organization/progress.md).
-      Slices 1–4 are complete, including explicitly enabled package columns;
-      next is the sensor Properties/custom-viewer proof (slice 5).
+      Slices 1–5 are complete, including the enabled sensor package across
+      Properties, a display-only column and a custom viewer; contextual Git
+      (slice 6) is next.
       Prove a local user-defined
       reader, Properties section, column and custom viewer plus contextual Git
       before migrating the remaining built-ins. The owner approved display-only
@@ -164,6 +165,14 @@ not to pursue an item.
       truncated values explicitly.
 
 ## Done
+
+- [x] Data-provider migration, slice 5: enabled local reader packages contribute
+      independent typed Properties sections and custom View scenes alongside
+      columns. Native code renders bounded selectable layouts, typed tables and
+      path graphs; original-source grants and explicit cancellation exclude
+      remote/archive copies and stale work. The sensor example and package-only
+      edits are verified in the running app. See the
+      [package guide](docs/extensions.md) and [handoff log](docs/format-organization/progress.md).
 
 - [x] Data-provider migration, slice 5 runtime: prepare separate typed
       Properties field and viewer scene results through the shared supervised

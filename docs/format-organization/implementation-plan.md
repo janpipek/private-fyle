@@ -1,7 +1,7 @@
 # Data providers and contributions: implementation plan
 
 Status: started with owner authorization on 2026-10-16, after planning commit
-`5da8dee`. Slices 1–4 are complete. The owner approved
+`5da8dee`. Slices 1–5 are complete. The owner approved
 display-only extension columns first and the proposed supervised Lua worker
 with explicit package enablement. On 2026-10-17 the owner approved static
 layout, selectable text, typed tables and a bounded path canvas for slice 5;
@@ -207,6 +207,10 @@ Do not claim hostile-code OS isolation; document the trusted-package contract.
 
 ### 5. Deliver the user-defined renderer and complete the sensor proof
 
+Complete on 2026-10-17. The [renderer contract](renderer-plan.md) records the
+implemented boundary; the [step log](progress.md) contains final checks and live
+evidence. Contextual Git is the next proof before broader migration.
+
 Touch: new pure `src/preview_scene.rs` and thin `src/preview_scene_view.rs`,
 `src/preview.rs`, `src/preview_view.rs`, extension adapters and an example
 package under `examples/extensions/sensor/`.
@@ -308,7 +312,8 @@ Never push or open a PR without a request.
 
 ## Completion record
 
-Slices 1–4 are complete; slice 5 is in progress with its renderer scope approved. See the [progress and handoff log](progress.md) for
-ownership, completed steps, checks and the next task. The owner's start request
+Slices 1–5 are complete. Contextual Git (slice 6) and the proof review precede
+remaining built-in migrations. See the [progress and handoff log](progress.md)
+for ownership, completed steps, checks and the next task. The owner's start request
 authorizes the initial proof scope; later decision checkpoints remain attached
 to their respective slices. Unrelated deferred TODO features stay deferred.

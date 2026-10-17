@@ -139,6 +139,35 @@ impl Supervisor {
         Self::with_launcher(Arc::new(process::production_command), false)
     }
 
+    /// Starts a real helper through the test harness protocol fixture.
+    #[cfg(all(test, target_os = "linux"))]
+    pub fn fixture_for_tests() -> io::Result<Self> {
+        Self::fixture_for_tests_with_counter(None)
+    }
+
+    /// Starts the test helper and optionally counts child launch attempts.
+    #[cfg(all(test, target_os = "linux"))]
+    pub fn fixture_for_tests_with_counter(
+        counter: Option<Arc<std::sync::atomic::AtomicUsize>>,
+    ) -> io::Result<Self> {
+        let launcher = Arc::new(move || {
+            if let Some(counter) = &counter {
+                counter.fetch_add(1, Ordering::Relaxed);
+            }
+            let mut command = Command::new(std::env::current_exe()?);
+            command
+                .args([
+                    "--exact",
+                    "extensions::supervisor::process::tests::worker_subprocess_fixture",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .env("FYLE_EXTENSION_WORKER_FIXTURE", "worker");
+            Ok(command)
+        });
+        Self::with_launcher(launcher, true)
+    }
+
     fn with_launcher(
         launcher: Arc<dyn Fn() -> io::Result<Command> + Send + Sync>,
         fixture_protocol_stderr: bool,

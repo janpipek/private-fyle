@@ -1,8 +1,8 @@
 # Reader packages
 
-On Linux, an explicitly enabled reader package can add display-only columns for
-local regular files. Properties sections and custom viewers are later slices of
-the [provider plan](format-organization/implementation-plan.md). Existing
+On Linux, an explicitly enabled reader package can add Properties sections,
+display-only columns and custom viewers for local regular files. The
+[provider plan](format-organization/implementation-plan.md) records the migration. Existing
 [Tools Lua plugins](tools.md) have a separate contract.
 
 ## Install and enable
@@ -24,7 +24,7 @@ enabled = ["sensor"]
 ```
 
 Enabling an ID authorizes automatic execution of its declared readers when
-selected columns need visible-row values. Enable only packages you trust. The
+selected columns, Properties or View need its declared contribution. Enable only packages you trust. The
 default is an empty list. Restart after changing packages or enablement, then
 select the package's column in **View → Columns…**. No Lua is evaluated during
 static package loading.
@@ -104,6 +104,75 @@ callback can also return `{state="absent"}`, or `unavailable`/`failed` with a
 `reason`. Ready values require explicit completeness: `complete`, `truncated`
 with a reason, or `lower_bound`. Partial values retain that distinction in the
 column display; sorting these columns remains disabled.
+
+## Properties and a custom viewer
+
+The complete [sensor package](../examples/extensions/sensor/README.md) reads
+elapsed-time/distance samples and contributes all three presentations. Copy its
+`manifest.toml` and `main.lua` into `extensions/sensor/`, enable `sensor` and
+restart. This replaces the small single-number example above; the two examples
+use the same package ID and different `.sens` formats.
+
+Properties combines matching package sections with native filesystem and format
+facts. Each section binds a list of manifest field IDs. Its callback returns
+one terminal result per declared field, with independent completeness:
+
+```lua
+return { state = "ready", fields = {
+  { field = "extension.sensor.reader.duration", state = "ready",
+    value = { kind = "quantity", value = 30, unit = "seconds" },
+    completeness = { kind = "complete" } },
+  { field = "extension.sensor.reader.distance", state = "failed",
+    reason = "distance sample is invalid" },
+} }
+```
+
+Return every declared field once. An absent field uses `state="absent"` and
+its field ID. A section can itself return absent, unavailable or failed without
+fields. A failed field leaves readable siblings and native facts visible.
+Partial and lower-bound quantities retain their markers in Properties.
+
+A viewer declares `representation = "fyle.scene"` and `version = 1`. Its
+callback returns a scene and explicit complete/truncated coverage:
+
+```lua
+return { state = "ready", completeness = { kind = "complete" }, scene = {
+  version = 1,
+  root = { kind = "text", id = "title", role = "heading", text = "Sensor data" },
+} }
+```
+
+A scene supports these native primitives:
+
+| Node | Required data |
+| --- | --- |
+| `stack` | `id`, `axis` (`row`/`column`), `gap` (`small`/`normal`), `children` |
+| `text` | `id`, `text`, `role` (`body`/`heading`/`muted`) |
+| `table` | `id`, typed `columns`, rectangular `rows` |
+| `canvas` | `id`, finite `width`/`height`, `paths` |
+
+Table columns carry `id`, `label` and a `kind` table such as
+`{kind="quantity", unit="metres"}`. Cells use the same typed value shape as
+columns, with no field ID or completeness. Use `false` for a blank cell; rows
+remain dense arrays of exactly the declared width. `nil` holes and `true` are
+invalid. Canvas paths carry `role`
+(`foreground`/`muted`/`accent`/`success`/`warning`), `weight`
+(`thin`/`normal`/`strong`) and at least two `{x=..., y=...}` points inside the
+canvas. An empty path list is allowed. See the full package for a graph/table
+example. Native code handles selection, copying, scrolling, theme colors and
+canvas scaling. There are no script-defined widgets or interaction callbacks.
+
+Scenes are bounded: 128 nodes, depth 8, 4 KiB per string / 64 KiB total text,
+256 table rows, 16 columns per table, 2,048 cells, eight canvases, 64 paths and
+8,192 points. Canvas dimensions range from 1 to 4,096. Node IDs must be unique;
+table column IDs must be unique within each table. Invalid output produces a
+contribution diagnostic.
+
+Specialized built-in viewers keep their existing priority. Matching package
+viewers run before generic text/binary, ordered by package ID then contribution
+ID. Returning absent or unavailable lets the next viewer try; failure is shown
+as a View error. Use `applies(ctx)` to decline unrelated files. Remote/archive
+items cannot invoke packages through their downloaded/extracted copies.
 
 ## Execution boundary
 

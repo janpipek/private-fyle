@@ -1,8 +1,7 @@
 //! File previews, UI-independent.
 //!
-//! A [`Registry`] holds [`Previewer`]s in priority order; the first one whose
-//! [`Previewer::matches`] accepts a file's [`Probe`] produces its [`Content`].
-//! `Content` is plain data; the view decides how to draw each variant.
+//! A [`Registry`] holds specialized native previewers, declared extension scene
+//! providers, and generic text/binary fallbacks. `Content` remains plain data.
 //!
 //! To support a new file type:
 //! 1. implement [`Previewer`] in a new module (match on extension, name or
@@ -34,6 +33,7 @@ pub mod text;
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub use archive::ArchivePreviewer;
@@ -78,6 +78,8 @@ pub struct Probe {
     /// Lowercase extension without the dot; empty if none.
     pub ext: String,
     pub is_dir: bool,
+    /// Whether the original readable path is a regular file.
+    pub is_file: bool,
     pub size: u64,
     /// The first bytes of a regular file (empty for directories).
     pub head: Vec<u8>,
@@ -103,6 +105,7 @@ impl Probe {
                 .map(|e| e.to_string_lossy().to_lowercase())
                 .unwrap_or_default(),
             is_dir: meta.is_dir(),
+            is_file: meta.is_file(),
             size: meta.len(),
             head,
         })
@@ -168,6 +171,13 @@ pub enum Content {
     },
     /// Labelled details only (e.g. an audio file's tags and format).
     Info { info: Vec<(String, String)> },
+    /// A validated, selectable extension scene and its typed completeness.
+    Scene {
+        scene: Box<crate::preview_scene::Scene>,
+        completeness: crate::data_providers::Completeness,
+        /// Manifest label for this viewer contribution.
+        label: String,
+    },
     /// Route or activity summary and an optional locally rendered outline.
     Geo {
         info: Vec<(String, String)>,
@@ -241,6 +251,8 @@ pub trait Previewer: Send + Sync {
 #[derive(Default)]
 pub struct Registry {
     previewers: Vec<Box<dyn Previewer>>,
+    fallback_start: usize,
+    extensions: Vec<crate::extensions::preview::Handle>,
 }
 
 impl Registry {
@@ -262,9 +274,20 @@ impl Registry {
         registry.register(ParquetPreviewer);
         registry.register(GeoPreviewer::new());
         registry.register(TablePreviewer);
+        registry.fallback_start = registry.previewers.len();
         registry.register(TextPreviewer);
         registry.register(BinaryPreviewer);
         registry
+    }
+
+    /// Adds enabled extension viewers after sorting them by stable owner and contribution IDs.
+    pub fn register_extensions(&mut self, mut handles: Vec<crate::extensions::preview::Handle>) {
+        handles.sort_by(|left, right| {
+            left.package_id()
+                .cmp(right.package_id())
+                .then_with(|| left.id().as_str().cmp(right.id().as_str()))
+        });
+        self.extensions = handles;
     }
 
     /// Adds a previewer after the existing ones.
@@ -280,6 +303,27 @@ impl Registry {
 
     /// Probes and loads `path` using colors from the active theme. Blocking.
     pub fn preview_styled(&self, path: &Path, style: PreviewStyle) -> Result<Preview, String> {
+        self.preview_styled_internal(path, style, None, None)
+    }
+
+    /// Loads a panel preview, allowing extensions only for its exact original local identity.
+    pub fn preview_styled_for(
+        &self,
+        path: &Path,
+        style: PreviewStyle,
+        identity: Option<&crate::location::Location>,
+        cancel: &std::sync::Arc<AtomicBool>,
+    ) -> Result<Preview, String> {
+        self.preview_styled_internal(path, style, identity, Some(cancel))
+    }
+
+    fn preview_styled_internal(
+        &self,
+        path: &Path,
+        style: PreviewStyle,
+        identity: Option<&crate::location::Location>,
+        cancel: Option<&std::sync::Arc<AtomicBool>>,
+    ) -> Result<Preview, String> {
         // Remote files are previewed from their downloaded copy only.
         if crate::location::is_remote(path) {
             return Err(format!("{}: not downloaded", path.display()));
@@ -299,19 +343,86 @@ impl Registry {
                 None => error(e),
             }
         })?;
-        let previewer = self
-            .previewers
+        let specialized = self.previewers[..self.fallback_start]
             .iter()
-            .find(|p| p.matches(&probe))
-            .ok_or_else(|| format!("No preview for {}", probe.name))?;
-        let content = previewer.load_styled(&probe, style).map_err(error)?;
+            .find(|previewer| previewer.matches(&probe));
+        let (kind, content) = if let Some(previewer) = specialized {
+            (
+                previewer.name(),
+                previewer.load_styled(&probe, style).map_err(error)?,
+            )
+        } else {
+            let mut extension_result = None;
+            if probe.is_file
+                && let Some(identity) = identity
+                && identity.as_local_path() == Some(path)
+            {
+                if cancel.is_some_and(|token| token.load(AtomicOrdering::Acquire)) {
+                    return Err(format!("{}: cancelled", path.display()));
+                }
+                for handle in &self.extensions {
+                    let result = handle
+                        .read(
+                            path,
+                            identity,
+                            &probe,
+                            cancel.expect("extension requests carry a cancellation token"),
+                        )
+                        .map_err(error)?;
+                    if cancel.is_some_and(|token| token.load(AtomicOrdering::Acquire)) {
+                        return Err(format!("{}: cancelled", path.display()));
+                    }
+                    match result {
+                        crate::data_providers::ResultState::Ready {
+                            value: scene,
+                            completeness,
+                        } => {
+                            extension_result = Some(Content::Scene {
+                                scene: Box::new(scene),
+                                completeness,
+                                label: handle.label().to_owned(),
+                            });
+                            break;
+                        }
+                        crate::data_providers::ResultState::Absent
+                        | crate::data_providers::ResultState::Unavailable(_) => {}
+                        crate::data_providers::ResultState::Failed(reason) => {
+                            return Err(format!(
+                                "{}: {}: {reason}",
+                                path.display(),
+                                handle.label()
+                            ));
+                        }
+                        crate::data_providers::ResultState::Pending => {
+                            return Err(format!(
+                                "{}: {} returned a pending result",
+                                path.display(),
+                                handle.label()
+                            ));
+                        }
+                    }
+                }
+            }
+            if let Some(content) = extension_result {
+                ("Extension scene", content)
+            } else {
+                let previewer = self.previewers[self.fallback_start..]
+                    .iter()
+                    .find(|previewer| previewer.matches(&probe))
+                    .ok_or_else(|| format!("No preview for {}", probe.name))?;
+                (
+                    previewer.name(),
+                    previewer.load_styled(&probe, style).map_err(error)?,
+                )
+            }
+        };
         let link = crate::links::LinkState::of(path);
         let resolved_link = link.resolved(path);
         Ok(Preview {
             path: probe.path,
             name: probe.name,
             size: probe.size,
-            kind: previewer.name(),
+            kind,
             content,
             link,
             resolved_link,
@@ -603,6 +714,7 @@ mod tests {
             name: String::new(),
             ext: String::new(),
             is_dir: false,
+            is_file: true,
             size: 0,
             head: head.to_vec(),
         };

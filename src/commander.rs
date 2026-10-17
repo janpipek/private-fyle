@@ -67,6 +67,16 @@ struct EditorWindow {
     _subscription: Subscription,
 }
 
+/// Immutable startup registries shared by panels and inspector panes.
+pub struct ProviderRegistries {
+    /// Built-in and enabled extension columns.
+    pub columns: Arc<crate::columns::Catalog>,
+    /// Built-in and enabled extension Properties providers.
+    pub properties: Arc<crate::properties::Registry>,
+    /// Built-in and enabled extension preview providers.
+    pub preview: Arc<PreviewRegistry>,
+}
+
 pub struct Commander {
     /// Immutable column catalog shared by both panels and the appearance dialog.
     columns: Arc<crate::columns::Catalog>,
@@ -196,7 +206,7 @@ impl Commander {
         [left, right]: [PathBuf; 2],
         settings: &Settings,
         settings_error: Option<String>,
-        column_catalog: Arc<crate::columns::Catalog>,
+        registries: Arc<ProviderRegistries>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -235,7 +245,7 @@ impl Commander {
                 FolderView::new(
                     folders[ix].clone(),
                     columns.clone(),
-                    column_catalog.clone(),
+                    registries.columns.clone(),
                     mode,
                     panels.icon_size,
                     window,
@@ -244,11 +254,10 @@ impl Commander {
             })
         });
 
-        let registry = Arc::new(PreviewRegistry::with_defaults());
-        let preview = cx.new(|cx| PreviewPane::new(registry, window, cx));
+        let preview = cx.new(|cx| PreviewPane::new(registries.preview.clone(), window, cx));
         let mut workspace = Workspace::default();
         workspace.set_mode(settings.workspace.layout);
-        let properties = cx.new(|_| PropertiesPane::new());
+        let properties = cx.new(|_| PropertiesPane::with_registry(registries.properties.clone()));
         let inspector = cx.new(|_| {
             InspectorPane::new(workspace.perspective(), preview.clone(), properties.clone())
         });
@@ -352,7 +361,7 @@ impl Commander {
             status = e.into();
         }
         let this = Self {
-            columns: column_catalog,
+            columns: registries.columns.clone(),
             folders,
             views,
             preview,

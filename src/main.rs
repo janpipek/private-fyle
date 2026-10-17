@@ -59,6 +59,7 @@ mod presentation_view;
 mod preview;
 /// Validated static display scenes for extension viewers.
 pub mod preview_scene;
+mod preview_scene_view;
 mod preview_view;
 pub mod properties;
 mod properties_view;
@@ -99,7 +100,13 @@ fn main() {
         settings::persistence::path().and_then(|path| path.parent().map(PathBuf::from));
     let prepared_extensions =
         extensions::catalog::prepare(config_directory.as_deref(), &settings.extensions.enabled);
-    let column_catalog = std::sync::Arc::new(prepared_extensions.catalog);
+    let mut preview_registry = preview::Registry::with_defaults();
+    preview_registry.register_extensions(prepared_extensions.viewers);
+    let registries = std::sync::Arc::new(commander::ProviderRegistries {
+        columns: std::sync::Arc::new(prepared_extensions.catalog),
+        properties: std::sync::Arc::new(prepared_extensions.properties),
+        preview: std::sync::Arc::new(preview_registry),
+    });
     let supervisor = prepared_extensions.supervisor;
     let extension_diagnostics = prepared_extensions.diagnostics;
 
@@ -191,7 +198,7 @@ fn main() {
                         [left, right],
                         &settings,
                         error,
-                        column_catalog.clone(),
+                        registries.clone(),
                         window,
                         cx,
                     )

@@ -134,12 +134,16 @@ contracts before script access. `extensions/loading.rs` loads only explicitly
 named packages, bounds manifest/script bytes, checks canonical package-local
 paths and retains structured per-package errors. It stores script text without
 evaluation. `extensions/catalog.rs` loads explicitly enabled config packages
-before GPUI starts and installs host callbacks into one shared immutable column
-catalog. Startup diagnostics retain native paths and I/O errors until main
+before GPUI starts and prepares immutable columns, Properties providers and
+viewer handles from one package snapshot and shared supervisor. Startup diagnostics retain native paths and I/O errors until main
 formats them for the status line. Unavailable saved IDs remain removable
-placeholders. Properties/View package adapters remain later work.
+placeholders. `extensions/properties.rs` retains typed independent field results;
+`extensions/preview.rs` grants package access only to the exact original local
+regular-file identity. Remote/archive materialization never grants that access.
 `extensions/protocol.rs` defines typed bounded frames and field/completeness
-validation; `broker.rs` owns the selected native regular file and charges byte
+validation; `results.rs` retains presentation-specific prepared values and
+completeness. Internal protocol v2 preserves the existing column Lua API.
+`broker.rs` owns the selected native regular file and charges byte
 and call budgets; `model.rs` owns FIFO admission and cancellation while keeping
 active occupancy until explicit cleanup. `extensions/worker.rs` evaluates only
 the requested declared callback under Lua allocation/instruction limits, with
@@ -150,6 +154,15 @@ slot release. The reserved same-executable helper dispatch runs before settings
 or GPUI. Main retains the shared supervisor and explicitly shuts it down after
 the event loop returns. Column callbacks preserve result completeness; a pure
 `columns/cell.rs` projection prepares partial/lower-bound text and hover reasons.
+Properties keeps native groups and extension sections separate under its existing
+cancellable session. Preview retains specialized built-in priority, then tries
+package/contribution IDs in deterministic order before generic text/binary.
+Absent/unavailable viewers decline; failures remain visible diagnostics.
+`preview/session.rs` captures original identity and owns explicit full-load
+cancellation on replacement, reload, suspension and drop. A path-only preview
+call remains native-only. `preview_scene` validates bounded static layout,
+selectable text, typed tables and paths before `preview_scene_view` renders them;
+rendering performs no I/O or Lua execution.
 
 Keep three domain-specific registries with the same basic extension shape:
 providers or tools register in order, expose a predicate for applicability, and

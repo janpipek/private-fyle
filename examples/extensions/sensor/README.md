@@ -1,8 +1,29 @@
 # Sensor reader example
 
 This package demonstrates a local reader shared by a Properties section,
-a display-only distance column and a custom View graph. The package is under
-construction as part of slice 5; installation instructions follow verification.
+a display-only distance column and a custom View graph. Parsing and layout live
+entirely in `main.lua`; changing them requires a restart, without rebuilding
+fyle.
+
+## Install and try
+
+1. Copy `manifest.toml` and `main.lua` into your fyle config directory under
+   `extensions/sensor/` (normally `~/.config/fyle/extensions/sensor/` on Linux;
+   `XDG_CONFIG_HOME` is respected).
+2. Add `sensor` to `[extensions] enabled` in `config.toml`, then restart fyle.
+3. Select a file from `fixtures/`. F3 / the inspector's View tab shows the graph
+   and typed sample table; Alt-Enter / File → Properties shows the summary.
+4. Select **Sensor distance** in View → Columns… for the display-only column.
+
+`complete.sens` produces 30 seconds and 95 metres. `truncated.sens` exceeds the
+sample limit and produces lower bounds of 127 seconds and 381 metres, plus a
+partial graph. `malformed.sens` reports non-monotonic times; Properties keeps
+native filesystem facts visible.
+
+Restart after editing either package file or enablement. Disabling the package
+restores native text View and removes its Properties section; saved column IDs
+remain available for re-enablement. See the [reader package guide](../../../docs/extensions.md)
+for the authoring API and trusted-package execution limits.
 
 ## File format
 

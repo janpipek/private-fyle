@@ -7,6 +7,8 @@ use gpui_kit::component::{ActiveTheme as _, h_flex, v_flex};
 use gpui_kit::*;
 use std::sync::Arc;
 
+mod extension;
+
 use crate::location::Location;
 use crate::properties::{
     GroupStatus, Inspection, PropertiesSession, PropertyGroup, PropertyValue, Registry, Request,
@@ -23,11 +25,6 @@ pub struct PropertiesPane {
 }
 
 impl PropertiesPane {
-    /// Creates an empty Properties perspective.
-    pub fn new() -> Self {
-        Self::with_registry(Arc::new(Registry::with_defaults()))
-    }
-
     /// Creates a Properties perspective with the application's provider registry.
     pub fn with_registry(registry: Arc<Registry>) -> Self {
         Self {
@@ -185,6 +182,15 @@ fn render_inspection(
     for group in &inspection.additional_groups {
         if group.is_visible() {
             body = body.child(render_group(group, cx, selection));
+        }
+    }
+    for section in &inspection.extension_sections {
+        if let Some(rendered) =
+            crate::properties_view::extension::render(section, cx, &mut |value| {
+                selection.run(value)
+            })
+        {
+            body = body.child(rendered);
         }
     }
     body.into_any_element()

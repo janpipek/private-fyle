@@ -15,6 +15,7 @@ mod filesystem;
 mod geo;
 mod media;
 mod parquet;
+mod registry;
 mod sqlite;
 
 pub use exif_reader::{ExifField, ExifFieldId};
@@ -46,6 +47,7 @@ pub struct ListingFacts {
 }
 
 pub use filesystem::{FilesystemFacts, StatFacts};
+pub use registry::{Probe, PropertyProvider, Registry};
 
 /// Status for one independently loaded properties section.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -72,7 +74,7 @@ impl<T> Section<Vec<T>> {
 }
 
 /// Results of inspecting a selected source item.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Inspection {
     /// Original source identity.
     pub location: Location,
@@ -82,8 +84,10 @@ pub struct Inspection {
     pub filesystem: Section<FilesystemFacts>,
     /// EXIF details for supported local image and RAW files.
     pub exif: Section<Vec<ExifField>>,
-    /// Additional format groups, such as future database or columnar metadata.
+    /// Additional native format groups, such as database or columnar metadata.
     pub additional_groups: Vec<PropertyGroup>,
+    /// Independently prepared, typed sections from enabled extensions.
+    pub extension_sections: Vec<crate::extensions::properties::PreparedSection>,
 }
 
 /// Stable identity for a Properties group.
@@ -171,117 +175,6 @@ pub struct PropertyTable {
     pub columns: Vec<String>,
     /// Rows aligned with `columns`.
     pub rows: Vec<Vec<PropertyValue>>,
-}
-
-/// Cheap local-file facts supplied to property providers during selection.
-#[derive(Debug)]
-pub struct Probe {
-    /// Local source path inspected by the provider.
-    pub path: PathBuf,
-    /// File name, as shown in the listing.
-    pub name: String,
-    /// Lowercase extension without the dot.
-    pub ext: String,
-    /// Whether the local path is a directory.
-    pub is_dir: bool,
-    /// Whether the local path is a regular file.
-    pub is_file: bool,
-    /// Current local file size.
-    pub size: u64,
-}
-
-impl Probe {
-    fn read(path: &std::path::Path) -> io::Result<Self> {
-        let metadata = fs::metadata(path)?;
-        Ok(Self {
-            path: path.to_path_buf(),
-            name: path
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_else(|| path.display().to_string()),
-            ext: path
-                .extension()
-                .map(|extension| extension.to_string_lossy().to_lowercase())
-                .unwrap_or_default(),
-            is_dir: metadata.is_dir(),
-            is_file: metadata.is_file(),
-            size: metadata.len(),
-        })
-    }
-}
-
-/// A provider that contributes Properties groups when its probe matches.
-pub trait PropertyProvider: Send + Sync {
-    /// Stable group identity used when a provider fails.
-    fn id(&self) -> &'static str;
-    /// Whether this provider can contribute properties for the local source.
-    fn matches(&self, probe: &Probe) -> bool;
-    /// Reads zero or more semantic groups; call from a background worker.
-    fn read(&self, probe: &Probe, cancel: &Arc<AtomicBool>) -> io::Result<Vec<PropertyGroup>>;
-    /// Converts a reader failure into a visible independent group.
-    fn failure(&self, error: &io::Error) -> PropertyGroup {
-        PropertyGroup {
-            id: GroupId(self.id().into()),
-            status: GroupStatus::Failed(error.to_string()),
-            fields: Vec::new(),
-            groups: Vec::new(),
-            tables: Vec::new(),
-        }
-    }
-}
-
-/// Ordered providers; all providers matching a file contribute their groups.
-#[derive(Default)]
-pub struct Registry {
-    providers: Vec<Box<dyn PropertyProvider>>,
-}
-
-impl Registry {
-    /// Built-in format property providers.
-    pub fn with_defaults() -> Self {
-        let mut registry = Self::default();
-        registry.register(Box::new(parquet::Provider));
-        registry.register(Box::new(sqlite::Provider));
-        registry.register(Box::new(media::Provider));
-        registry.register(Box::new(geo::Provider::new()));
-        registry
-    }
-
-    /// Adds a provider after existing providers.
-    pub fn register(&mut self, provider: Box<dyn PropertyProvider>) {
-        self.providers.push(provider);
-    }
-
-    /// Reads all matching provider groups, retaining independent failures.
-    pub fn read(
-        &self,
-        path: &std::path::Path,
-        cancel: &Arc<AtomicBool>,
-    ) -> io::Result<Vec<PropertyGroup>> {
-        let probe = match Probe::read(path) {
-            Ok(probe) => probe,
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => return Err(error),
-            // A vanished or unreadable path must not discard independent
-            // listing, filesystem, or EXIF results from the inspection.
-            Err(_) => return Ok(Vec::new()),
-        };
-        let mut groups = Vec::new();
-        for provider in self
-            .providers
-            .iter()
-            .filter(|provider| provider.matches(&probe))
-        {
-            if cancel.load(Ordering::Relaxed) {
-                return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
-            }
-            match provider.read(&probe, cancel) {
-                Ok(mut provided) => groups.append(&mut provided),
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => return Err(error),
-                Err(error) => groups.push(provider.failure(&error)),
-            }
-        }
-        Ok(groups)
-    }
 }
 
 /// A cancellable inspection request for the background worker.
@@ -422,7 +315,7 @@ pub fn inspect_with_registry(
         },
         link: selection.entry.link.clone(),
     };
-    let (filesystem, exif, additional_groups) = match &selection.location {
+    let (filesystem, exif, additional_groups, extension_sections) = match &selection.location {
         Location::Local(path) => {
             let current = fs::metadata(path.as_path());
             let regular_file = current.as_ref().is_ok_and(fs::Metadata::is_file);
@@ -454,7 +347,14 @@ pub fn inspect_with_registry(
                 }
             };
             let additional_groups = registry.read(path.as_path(), cancel)?;
-            (fs, exif, additional_groups)
+            // Metadata follows a selected symlink like native readers do; the
+            // worker still receives the original selection and brokered path.
+            let extension_sections = if regular_file && !selection.entry.is_dir {
+                registry.read_extensions(selection, cancel)?
+            } else {
+                Vec::new()
+            };
+            (fs, exif, additional_groups, extension_sections)
         }
         Location::Remote(_) => (
             Section::Unavailable(
@@ -462,12 +362,14 @@ pub fn inspect_with_registry(
             ),
             Section::Unavailable("EXIF is not read from remote items".into()),
             Vec::new(),
+            Vec::new(),
         ),
         Location::Archive { .. } => (
             Section::Unavailable(
                 "local filesystem attributes are unavailable for archive members".into(),
             ),
             Section::Unavailable("EXIF is not read from archive members".into()),
+            Vec::new(),
             Vec::new(),
         ),
     };
@@ -477,6 +379,7 @@ pub fn inspect_with_registry(
         filesystem,
         exif,
         additional_groups,
+        extension_sections,
     })
 }
 
@@ -891,6 +794,7 @@ mod tests {
             filesystem: super::Section::Unavailable("x".into()),
             exif: super::Section::Unavailable("x".into()),
             additional_groups: Vec::new(),
+            extension_sections: Vec::new(),
         };
         assert!(!session.complete(&first, Ok(dummy.clone())));
         assert!(session.complete(&second, Ok(dummy)));
