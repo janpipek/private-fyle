@@ -70,6 +70,10 @@ not to pursue an item.
       sampling, so a sparse sheet declaring a huge range can use a lot of
       memory. XLSX/XLSM/XLSB now stream cells. The 32 MiB file and 256 MiB
       uncompressed caps limit but don't prevent the remaining risk.
+- [ ] Idea: add a "View as…" dropdown to Preview with alternative formats
+      ordered by likelihood of applicability. Retain recognition candidates
+      and let the user override the automatically selected viewer. Decide
+      override lifetime and how to present unavailable viewers before implementation.
 - [ ] Make PDF previews scroll continuously through pages instead of requiring
       Previous/Next page navigation. Keep page rendering bounded and load
       pages as they enter view.
