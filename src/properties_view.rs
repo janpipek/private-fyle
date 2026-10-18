@@ -604,7 +604,7 @@ fn render_exif(
                 .gap_1()
                 .child(section_title("EXIF", cx, selection));
             for item in fields {
-                section = section.child(field(exif_label(item.id), &item.value, cx, selection));
+                section = section.child(field(exif_label(item.tag), &item.value, cx, selection));
             }
             Some(section.into_any_element())
         }
@@ -621,7 +621,7 @@ fn render_exif(
                 .gap_1()
                 .child(section_title("EXIF", cx, selection));
             for item in value {
-                section = section.child(field(exif_label(item.id), &item.value, cx, selection));
+                section = section.child(field(exif_label(item.tag), &item.value, cx, selection));
             }
             Some(
                 section
@@ -646,8 +646,8 @@ fn status_section(
         .into_any_element()
 }
 
-fn exif_label(id: crate::properties::ExifFieldId) -> &'static str {
-    use crate::properties::ExifFieldId::*;
+fn exif_label(id: crate::formats::exif::Tag) -> &'static str {
+    use crate::formats::exif::Tag::*;
     match id {
         Make => "Camera maker",
         Model => "Camera model",

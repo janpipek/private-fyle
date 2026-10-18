@@ -103,12 +103,14 @@ address details to [`location/remote.rs`](../src/location/remote.rs) and
 its compatibility alias; archive execution imports pure helpers. Native path
 bytes, symlink spelling, typed identities and persisted encodings are covered.
 
-### Shared format knowledge owned by preview
+### Shared format readers and presentation adapters
 
-[`formats/exif.rs`](../src/formats/exif.rs) owns ordered semantic EXIF values
-and bounded RAW fallback. Preview maps tags to its existing labels;
-[`panel/metadata/exif.rs`](../src/panel/metadata/exif.rs) maps tags to column
-keys and compositions. The shared reader has no preview or panel dependency.
+[`formats/exif.rs`](../src/formats/exif.rs) owns ordered semantic EXIF values,
+the legacy column parser and bounded metadata-only Properties reads.
+[`data_providers/exif.rs`](../src/data_providers/exif.rs) binds those native
+tags to the existing Properties fields and column IDs; Properties rendering
+only supplies labels. Properties and columns keep separate limits and request
+lifecycles. Image Preview has no EXIF metadata consumer.
 
 [`formats/raw.rs`](../src/formats/raw.rs) owns extension policy, scan limits and
 largest-decodable-JPEG selection. [`raw_preview.rs`](../src/raw_preview.rs)
@@ -327,12 +329,12 @@ new features or dependency changes.
    directly. Slice 2b is complete: pure remote addresses and archive members
    live under `location/`; providers retain their address compatibility alias.
 3. **Establish reader and classification boundaries.** Slice 3a is complete:
-   `formats/exif.rs` owns semantic EXIF values and read-only RAW fallback;
-   `formats/raw.rs` selects a bounded embedded JPEG, while `raw_preview.rs`
-   owns cache identity and atomic materialization. Preview labels and panel
-   column composition remain at their consumers. Generalized file detection
-   remains an open TODO; move other readers individually as contracts become
-   clear.
+   `formats/exif.rs` owns semantic EXIF values, bounded metadata-only Properties
+   reads and the legacy column parser; `data_providers/exif.rs` binds existing
+   tags and columns. `formats/raw.rs` selects a bounded embedded JPEG, while
+   `raw_preview.rs` owns cache identity and atomic materialization. Properties
+   does not decode or materialize images. Generalized file detection remains
+   an open TODO; move other readers individually as contracts become clear.
 4. **Separate feature state from GUI execution.** Slice 4a is complete:
    `preview/session.rs` owns target identity, reloads, page/sheet selection and
    result acceptance. Debounce, task cancellation, editor/notebook resources

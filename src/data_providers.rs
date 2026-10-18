@@ -9,6 +9,9 @@ mod identity;
 /// Shared contextual Git status service and request model.
 pub mod git;
 
+/// Shared semantic EXIF facts and projections for Properties and built-in columns.
+pub mod exif;
+
 /// GPX/FIT provider shared by the Properties and View adapters.
 pub mod geo;
 

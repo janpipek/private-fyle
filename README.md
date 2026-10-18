@@ -97,9 +97,11 @@ local account files, alongside their numeric UID and GID. Symlink objects and
 their targets each show their own ownership. Numeric IDs remain visible when
 a name cannot be resolved.
 If native stat fails, listing facts remain visible with a status. The view also
-shows supported EXIF fields for regular image files. Empty or inapplicable
-metadata groups are hidden; independent failures and truncated results remain
-visible. For remote and archive entries, Properties does not download or
+shows supported EXIF fields for regular local files. The metadata-only reader
+checks at most 8 MiB for ordinary images or 64 MiB for supported RAW files,
+limits each displayed field to 4,096 characters, and can be cancelled. Empty
+or inapplicable metadata groups are hidden; independent failures and truncated
+results remain visible. For remote and archive entries, Properties does not download or
 extract data; only facts already present in the listing are shown. A Properties
 inspection does not depend on View or on
 optional preview programs. Local regular Parquet files show schema paths,
@@ -680,8 +682,11 @@ selections carry typed identities. `Folder::path()` and `Entry::path` remain
 compatibility spellings for panel and native-operation boundaries; virtual
 spellings must not be passed to native filesystem calls.
 
-`src/formats/exif.rs` reads ordered semantic EXIF values; Properties and panel
-metadata consume them. `src/formats/raw.rs`
+`src/formats/exif.rs` owns ordered semantic EXIF values and bounded,
+metadata-only Properties reads. `src/data_providers/exif.rs` binds those tags
+to the existing Properties fields and built-in EXIF column IDs; the Properties
+view only labels semantic tags. Properties and column acquisition keep their
+own limits and request lifecycles. `src/formats/raw.rs`
 owns the bounded embedded-JPEG selector; `src/raw_preview.rs` owns its cache
 identity and atomic materialization.
 `src/tools/` is the model for context-dependent tools (run ruff on Python
@@ -746,12 +751,12 @@ Where things live (`src/`):
 | `commander.rs`, `commander/` | Main window: the two panels, actions, dialogs, jobs bar, tools orchestration. Split by area into `commander/` (keys, navigation, search, files, jobs, view, archives, remotes, tools, menus, appearance); new logic goes into its own module, only wiring here. |
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
 | `entry.rs`, `model.rs`, `location.rs`, `location/`, `location_codec.rs` | Shared `Entry`/`Attrs` and pure sort rules; `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; pure local, remote and archive address semantics; versioned lossless location persistence |
-| `formats.rs`, `formats/` | Semantic EXIF fields, bounded RAW embedded-JPEG selection, Parquet footer validation/decoding, and shared bounded GPX/FIT route/activity readers used by Preview and Properties |
-| `data_providers.rs`, `data_providers/` | Pure contribution definitions and typed result vocabulary; `geo.rs` owns the GPX/FIT Properties/viewer bundle and typed quantities; `media.rs` binds Duration, Properties and Preview to one typed definition with independent scheduling; `parquet.rs` binds metadata Properties and row-sample Preview to the checked native footer; `git.rs` owns contextual Git contributions, shared bounded snapshots, scope epochs and subscriber/request lifecycles |
+| `formats.rs`, `formats/` | Semantic EXIF fields and bounded metadata parsing, bounded RAW embedded-JPEG selection, Parquet footer validation/decoding, and shared bounded GPX/FIT route/activity readers used by Preview and Properties |
+| `data_providers.rs`, `data_providers/` | Pure contribution definitions and typed result vocabulary; `geo.rs` owns the GPX/FIT Properties/viewer bundle and typed quantities; `media.rs` binds Duration, Properties and Preview to one typed definition with independent scheduling; `parquet.rs` binds metadata Properties and row-sample Preview to the checked native footer; `exif.rs` binds bounded Properties facts and existing EXIF columns to shared tags; `git.rs` owns contextual Git contributions, shared bounded snapshots, scope epochs and subscriber/request lifecycles |
 | `extensions.rs`, `extensions/` | Static manifest/package validation, enabled-package Columns/Properties/View registration, typed protocol/result validation and retained-file brokerage; restricted Lua worker and shared Linux supervisor with bounded queue, cancellation/deadline and child reaping. Reserved helper dispatch precedes config/GUI startup; main owns normal-exit cleanup. |
 | `copy_path.rs` | UI-independent selection path policy: local native paths, provider supplied standard URLs and no archive pseudo-paths |
 | `listing.rs`, `listing/contracts.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; shared request/result values and bounded per-panel remote listing cache |
-| `panel.rs`, `panel/header_view.rs`, `panel/table_view.rs`, `panel/metadata.rs`, `panel/metadata/` | `FolderView` owns input/menu lifecycle, focus and list/icon coordination; `header_view.rs` renders breadcrumbs, location editing and header buttons; `table_view.rs` owns `FileTable` rendering and forwarding to `Folder`; `metadata/model.rs` owns bounded request/cache policy; `metadata/reader.rs` reads optional local values; `metadata.rs` schedules GPUI workers shared by list and icon views; `metadata/exif.rs` composes semantic EXIF values into stable column keys |
+| `panel.rs`, `panel/header_view.rs`, `panel/table_view.rs`, `panel/metadata.rs`, `panel/metadata/` | `FolderView` owns input/menu lifecycle, focus and list/icon coordination; `header_view.rs` renders breadcrumbs, location editing and header buttons; `table_view.rs` owns `FileTable` rendering and forwarding to `Folder`; `metadata/model.rs` owns bounded request/cache policy; `metadata/reader.rs` reads optional local values; `metadata.rs` schedules GPUI workers shared by list and icon views; `metadata/exif.rs` adapts provider-owned EXIF columns to the metadata queue |
 | `thumbnails.rs`, `thumb_queue.rs`, `raw_preview.rs` | Icon view thumbnails: the freedesktop cache (URI and MD5 names, validity by `Thumb::MTime`, atomic writes, failure records), RAW preview cache identity and atomic JPEG materialization, and the load scheduler with its LRU, all UI-independent and tested |
 | `grid.rs`, `icon_view.rs`, `glyphs.rs`, `context_menu.rs` | Icon view: `ViewMode`, icon sizes, `Layout` (columns for a width) and cursor moves (UI-independent, tested); the lazy `IconGrid` view; the `FileIcon` → glyph table and the right-click menu shared with the list |
 | `workspace.rs`, `inspector_view.rs` | Workspace layout and active panel roles; the inspector tab controller retains View/Properties selection while the inspector is closed or dock layout changes. |
@@ -760,7 +765,7 @@ Where things live (`src/`):
 | `remote.rs`, `remote/` | Remote providers: `Provider` trait; compatibility `Location` alias to `location::RemoteLocation`; Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`) and management persistence (`manage.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `LocalCopy` keeps a typed source address separate from the cache path used at native I/O boundaries; `model/remote.rs` holds cached listings |
 | `archive.rs`, `archive/extraction.rs`, `dirsize.rs`, `links.rs` | Archive index; safe extraction; recursive sizes; symlink state |
 | `preview/`, `preview_view.rs`, `notebook_view.rs`, `presentation_view.rs` | `Previewer`s and their `Registry` (including bounded nbformat 4 notebook parsing, PowerPoint parsing and GPX/FIT outline generation); one render arm per `Content`; notebooks and presentations render through variable-height lazy lists; `PreviewSession` owns target identity, reloads, navigation and stale-result acceptance; GUI resources stay in the pane |
-| `properties.rs`, `properties/`, `properties_view.rs` | `properties.rs` owns shared result contracts, section/group policy and cancellable `PropertiesSession`; `properties/registry.rs` orchestrates native providers and enabled typed extension sections; `properties/filesystem.rs` reads local metadata and symlink facts; `properties/exif_reader.rs` reads EXIF; format modules map shared Parquet, media and GPX/FIT readers into groups, while `properties/sqlite.rs` reads database structure; the GPUI controller limits inspection to one active worker with the latest selection queued; selectable text runs support cross-field copying and Ctrl-C takes priority over panel file yank while a text selection exists |
+| `properties.rs`, `properties/`, `properties_view.rs` | `properties.rs` owns shared result contracts, section/group policy and cancellable `PropertiesSession`; `properties/registry.rs` orchestrates native providers and enabled typed extension sections; `properties/filesystem.rs` reads local metadata and symlink facts; format modules map shared EXIF, Parquet, media and GPX/FIT readers into groups, while `properties/sqlite.rs` reads database structure; the GPUI controller limits inspection to one active worker with the latest selection queued; selectable text runs support cross-field copying and Ctrl-C takes priority over panel file yank while a text selection exists |
 | `preview_scene.rs`, `preview_scene/`, `preview_scene_view.rs` | Pure strict scene DTOs and bounded validation; native selectable stacks/tables and clipped path painting from validated data only |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and separate editor windows |
 | `tools/`, `tools_view.rs` | Tool, Action and Registry model; `defaults.toml`; built-ins; Lua plugins; `exec.rs` runs them |

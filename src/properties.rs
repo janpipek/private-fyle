@@ -10,7 +10,6 @@ use std::time::SystemTime;
 use crate::entry::{Attrs, Entry};
 use crate::location::Location;
 
-mod exif_reader;
 mod filesystem;
 mod geo;
 mod git;
@@ -19,7 +18,7 @@ mod parquet;
 mod registry;
 mod sqlite;
 
-pub use exif_reader::{ExifField, ExifFieldId};
+pub use crate::formats::exif::{Field as ExifField, Tag as ExifFieldId};
 
 /// A selected listing row paired with its source address.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -356,15 +355,15 @@ pub fn inspect_with_context(
             } else if selection.entry.is_dir {
                 Section::Unavailable("directories have no EXIF metadata".into())
             } else {
-                match exif_reader::read(path.as_path(), cancel) {
-                    Ok(read) if read.truncated => Section::Truncated {
-                        value: read.fields,
-                        limit: read.limit,
+                match crate::data_providers::exif::properties().read(path.as_path(), cancel) {
+                    Ok(prepared) if prepared.truncated => Section::Truncated {
+                        value: prepared.fields,
+                        limit: prepared.limit,
                     },
-                    Ok(read) if read.fields.is_empty() => {
+                    Ok(prepared) if prepared.fields.is_empty() => {
                         Section::Unavailable("no supported EXIF fields".into())
                     }
-                    Ok(read) => Section::Available(read.fields),
+                    Ok(prepared) => Section::Available(prepared.fields),
                     Err(error) if error.kind() == io::ErrorKind::Interrupted => {
                         return Err(error);
                     }

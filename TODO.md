@@ -9,10 +9,6 @@ implementation. Keep unfinished follow-ups here; move completed items to
 **Done**. **Later** holds deferred goals, and **Dropped** records decisions
 not to pursue an item.
 
-- [ ] Data-provider migration, slice 8 EXIF/RAW: in progress under the owner's
-      authorization to finish all remaining migrations. Media and Parquet are
-      complete; keep EXIF bounds and RAW image extraction as distinct demands.
-      See the [implementation plan](docs/format-organization/implementation-plan.md).
 - [ ] Menus and selection, remaining parts: output/history in Tools.
       Implement missing actions as separate features.
 - [ ] Idea: replace the Git status column's `git` subprocess with a Rust
@@ -163,8 +159,8 @@ not to pursue an item.
       Properties. Slice 7's review accepts the contribution vocabulary and
       recommends removing the unused generic observation/reuse model; repository
       verification passed. Feature-specific freshness stays with each consumer.
-      Media and Parquet are completed slice 8 migrations; EXIF/RAW is in
-      progress under the owner's authorization to finish all migrations.
+      Media, Parquet and EXIF/RAW are completed slice 8 migrations under the
+      owner's authorization to finish all remaining migrations.
       See the
       [implementation plan](docs/format-organization/implementation-plan.md).
 
@@ -189,6 +185,13 @@ not to pursue an item.
       extension/magic gates, the 8 MiB footer cap, independent cancellation and
       presentation limits; unsupported row samples leave schema Properties
       available. See the [implementation plan](docs/format-organization/implementation-plan.md)
+      and [verification log](docs/format-organization/progress.md).
+
+- [x] Data-provider migration, slice 8 EXIF/RAW: share semantic EXIF tags and
+      native parsing between Properties and existing columns. Preserve the
+      metadata-only Properties bounds/cancellation and separate bounded RAW
+      image selection/materialization. See the
+      [implementation plan](docs/format-organization/implementation-plan.md)
       and [verification log](docs/format-organization/progress.md).
 
 - [x] Data-provider migration, slice 6: share bounded contextual Git snapshots

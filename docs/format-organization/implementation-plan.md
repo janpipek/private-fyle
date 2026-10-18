@@ -1,7 +1,8 @@
 # Data providers and contributions: implementation plan
 
 Status: started with owner authorization on 2026-10-16, after planning commit
-`5da8dee`. Slices 1–7 and the media migration in slice 8 are complete. The
+`5da8dee`. Slices 1–7 and all currently justified slice 8 migrations are
+complete. The
 owner approved
 display-only extension columns first and the proposed supervised Lua worker
 with explicit package enablement. On 2026-10-17 the owner approved static
@@ -306,9 +307,16 @@ Each commit names the old adapter removed and the behavior/limits preserved.
   footer metadata in Properties and Preview; row samples retain their separate
   500-row/40-column/64 MiB demand. Unsupported sample types do not erase the
   readable schema. Samples never feed conversion.
-- EXIF/RAW: compare `properties/exif_reader.rs` against `formats/exif.rs` and
-  panel adapters before consolidating. Keep Properties metadata-only behavior;
-  embedded-image decoding/materialization is a separate request.
+- EXIF/RAW: **complete on 2026-10-18**. `data_providers/exif.rs` binds one
+  semantic tag definition to Properties and the existing EXIF column IDs.
+  `formats/exif.rs` is the single semantic parser; the duplicate
+  `properties/exif_reader.rs` and panel column composition were removed.
+  Properties remains metadata-only: 8 MiB for ordinary images, 64 MiB for RAW,
+  at most 16 embedded EXIF candidates, 1 MiB per TIFF candidate and 4,096
+  characters per value, with cancellation. The legacy column reader retains
+  regular-image seek behavior and the 64 MiB RAW selected-JPEG fallback.
+  Image extraction and cache materialization stay with `raw_preview.rs` and
+  thumbnail consumers; image Preview has no EXIF metadata reader.
 - PDF and other formats: move process/materialization responsibilities only when
   their contribution needs it. Preserve page/sheet navigation and sample caps.
 
@@ -316,6 +324,42 @@ Extract shared acquisition only when two real consumers need identical bounded
 work. Keys include subject, source/context revision, producer/version, demand,
 limits and access policy. A smaller truncated result cannot satisfy a larger
 request. Give shared caches byte/disk bounds and explicit cleanup ownership.
+
+## Cross-presentation reader closeout
+
+The 2026-10-18 audit traced the registered Previewers, Properties readers,
+visible-row column readers, thumbnail paths and archive navigation before
+closing the authorized migration. The production shared seams are now Geo
+(Properties/View), Media (Duration/Properties/Preview), Parquet (footer
+Properties/Preview), EXIF (Properties/columns), Git (status column/Properties),
+and the sensor extension (Properties/column/View). Each preserves its native
+typed model and consumer-specific bounds and lifecycle; the first five do not
+share work across request schedulers, except contextual Git's explicit
+scope/epoch snapshot service.
+
+The other families have no same-fact reader pair to migrate. PDF page rendering
+and Poppler metadata are Preview-only; spreadsheet sheets, CSV/TSV samples,
+DOCX/ODT and PPTX/PPTM text, Markdown, notebook outputs and generic text/binary
+views have no corresponding Properties or column reader. SQLite is
+Properties-only. Image Preview and thumbnails decode or display pixels, not
+EXIF facts. RAW preview and thumbnails already share `formats/raw.rs` JPEG
+selection and `raw_preview::extract` materialization/cache, while Properties
+keeps its no-decode metadata scan. Archive navigation uses the cached complete
+`archive::Index`; F3's direct archive summary caps its flat sample at 2,000
+items, and an archive-directory Preview uses the index's direct-child summary.
+Those full-tree, bounded-summary and member-extraction demands remain distinct.
+
+Native filesystem values are intentionally read at different points: directory
+listing retains its row snapshot, Properties obtains fresh `lstat` plus
+symlink-target facts, and the owner column resolves the captured UID in its
+background queue. Xattr/SELinux columns have no Properties consumer. F3's
+directory summary counts immediate children; the folder-size feature performs
+a cancellable recursive scan. File icons classify entry names, Open With uses
+the shared-mime database on names, and Preview probes a bounded content head;
+their inputs and decisions differ. No wrapper was added for these one-sided or
+different-demand paths, and no new file recognition or Properties features
+were introduced. The approved slice 8 migration has no remaining justified
+cross-presentation reader seam.
 
 ## Verification and completion
 
@@ -336,8 +380,8 @@ Never push or open a PR without a request.
 
 ## Completion record
 
-Slices 1–7 and slice 8 Media and Parquet are complete. EXIF/RAW is authorized
-and in progress. The slice 7 review accepts the shared
+Slices 1–7 and the currently justified slice 8 Media, Parquet and EXIF/RAW
+migrations are complete. The slice 7 review accepts the shared
 contribution vocabulary, removes the unused generic observation/reuse API, and
 passes repository verification. See the
 [progress and handoff log](progress.md)
