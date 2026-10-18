@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::{geo, media, package, parquet, sqlite};
+use super::{geo, media, package, parquet, sqlite, xattrs};
 use crate::extensions::properties::{Handle, PreparedSection};
 use crate::properties::{GroupId, GroupStatus, PropertyGroup, Selection};
 
@@ -29,7 +29,7 @@ pub struct Probe {
 
 impl Probe {
     fn read(path: &std::path::Path) -> io::Result<Self> {
-        let metadata = fs::metadata(path)?;
+        let metadata = fs::metadata(path).or_else(|_| fs::symlink_metadata(path))?;
         Ok(Self {
             path: path.to_path_buf(),
             name: path
@@ -84,6 +84,7 @@ impl Registry {
         registry.register(Box::new(package::Provider));
         registry.register(Box::new(media::Provider));
         registry.register(Box::new(geo::Provider::new()));
+        registry.register(Box::new(xattrs::Provider));
         registry
     }
 
@@ -244,7 +245,25 @@ mod tests {
         );
         let directory = temp.path().join("directory.rpm");
         std::fs::create_dir(&directory).unwrap();
-        assert!(registry.read(&directory, &cancel).unwrap().is_empty());
+        assert!(
+            registry
+                .read(&directory, &cancel)
+                .unwrap()
+                .iter()
+                .all(|group| group.id.0 != "package")
+        );
+    }
+
+    #[test]
+    fn dangling_link_probe_preserves_the_object_for_no_follow_metadata() {
+        let temp = TempDir::new().unwrap();
+        let link = temp.path().join("dangling");
+        std::os::unix::fs::symlink(temp.path().join("missing"), &link).unwrap();
+        let probe = Probe::read(&link).expect("link objects remain inspectable without a target");
+        assert_eq!(probe.path, link);
+        assert_eq!(probe.name, "dangling");
+        assert!(!probe.is_file);
+        assert!(!probe.is_dir);
     }
 
     struct TestProvider;

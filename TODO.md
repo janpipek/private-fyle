@@ -136,12 +136,17 @@ not to pursue an item.
       right-click to show a menu etc.
 - [ ] Properties for AppImage packages: show application metadata through a
       bounded reader. Decide the fields and parsing approach before implementation.
-- [ ] Show extended attributes (xattrs) in Properties, including their names
-      and values through bounded local reads. The existing xattrs column shows
-      names; reuse its native reader where appropriate and represent binary or
-      truncated values explicitly.
 
 ## Done
+
+- [x] Linux extended attributes in Properties: show sorted, escaped names,
+      byte sizes and bounded UTF-8/hex values through the shared native reader.
+      Empty, binary, shortened, omitted and unreadable values are explicit;
+      independent failures retain other values and filesystem facts. Inspect
+      local files/directories and symlink objects without following targets,
+      including dangling links. Cap names, count, value reads, displayed prefixes,
+      retries and time; keep cancellation and source-session freshness. Remote
+      and archive Properties remains listing-only; no new dependency/program.
 
 - [x] RPM/DEB Properties: on owner authorization, add native metadata-only
       readers for RPM headers and Debian control archives (plain/gzip/XZ/Zstd).

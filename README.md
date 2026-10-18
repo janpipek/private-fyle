@@ -96,6 +96,23 @@ On Unix, fresh filesystem facts show owner and group names when found in the
 local account files, alongside their numeric UID and GID. Symlink objects and
 their targets each show their own ownership. Numeric IDs remain visible when
 a name cannot be resolved.
+On Linux, Extended Attributes shows the selected local object's sorted attribute
+names, sizes and values using the shared `xattr` native reader. Symlinks show
+attributes of the link itself, including dangling links; targets are not followed.
+Values use UTF-8 text when valid and free of non-text control characters,
+otherwise hexadecimal with a Binary label. Empty values are explicit. Long values
+show a byte-counted prefix and truncation status; omitted values and individual
+read failures stay visible alongside readable attributes. Names preserve native
+bytes for lookups and escape control/non-UTF-8 bytes for display. Inspection caps
+the name list at 64 KiB, names at 255 bytes, count at 64, individual value reads
+at 64 KiB and total successful value reads at 256 KiB. Display retains at most
+1,024 source bytes per value and 8 KiB overall, respecting UTF-8 boundaries.
+Size/read races get at most three attempts; cancellation and a two-second deadline
+are checked between native calls. Empty/unsupported attribute sets are hidden;
+list failures do not hide other Properties facts. Remote/archive Properties stays
+listing-only. The Xattrs column still shows names and SELinux keeps its existing
+context formatting, now through the same bounded native primitives.
+
 If native stat fails, listing facts remain visible with a status. The view also
 shows supported EXIF fields for regular local files. The metadata-only reader
 checks at most 8 MiB for ordinary images or 64 MiB for supported RAW files,
@@ -809,7 +826,8 @@ Where things live (`src/`):
 | `remote.rs`, `remote/` | Remote providers: `Provider` trait; compatibility `Location` alias to `location::RemoteLocation`; Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`) and management persistence (`manage.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `LocalCopy` keeps a typed source address separate from the cache path used at native I/O boundaries; `model/remote.rs` holds cached listings |
 | `archive.rs`, `archive/extraction.rs`, `dirsize.rs`, `links.rs` | Archive index; safe extraction; recursive sizes; symlink state |
 | `preview/`, `preview_view.rs`, `notebook_view.rs`, `presentation_view.rs` | `Previewer`s and their `Registry` (including bounded nbformat 4 notebook parsing, PowerPoint parsing and GPX/FIT outline generation); one render arm per `Content`; notebooks and presentations render through variable-height lazy lists; `PreviewSession` owns target identity, reloads, navigation and stale-result acceptance; GUI resources stay in the pane |
-| `properties.rs`, `properties/`, `properties_view.rs` | `properties.rs` owns shared result contracts, section/group policy and cancellable `PropertiesSession`; `properties/registry.rs` orchestrates native providers and enabled typed extension sections; `properties/filesystem.rs` reads local metadata and symlink facts; format modules map shared EXIF, Parquet, media, GPX/FIT and package readers into groups, while `properties/sqlite.rs` reads database structure; the GPUI controller limits inspection to one active worker with the latest selection queued; selectable text runs support cross-field copying and Ctrl-C takes priority over panel file yank while a text selection exists |
+| `xattr.rs`, `xattr/inspection.rs` | Bounded no-follow native name/value reads shared with columns; UI-independent Properties snapshots, typed text/hex prefixes, budgets and per-attribute failures |
+| `properties.rs`, `properties/`, `properties_view.rs` | `properties.rs` owns shared result contracts, section/group policy and cancellable `PropertiesSession`; `properties/registry.rs` orchestrates native providers and enabled typed extension sections; `properties/filesystem.rs` reads local metadata and symlink facts; format modules map shared EXIF, Parquet, media, GPX/FIT and package readers into groups; `properties/xattrs.rs` projects bounded `xattr/inspection.rs` snapshots, while `properties/sqlite.rs` reads database structure; the GPUI controller limits inspection to one active worker with the latest selection queued; selectable text runs support cross-field copying and Ctrl-C takes priority over panel file yank while a text selection exists |
 | `preview_scene.rs`, `preview_scene/`, `preview_scene_view.rs` | Pure strict scene DTOs and bounded validation; native selectable stacks/tables and clipped path painting from validated data only |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and separate editor windows |
 | `tools/`, `tools_view.rs` | Tool, Action and Registry model; `defaults.toml`; built-ins; Lua plugins; `exec.rs` runs them |

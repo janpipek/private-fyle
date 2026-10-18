@@ -18,6 +18,7 @@ mod package;
 mod parquet;
 mod registry;
 mod sqlite;
+mod xattrs;
 
 pub use crate::formats::exif::{Field as ExifField, Tag as ExifFieldId};
 
@@ -632,7 +633,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_parquet_keeps_filesystem_facts_and_reports_only_its_group_failure() {
+    fn malformed_parquet_keeps_filesystem_facts_and_reports_its_group_failure() {
         let temp = TempDir::new().expect("tempdir");
         let path = temp.path().join("bad.parquet");
         std::fs::write(&path, b"invalid parquet").expect("write fixture");
@@ -640,11 +641,12 @@ mod tests {
             inspect(&selection(path), &Arc::new(AtomicBool::new(false))).expect("inspection");
         assert!(matches!(result.filesystem, super::Section::Available(_)));
         assert!(matches!(result.exif, super::Section::Unavailable(_)));
-        assert_eq!(result.additional_groups.len(), 1);
-        assert!(matches!(
-            result.additional_groups[0].status,
-            GroupStatus::Failed(_)
-        ));
+        let group = result
+            .additional_groups
+            .iter()
+            .find(|group| group.id.0 == "parquet")
+            .expect("Parquet group");
+        assert!(matches!(group.status, GroupStatus::Failed(_)));
     }
 
     #[test]
@@ -655,11 +657,12 @@ mod tests {
         let result = inspect(&selection(path), &Arc::new(AtomicBool::new(false)))
             .expect("partial inspection");
         assert!(matches!(result.filesystem, Section::Available(_)));
-        assert!(matches!(
-            result.additional_groups[0].status,
-            GroupStatus::Failed(_)
-        ));
-        assert_eq!(result.additional_groups[0].id.0, "sqlite");
+        let group = result
+            .additional_groups
+            .iter()
+            .find(|group| group.id.0 == "sqlite")
+            .expect("SQLite group");
+        assert!(matches!(group.status, GroupStatus::Failed(_)));
     }
 
     #[test]
