@@ -75,6 +75,51 @@ pub fn icon_for(name: &str, is_dir: bool, is_parent: bool, expanded: bool) -> Fi
         .unwrap_or(FileIcon::File)
 }
 
+/// Uses background content evidence when available, preserving filename-specific icons otherwise.
+pub fn icon_for_detected(
+    name: &str,
+    is_dir: bool,
+    is_parent: bool,
+    expanded: bool,
+    candidate: Option<&crate::recognition::Candidate>,
+) -> FileIcon {
+    let fallback = icon_for(name, is_dir, is_parent, expanded);
+    if is_dir || is_parent {
+        return fallback;
+    }
+    let detected = candidate.cloned().or_else(|| {
+        crate::recognition::detect(name, false, None, None, &crate::recognition::NativeDetector)
+            .into_iter()
+            .next()
+    });
+    let Some(candidate) = detected.filter(|c| c.evidence > crate::recognition::Evidence::Fallback)
+    else {
+        return fallback;
+    };
+    let mime = candidate.mime.as_str();
+    if mime.starts_with("image/") {
+        return FileIcon::Image;
+    }
+    if mime.starts_with("audio/") {
+        return FileIcon::Audio;
+    }
+    if mime.starts_with("video/") {
+        return FileIcon::Video;
+    }
+    match mime {
+        "application/vnd.sqlite3"
+        | "application/rdf+xml"
+        | "application/yaml"
+        | "application/json"
+        | "application/xml"
+        | "application/vnd.apache.parquet" => FileIcon::Data,
+        "text/x-glsl" | "text/wgsl" | "text/x-hlsl" => FileIcon::Code,
+        "application/pdf" => FileIcon::Text,
+        "application/zip" => FileIcon::Archive,
+        _ => fallback,
+    }
+}
+
 fn by_name(name: &str) -> Option<FileIcon> {
     Some(match name {
         "Cargo.lock" | "package-lock.json" | "yarn.lock" | "pnpm-lock.yaml" | "poetry.lock"
@@ -124,6 +169,30 @@ mod tests {
 
     fn file(name: &str) -> FileIcon {
         icon_for(name, false, false, false)
+    }
+
+    #[test]
+    fn shared_recognition_refines_icons_and_preserves_directory_semantics() {
+        use crate::recognition::{NativeDetector, detect};
+        let detected = detect(
+            "unknown",
+            false,
+            Some(b"SQLite format 3\0"),
+            None,
+            &NativeDetector,
+        );
+        assert_eq!(
+            super::icon_for_detected("unknown", false, false, false, detected.first()),
+            FileIcon::Data
+        );
+        assert_eq!(
+            super::icon_for_detected("folder", true, false, false, detected.first()),
+            FileIcon::Folder
+        );
+        assert_eq!(
+            super::icon_for_detected("shader.wgsl", false, false, false, None),
+            FileIcon::Code
+        );
     }
 
     #[test]

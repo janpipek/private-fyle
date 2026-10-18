@@ -239,6 +239,21 @@ reader, including decoded ID3/common tags: title, artist, album, album artist,
 composer, date, genre, track, disc, comment and copyright. This requires
 `ffprobe`; raw ID3 frames and embedded artwork are not displayed.
 
+File recognition is shared by Open With, panel icons and Preview through the
+UI-independent `recognition` model and its swappable content `Detector` interface.
+The native detector examines at most 8 KiB: known binary signatures (including
+SQLite), complete XML roots (including XMP), JSON, simple YAML mappings and
+GLSL/WGSL content clues. Candidates retain evidence and deterministic likelihood
+order: signatures, filename hints, text heuristics, then generic text/binary.
+Ambiguous text is inferred conservatively; heuristic matches are not validation.
+Generic ZIP signatures preserve named Office/OpenDocument subtypes. Preview keeps
+its existing viewer order and reader limits; inferred text highlighting applies
+to extensionless files. Icons refine only visible local rows through the bounded,
+generation-checked metadata queue. No render reads files. Remote/archive rows use
+names; Preview may refine a copy only after the existing download/extraction path.
+Open With still supports local entries only. Unknown signatures and text patterns
+fall back to existing behavior; there is no `file` executable dependency.
+
 In tree mode, clicking a folder's chevron also expands/collapses it; Enter
 still makes the folder the panel's root.
 
@@ -336,8 +351,8 @@ matching opener, or `xdg-open` (through the `open` crate).
 
 On Linux the types and applications come from the desktop's files, read
 directly (no `xdg-mime` or `gio`): the type from shared-mime-info's
-`globs2` by file name (weight, then longest glob; no magic sniffing), with
-`subclasses` and `aliases` (so `text/x-rust` also offers `text/plain`
+`globs2` by file name (weight, then longest glob), refined by shared bounded
+content recognition for the selected local file, with `subclasses` and `aliases` (so `text/x-rust` also offers `text/plain`
 applications); desktop entries from `applications/` in `XDG_DATA_HOME` and
 `XDG_DATA_DIRS` (`MimeType=`, `Hidden`, `NoDisplay`, `TryExec`, localized
 names); `mimeapps.list` in the order of the spec, including the
@@ -780,6 +795,7 @@ Where things live (`src/`):
 | `search.rs`, `places.rs`, `breadcrumbs.rs`, `remote_labels.rs`, `rename.rs`, `openers.rs`, `terminal.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs`, `zoom.rs` | Further UI-independent models, each with tests |
 | `navigation.rs` | Per-panel request tokens, pending destinations and cancellation/completion decisions; no GUI tasks or listing I/O |
 | `settings/persistence.rs` | Config-path discovery, loading with defaults and path-qualified errors, example-file creation and comment-preserving setting saves |
+| `recognition.rs`, `recognition/` | Shared bounded filename/content recognition, ranked MIME candidates and native detector; caller-owned reads and freshness |
 | `apps.rs`, `windows_apps.rs`, `mime.rs`, `desktop.rs`, `mimeapps.rs`, `xdg.rs`, `ini.rs` | Open With model: `apps::Catalog` (Linux and Windows discovery) and `merge` with the openers; Windows registry associations; MIME type from shared-mime-info `globs2`/`subclasses`/`aliases`; `.desktop` parsing and `Exec` expansion; `mimeapps.list`; XDG directories |
 | `*_view.rs`, `menu_bar.rs`, `link_badge.rs`, `theme_picker.rs` | Thin views |
 | `commander/remotes_view.rs` | Remote management dialog, rendering a selectable remote list and edit form |

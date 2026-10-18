@@ -29,20 +29,9 @@ not to pursue an item.
       `apps::Catalog` when macOS support begins.
 - [ ] Open With: exclude fyle itself from discovered system applications on
       Linux and Windows, including its registered folder handler.
-- [ ] Open With on Linux, follow-ups: MIME magic sniffing (now by file name
-      only, so unmatched files are `application/octet-stream`); offer it on
-      downloaded copies of remote files (still refused on remote folders);
-      launching a `Terminal=true`
+- [ ] Open With on Linux, follow-ups: offer it on downloaded copies of remote
+      files (still refused on remote folders); launching a `Terminal=true`
       application is only unit-tested.
-- [ ] Recognise file types beyond extensions across icons, previews and Open
-      With. Use a shared, bounded detection model that combines known names
-      (such as `Justfile` and `CMakeLists.txt`), extensions and content
-      signatures where useful: SQLite databases, XMP sidecars, YAML and GPU
-      shader sources are examples. Owner preference: use MIME types through a
-      detector interface with swappable implementations (for example, `file`
-      on Linux or a Rust reader); external programs are acceptable when useful.
-      For remote files, use the filename first and refine after download.
-      Decide how to handle ambiguous text formats before implementation.
 - [ ] Idea: grouped files for related assets, such as RAW/JPEG/XMP photos,
       video/subtitle pairs, audio/lyrics pairs and split archives. Decide
       format-aware pairing rules and an optional panel presentation independent
@@ -154,6 +143,15 @@ not to pursue an item.
       truncated values explicitly.
 
 ## Done
+
+- [x] Shared bounded MIME recognition for Open With, Preview and panel icons:
+      swappable detector interface with a native reader, ranked evidence/candidates,
+      known names/extensions and 8 KiB signatures/text heuristics including SQLite,
+      XMP, YAML and GLSL/WGSL. Owner chose content heuristics for ambiguous text.
+      Preserve named ZIP subtypes, existing preview reader limits and background
+      scheduling/freshness. Remote/archive listing stays name-only; existing
+      materialized Preview copies may refine their type. A likelihood-ordered
+      "View as…" selector remains a separate idea above.
 
 - [x] Audio/ID3 Properties: extend the existing bounded ffprobe tag reader
       with album artist, composer, disc, comment and copyright alongside title,

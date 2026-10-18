@@ -54,7 +54,7 @@ pub use table::TablePreviewer;
 pub use text::TextPreviewer;
 
 /// Bytes read up front for type detection.
-const HEAD_LEN: usize = 8 * 1024;
+const HEAD_LEN: usize = crate::recognition::HEAD_LIMIT;
 
 /// Where to keep a file generated from `source` (a rendered page, a video
 /// frame): in the temp directory, named after the source path and its
@@ -75,7 +75,7 @@ pub struct Probe {
     pub path: PathBuf,
     /// File name, as shown.
     pub name: String,
-    /// Lowercase extension without the dot; empty if none.
+    /// Effective lowercase format extension, refined by strong content evidence.
     pub ext: String,
     pub is_dir: bool,
     /// Whether the original readable path is a regular file.
@@ -94,16 +94,33 @@ impl Probe {
                 .take(HEAD_LEN as u64)
                 .read_to_end(&mut head)?;
         }
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.display().to_string());
+        let mut ext = path
+            .extension()
+            .map(|ext| ext.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        let candidates = crate::recognition::detect(
+            &name,
+            meta.is_dir(),
+            Some(&head),
+            None,
+            &crate::recognition::NativeDetector,
+        );
+        let best = &candidates[0];
+        if (best.evidence == crate::recognition::Evidence::Signature
+            || (best.evidence == crate::recognition::Evidence::Heuristic && ext.is_empty()))
+            && best.mime != "application/zip"
+            && let Some(detected) = best.extension
+        {
+            ext = detected.into();
+        }
         Ok(Self {
             path: path.to_path_buf(),
-            name: path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_else(|| path.display().to_string()),
-            ext: path
-                .extension()
-                .map(|e| e.to_string_lossy().to_lowercase())
-                .unwrap_or_default(),
+            name,
+            ext,
             is_dir: meta.is_dir(),
             is_file: meta.is_file(),
             size: meta.len(),
@@ -705,6 +722,28 @@ mod tests {
                 truncated: false
             }
         );
+    }
+
+    #[test]
+    fn recognition_refines_misnamed_images_and_extensionless_text() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let registry = Registry::with_defaults();
+        let image = dir.path().join("picture.txt");
+        fs::write(&image, b"\x89PNG\r\n\x1a\n").unwrap();
+        assert_eq!(registry.preview(&image).unwrap().kind, "Image");
+        let gpx = dir.path().join("route.gpx");
+        fs::write(&gpx, "<gpx/>").unwrap();
+        assert_eq!(Probe::read(&gpx).unwrap().ext, "gpx");
+        let yaml = dir.path().join("settings");
+        fs::write(&yaml, "name: demo\nenabled: true\n").unwrap();
+        let preview = registry.preview(&yaml).unwrap();
+        assert!(matches!(
+            preview.content,
+            Content::Text {
+                language: Some("yaml"),
+                ..
+            }
+        ));
     }
 
     #[test]

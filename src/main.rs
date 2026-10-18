@@ -64,6 +64,7 @@ mod preview_view;
 pub mod properties;
 mod properties_view;
 mod raw_preview;
+mod recognition;
 mod remote;
 mod remote_labels;
 mod rename;

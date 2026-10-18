@@ -18,7 +18,9 @@ impl Previewer for MediaPreviewer {
     }
 
     fn matches(&self, probe: &Probe) -> bool {
-        !probe.is_dir && media_provider::viewer().matches_name(&probe.name)
+        !probe.is_dir
+            && (media_provider::viewer().matches_name(&probe.name)
+                || matches!(probe.ext.as_str(), "mp3" | "flac" | "wav"))
     }
 
     fn load(&self, probe: &Probe) -> io::Result<Content> {

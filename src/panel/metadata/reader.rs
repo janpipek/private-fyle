@@ -12,6 +12,22 @@ use super::model::{Field, Request, Values};
 pub fn read_metadata(request: &Request, catalog: &crate::columns::Catalog) -> Values {
     let path = request.path();
     let mut values = Values::default();
+    if request.fields.contains(&Field::Recognition) && !request.cancel.load(Ordering::Relaxed) {
+        let head = crate::recognition::read_head(path).ok();
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy())
+            .unwrap_or_default();
+        values.recognition = crate::recognition::detect(
+            &name,
+            false,
+            head.as_deref(),
+            None,
+            &crate::recognition::NativeDetector,
+        )
+        .into_iter()
+        .next();
+    }
     if request.fields.contains(&Field::Duration) {
         let duration = media_provider::duration_column()
             .read(path, || request.cancel.load(Ordering::Relaxed))
@@ -85,6 +101,45 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::Ordering;
     use tempfile::TempDir;
+
+    #[test]
+    fn recognition_flows_through_queue_and_obsolete_results_are_rejected() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("unknown");
+        std::fs::write(&path, b"SQLite format 3\0").unwrap();
+        let location = Location::local(path.clone()).unwrap();
+        let mut queue = MetadataQueue::default();
+        queue.request(
+            &location,
+            1,
+            &[Field::Recognition],
+            None,
+            LinkState::NotLink,
+        );
+        let request = queue.take_next().unwrap();
+        let values = read_metadata(&request, &Catalog::with_defaults());
+        assert_eq!(
+            values.recognition.as_ref().unwrap().mime,
+            "application/vnd.sqlite3"
+        );
+        queue.sync_generation(2);
+        assert!(!queue.complete(request, values));
+        assert!(queue.get(&path, 2).is_none());
+        queue.request(
+            &location,
+            2,
+            &[Field::Recognition],
+            None,
+            LinkState::NotLink,
+        );
+        let request = queue.take_next().unwrap();
+        let values = read_metadata(&request, &Catalog::with_defaults());
+        assert!(queue.complete(request, values));
+        assert_eq!(
+            queue.get(&path, 2).unwrap().recognition().unwrap().mime,
+            "application/vnd.sqlite3"
+        );
+    }
 
     #[test]
     fn reader_leaves_unrequested_fields_absent() {

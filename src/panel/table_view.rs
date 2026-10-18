@@ -342,7 +342,10 @@ impl TableDelegate for FileTable {
                 let folder = self.folder.read(cx);
                 folder.entries().get(row_ix).and_then(|row| {
                     row.location.as_local_path()?;
-                    matches!(row.entry.link, crate::links::LinkState::Link { .. }).then(|| {
+                    (!row.entry.is_parent
+                        && (!row.entry.is_dir
+                            || matches!(row.entry.link, crate::links::LinkState::Link { .. })))
+                    .then(|| {
                         (
                             row.location.clone(),
                             folder.generation(),
@@ -356,7 +359,7 @@ impl TableDelegate for FileTable {
                     metadata.request(
                         location,
                         generation,
-                        &[metadata::Field::ResolvedLink],
+                        &[metadata::Field::ResolvedLink, metadata::Field::Recognition],
                         None,
                         link,
                         cx,
@@ -382,11 +385,15 @@ impl TableDelegate for FileTable {
         match kind {
             ColumnKind::Name => {
                 let expanded = folder.is_expanded(&row.location);
-                let icon = glyph(icons::icon_for(
+                let icon = glyph(icons::icon_for_detected(
                     &entry.name,
                     entry.is_dir,
                     entry.is_parent,
                     expanded,
+                    row.location
+                        .as_local_path()
+                        .and_then(|path| self.metadata.read(cx).get(path, folder.generation()))
+                        .and_then(metadata::MetadataValues::recognition),
                 ));
                 // Tree mode: indentation plus a clickable expand chevron.
                 let chevron = folder.is_tree().then(|| {

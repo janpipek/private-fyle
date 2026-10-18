@@ -29,6 +29,7 @@ struct EditorKey {
 pub struct EditorCheck {
     key: EditorKey,
     allowed: Option<bool>,
+    head: Option<Vec<u8>>,
 }
 
 /// How long the discovered application database is reused; F5 drops it
@@ -61,11 +62,19 @@ impl CatalogCache {
         }
     }
 
-    fn application_list(&self, file_name: &str, is_dir: bool) -> Vec<Application> {
-        self.catalog
-            .applications_for(file_name, is_dir, &|program| {
-                self.availability.get(program).copied().unwrap_or(false)
-            })
+    fn application_list(
+        &self,
+        file_name: &str,
+        is_dir: bool,
+        head: Option<&[u8]>,
+    ) -> Vec<Application> {
+        let exists = |program: &str| self.availability.get(program).copied().unwrap_or(false);
+        if head.is_none() {
+            self.catalog.applications_for(file_name, is_dir, &exists)
+        } else {
+            self.catalog
+                .applications_for_content(file_name, is_dir, head, &exists)
+        }
     }
 }
 
@@ -152,23 +161,29 @@ impl Commander {
         if self.editor_check.as_ref().map(|check| &check.key) == key.as_ref() {
             return;
         }
-        self.editor_check = key.clone().map(|key| EditorCheck { key, allowed: None });
+        self.editor_check = key.clone().map(|key| EditorCheck {
+            key,
+            allowed: None,
+            head: None,
+        });
         self.menu_state = None;
         self._editor_check_task = Task::ready(());
         cx.notify();
         if let Some(key) = key {
             let path = key.path.clone();
             self._editor_check_task = cx.spawn_in(window, async move |this, cx| {
-                let allowed = cx
-                    .background_spawn(
-                        async move { crate::editor::can_open(&path).unwrap_or(false) },
-                    )
+                let (allowed, head) = cx
+                    .background_spawn(async move {
+                        let head = crate::recognition::read_head(&path).ok();
+                        (crate::editor::can_open(&path).unwrap_or(false), head)
+                    })
                     .await;
                 let _ = this.update(cx, |this, cx| {
                     if let Some(check) = &mut this.editor_check
                         && check.key == key
                     {
                         check.allowed = Some(allowed);
+                        check.head = head;
                         this.menu_state = None;
                         cx.notify();
                     }
@@ -205,7 +220,18 @@ impl Commander {
             .cloned()
             .collect();
         let apps = self.catalog_cache.as_ref().map_or_else(Vec::new, |cache| {
-            cache.application_list(&entry.name, entry.is_dir)
+            cache.application_list(
+                &entry.name,
+                entry.is_dir,
+                self.editor_check
+                    .as_ref()
+                    .filter(|check| {
+                        check.key.path == path
+                            && check.key.size == entry.size
+                            && check.key.modified == entry.modified
+                    })
+                    .and_then(|check| check.head.as_deref()),
+            )
         });
         Some((path, apps::merge(openers, apps, include_editor)))
     }
@@ -356,7 +382,10 @@ impl Commander {
                             loaded,
                         },
                     );
-                    let apps = cache.application_list(&name, is_dir);
+                    let head = (!is_dir)
+                        .then(|| crate::recognition::read_head(&editor_path).ok())
+                        .flatten();
+                    let apps = cache.application_list(&name, is_dir, head.as_deref());
                     let include_editor =
                         !is_dir && crate::editor::can_open(&editor_path).unwrap_or(false);
                     (reloaded.then_some(cache), apps, include_editor)

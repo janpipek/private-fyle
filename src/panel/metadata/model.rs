@@ -17,6 +17,8 @@ const JOB_CAPACITY: usize = 4;
 /// One kind of optional metadata needed by a visible row.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Field {
+    /// Bounded content recognition for the file icon.
+    Recognition,
     /// Duration of a candidate local media file.
     Duration,
     /// Extended attribute names.
@@ -75,6 +77,8 @@ impl Request {
 /// Read results, including empty values for unavailable optional metadata.
 #[derive(Clone, Debug, Default)]
 pub struct Values {
+    /// Strongest recognition candidate from an authorized local prefix read.
+    pub recognition: Option<crate::recognition::Candidate>,
     /// Formatted duration or an empty string when unavailable.
     pub duration: Option<String>,
     /// Formatted extended attribute names.
@@ -99,6 +103,11 @@ pub struct MetadataValues {
 }
 
 impl MetadataValues {
+    /// Returns the strongest completed recognition evidence.
+    pub fn recognition(&self) -> Option<&crate::recognition::Candidate> {
+        self.values.recognition.as_ref()
+    }
+
     /// Returns the formatted value for an optional metadata column when loaded.
     pub fn column(&self, kind: ColumnKind) -> Option<&str> {
         match kind {
@@ -260,6 +269,9 @@ impl MetadataQueue {
             return false;
         }
         let cached = self.cached.entry(request.key.path.clone()).or_default();
+        if request.fields.contains(&Field::Recognition) {
+            cached.values.recognition = values.recognition;
+        }
         if request.fields.contains(&Field::Duration) {
             cached.values.duration = values.duration;
         }

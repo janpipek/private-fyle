@@ -166,13 +166,29 @@ impl Catalog {
         is_dir: bool,
         exists: &dyn Fn(&str) -> bool,
     ) -> Vec<Application> {
+        self.applications_for_content(file_name, is_dir, None, exists)
+    }
+
+    /// Applications using shared bounded recognition when an authorized prefix is available.
+    pub fn applications_for_content(
+        &self,
+        file_name: &str,
+        is_dir: bool,
+        head: Option<&[u8]>,
+        exists: &dyn Fn(&str) -> bool,
+    ) -> Vec<Application> {
         #[cfg(windows)]
         if let Some(windows) = &self.windows {
             return windows.applications_for(file_name, is_dir);
         }
-        let types = self
-            .mime
-            .with_ancestors(&self.mime.detect(file_name, is_dir));
+        let candidates = crate::recognition::detect(
+            file_name,
+            is_dir,
+            head,
+            Some(&self.mime),
+            &crate::recognition::NativeDetector,
+        );
+        let types = self.mime.with_ancestors(&candidates[0].mime);
         let explicit_default = types
             .iter()
             .flat_map(|t| self.mimeapps.defaults(t))
@@ -458,6 +474,36 @@ mod tests {
 
     fn all_exist(_: &str) -> bool {
         true
+    }
+
+    #[test]
+    fn content_recognition_refines_associations_without_changing_name_only_queries() {
+        let fx = fixture(&[], |_, _, sys| {
+            write(
+                sys,
+                "applications/images.desktop",
+                &desktop("Images", "images %f", "MimeType=image/png;"),
+            );
+            write(
+                sys,
+                "applications/text.desktop",
+                &desktop("Text", "text %f", "MimeType=text/plain;"),
+            );
+        });
+        let catalog = Catalog::load(&fx.env);
+        assert_eq!(
+            names(&catalog.applications_for("misnamed.txt", false, &all_exist)),
+            vec!["text.desktop*"]
+        );
+        assert_eq!(
+            names(&catalog.applications_for_content(
+                "misnamed.txt",
+                false,
+                Some(b"\x89PNG\r\n\x1a\n"),
+                &all_exist
+            )),
+            vec!["images.desktop*"]
+        );
     }
 
     #[test]

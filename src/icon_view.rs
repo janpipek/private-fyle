@@ -226,7 +226,7 @@ impl IconGrid {
         self.start_thumbnails(cx);
     }
 
-    /// Resolves link tooltips for only the visible rows and one-row buffer.
+    /// Refines icons and resolves link tooltips for visible rows and one-row buffer.
     fn want_metadata(&mut self, rows: Range<usize>, layout: Layout, cx: &mut Context<Self>) {
         let folder = self.folder.read(cx);
         let count = folder.entries().len();
@@ -237,7 +237,10 @@ impl IconGrid {
             .flat_map(|row| layout.cells(row, count))
             .filter_map(|ix| {
                 let row = folder.entries().get(ix)?;
-                if !matches!(&row.entry.link, crate::links::LinkState::Link { .. }) {
+                if row.entry.is_parent
+                    || (row.entry.is_dir
+                        && !matches!(&row.entry.link, crate::links::LinkState::Link { .. }))
+                {
                     return None;
                 }
                 row.location.as_local_path()?;
@@ -249,7 +252,7 @@ impl IconGrid {
                 metadata.request(
                     location,
                     generation,
-                    &[metadata::Field::ResolvedLink],
+                    &[metadata::Field::ResolvedLink, metadata::Field::Recognition],
                     None,
                     link,
                     cx,
@@ -332,11 +335,19 @@ impl IconGrid {
             .thumb_key(row, in_archive)
             .and_then(|key| self.thumbs.get(&key).cloned());
         let expanded = false; // tree mode does not apply to the grid
-        let icon = glyph(icons::icon_for(
+        let icon = glyph(icons::icon_for_detected(
             &entry.name,
             entry.is_dir,
             entry.is_parent,
             expanded,
+            row.location
+                .as_local_path()
+                .and_then(|path| {
+                    self.metadata
+                        .read(cx)
+                        .get(path, self.folder.read(cx).generation())
+                })
+                .and_then(metadata::MetadataValues::recognition),
         ));
         let size = self.icon_size as f32;
         let badge = match self.icon_size {
