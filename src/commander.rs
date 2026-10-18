@@ -21,8 +21,9 @@ mod web;
 mod workspace_view;
 
 pub use self::keys::{
-    CopyLocation, EditLocation, GoTo, Open, Quit, SortByExt, SortByModified, SortByName,
-    SortBySize, SortDescending, ToggleBookmark, bind_keys, bind_user_keys, validate_user_keys,
+    CopyLocation, EditLocation, GoTo, Open, Quit, RemoveColumn, SelectColumns, SortByExt,
+    SortByModified, SortByName, SortBySize, SortDescending, ToggleBookmark, bind_keys,
+    bind_user_keys, validate_user_keys,
 };
 
 use std::cell::Cell;
@@ -180,6 +181,7 @@ pub struct Commander {
     _keymap_save_task: Task<()>,
     /// Config write for the custom title bar preference.
     _custom_titlebar_save_task: Task<()>,
+    _columns_save_task: Task<()>,
     /// Whether custom title bars are requested at the next application start.
     custom_titlebar: bool,
     custom_titlebar_saving: bool,
@@ -439,6 +441,7 @@ impl Commander {
             shortcut_entries: settings.keymap.clone(),
             _keymap_save_task: Task::ready(()),
             _custom_titlebar_save_task: Task::ready(()),
+            _columns_save_task: Task::ready(()),
             custom_titlebar: settings.window.custom_titlebar,
             custom_titlebar_saving: false,
             theme: settings.theme.clone(),
@@ -651,6 +654,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::swap_panels))
             .on_action(cx.listener(Self::open_terminal))
             .on_action(cx.listener(Self::select_columns))
+            .on_action(cx.listener(Self::remove_column))
             .on_action(cx.listener(Self::edit_shortcuts))
             .on_action(cx.listener(Self::manage_remotes))
             .on_action(cx.listener(Self::select_all))

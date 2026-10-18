@@ -143,6 +143,7 @@ impl Commander {
             move_blocked: blocked(false),
             custom_titlebar: self.custom_titlebar,
             custom_titlebar_saving: self.custom_titlebar_saving,
+            header_column: None,
         }
     }
 

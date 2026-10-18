@@ -333,6 +333,21 @@ pub fn toggle(columns: &[ColumnId], column: &ColumnId, show: bool) -> Vec<Column
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn header_removal_preserves_other_ids_and_name() {
+        let name = ColumnId::from(ColumnKind::Name);
+        let size = ColumnId::from(ColumnKind::Size);
+        let unavailable = ColumnId::new("extension.gone.value").unwrap();
+        let columns = vec![name.clone(), unavailable.clone(), size.clone()];
+        assert_eq!(
+            toggle(&columns, &size, false),
+            [name.clone(), unavailable.clone()]
+        );
+        assert_eq!(toggle(&columns, &unavailable, false), [name.clone(), size]);
+        assert_eq!(toggle(&columns, &name, false), columns);
+    }
+
     #[test]
     fn ids_round_trip_and_parse_from_settings() {
         for column in ColumnKind::ALL {

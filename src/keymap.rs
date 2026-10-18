@@ -193,6 +193,8 @@ pub fn commands() -> Vec<CommandBinding> {
     Cmd::ALL
         .iter()
         .copied()
+        // Header removal carries a column ID, so a key binding cannot invoke it safely.
+        .filter(|cmd| *cmd != Cmd::RemoveColumn)
         .map(|cmd| {
             let action = action_id(cmd);
             let (keys, context) = default_binding(cmd);
@@ -250,6 +252,7 @@ fn action_id(cmd: Cmd) -> &'static str {
         Cmd::SortByModified => "SortByModified",
         Cmd::SortDescending => "SortDescending",
         Cmd::SelectColumns => "SelectColumns",
+        Cmd::RemoveColumn => "RemoveColumn",
         Cmd::SelectTheme => "SelectTheme",
         Cmd::ToggleCustomTitlebar => "ToggleCustomTitlebar",
         Cmd::Refresh => "Refresh",
@@ -569,8 +572,13 @@ mod tests {
     }
 
     #[test]
-    fn command_catalog_covers_every_command() {
-        assert_eq!(commands().len(), crate::menus::Cmd::ALL.len());
+    fn keymap_catalog_excludes_header_removal() {
+        assert_eq!(commands().len(), crate::menus::Cmd::ALL.len() - 1);
+        assert!(
+            !commands()
+                .iter()
+                .any(|command| command.action == "RemoveColumn")
+        );
         assert!(commands().iter().any(|command| command.action == "Copy"));
     }
 

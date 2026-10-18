@@ -13,7 +13,8 @@ use gpui_kit::*;
 
 use super::Commander;
 use super::keys::{
-    About, OpenConfig, SelectColumns, SelectTheme, ToggleCustomTitlebar, ZoomIn, ZoomOut, ZoomReset,
+    About, OpenConfig, RemoveColumn, SelectColumns, SelectTheme, ToggleCustomTitlebar, ZoomIn,
+    ZoomOut, ZoomReset,
 };
 use crate::columns::ColumnId;
 use crate::editor::Document;
@@ -69,8 +70,7 @@ impl Commander {
         });
     }
 
-    /// Opens the theme picker; the highlighted theme is previewed live.
-    /// Columns…: the column catalog, grouped, as checkboxes. Changes apply
+    /// Edit columns…: the column catalog, grouped, as checkboxes. Changes apply
     /// to both panels at once and are saved to the settings file.
     pub fn select_columns(
         &mut self,
@@ -123,15 +123,36 @@ impl Commander {
         });
     }
 
+    /// Removes a captured header column using the shared selection policy.
+    pub fn remove_column(&mut self, action: &RemoveColumn, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(id) = &action.column
+            && let Ok(column) = ColumnId::new(id.clone())
+            && column.builtin() != Some(crate::columns::ColumnKind::Name)
+        {
+            self.toggle_column(column, false, cx);
+        }
+    }
+
     pub fn toggle_column(&mut self, column: ColumnId, show: bool, cx: &mut Context<Self>) {
         let current = self.views[0].read(cx).columns(cx);
         let columns = crate::columns::toggle(&current, &column, show);
         for view in &self.views {
             view.update(cx, |view, cx| view.set_columns(columns.clone(), cx));
         }
-        if let Err(e) = settings::persistence::save_columns(&columns) {
-            self.status = e.into();
-        }
+        let previous = std::mem::replace(&mut self._columns_save_task, Task::ready(()));
+        self._columns_save_task = cx.spawn(async move |this, cx| {
+            previous.await;
+            let result = cx
+                .background_executor()
+                .spawn(async move { settings::persistence::save_columns(&columns) })
+                .await;
+            if let Err(error) = result {
+                let _ = this.update(cx, |this, cx| {
+                    this.status = error.into();
+                    cx.notify();
+                });
+            }
+        });
         cx.notify();
     }
 

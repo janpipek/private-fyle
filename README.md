@@ -326,8 +326,12 @@ application, and local files from another application can be dropped into a
 panel. Remote and archive entries do not yet offer outgoing desktop file data.
 
 Click a column's sort icon to sort (directories always stay on top); drag
-header borders to resize. Unknown file sizes show as `—`. Columns… (in the
-command palette) picks the columns from a grouped catalog: file, owner and permissions, Git status,
+header borders to resize. The small **+** at the right of each table header
+opens **Edit columns…**; right-click a header for **Remove column** or
+**Edit columns…**. Name is required and cannot be removed. Column choices
+apply to both panels and are saved in order in the background.
+Unknown file sizes show as `—`. Edit columns… (also in the command palette)
+picks the columns from a grouped catalog: file, owner and permissions, Git status,
 media (optional duration for local audio and video files), extended attributes,
 and EXIF fields of photos (date taken, camera, lens, exposure, aperture, ISO,
 focal length, dimensions, GPS). These fields also load from supported camera
@@ -340,7 +344,7 @@ and SELinux values load for visible
 local rows in the background; remote and archive locations are never treated
 as native paths for these fields.
 Saved column IDs that are unavailable in the current build remain in settings
-and show blank cells. Columns… lists them with their ID and an unavailable
+and show blank cells. Edit columns… lists them with their ID and an unavailable
 explanation; changing other columns preserves them, while unchecking one removes
 it. On Linux, explicitly enabled [reader packages](docs/extensions.md) can add
 columns for local regular files. Partial values show `…` and lower bounds `≥`;

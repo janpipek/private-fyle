@@ -132,12 +132,15 @@ not to pursue an item.
       binary built on the host. Wanted: a source RPM that builds offline from vendored
       crates (`cargo vendor`) in mock or Copr, an own icon and metainfo,
       and later a macOS package.
-- [ ] The column header should be editable, such as + icon to add a column,
-      right-click to show a menu etc.
 - [ ] Properties for AppImage packages: show application metadata through a
       bounded reader. Decide the fields and parsing approach before implementation.
 
 ## Done
+
+- [x] Column header controls: a small + opens Edit columns; right-click a
+      header to remove that column or edit the full selection. Name remains
+      mandatory. Changes apply to both panels and save in order in the
+      background, retaining unavailable provider IDs until explicitly removed.
 
 - [x] Linux extended attributes in Properties: show sorted, escaped names,
       byte sizes and bounded UTF-8/hex values through the shared native reader.

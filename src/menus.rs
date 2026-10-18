@@ -54,6 +54,7 @@ pub enum Cmd {
     SortByModified,
     SortDescending,
     SelectColumns,
+    RemoveColumn,
     SelectTheme,
     ToggleCustomTitlebar,
     Refresh,
@@ -144,11 +145,13 @@ pub struct State {
     pub custom_titlebar: bool,
     /// Whether a custom title bar preference save is underway.
     pub custom_titlebar_saving: bool,
+    /// Header targeted by a column context menu; absent for global commands.
+    pub header_column: Option<crate::columns::ColumnId>,
 }
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 73] = [
+    pub const ALL: [Cmd; 74] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::OpenInBrowser,
@@ -203,6 +206,7 @@ impl Cmd {
         Cmd::SelectTheme,
         Cmd::ToggleCustomTitlebar,
         Cmd::SelectColumns,
+        Cmd::RemoveColumn,
         Cmd::ToolsMenu,
         Cmd::FindFiles,
         Cmd::CancelJobs,
@@ -268,7 +272,8 @@ impl Cmd {
             Cmd::SortBySize => "By Size",
             Cmd::SortByModified => "By Modified",
             Cmd::SortDescending => "Descending",
-            Cmd::SelectColumns => "Columns…",
+            Cmd::SelectColumns => "Edit columns…",
+            Cmd::RemoveColumn => "Remove column",
             Cmd::SelectTheme => "Theme…",
             Cmd::ToggleCustomTitlebar => "Custom Title Bar",
             Cmd::Refresh => "Refresh",
@@ -427,6 +432,17 @@ impl Cmd {
 
     /// Why the command cannot run now, if it cannot.
     pub fn unavailable(self, state: &State) -> Option<&'static str> {
+        if self == Cmd::RemoveColumn {
+            return match state
+                .header_column
+                .as_ref()
+                .map(crate::columns::ColumnId::builtin)
+            {
+                None => Some("Right-click a column header"),
+                Some(Some(crate::columns::ColumnKind::Name)) => Some("Name is required"),
+                Some(_) => None,
+            };
+        }
         if self == Cmd::ToggleCustomTitlebar {
             if cfg!(target_os = "macos") {
                 return Some("Custom title bars are not available on macOS");
@@ -677,6 +693,29 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn removal_requires_a_header_and_keeps_name_mandatory() {
+        use crate::columns::{ColumnId, ColumnKind};
+        let mut state = State::default();
+        assert_eq!(
+            Cmd::RemoveColumn.unavailable(&state),
+            Some("Right-click a column header")
+        );
+        state.header_column = Some(ColumnKind::Name.into());
+        assert_eq!(
+            Cmd::RemoveColumn.unavailable(&state),
+            Some("Name is required")
+        );
+        for id in [
+            ColumnKind::Size.into(),
+            ColumnId::new("extension.gone.value").unwrap(),
+        ] {
+            state.header_column = Some(id);
+            assert_eq!(Cmd::RemoveColumn.unavailable(&state), None);
+            assert_eq!(Cmd::RemoveColumn.checked(&state), None);
+        }
+    }
 
     #[test]
     fn every_command_is_listed_once() {

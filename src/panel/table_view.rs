@@ -4,7 +4,9 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui_kit::component::menu::PopupMenu;
+use gpui_kit::component::Sizable as _;
+use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::table::{Column, ColumnSort, TableDelegate, TableState};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme as _, Icon, IconName, h_flex};
@@ -80,6 +82,87 @@ impl FileTable {
 }
 
 impl TableDelegate for FileTable {
+    fn render_header(
+        &mut self,
+        _: &mut Window,
+        _: &mut Context<TableState<Self>>,
+    ) -> Stateful<Div> {
+        let focus = self.focus.clone();
+        div().id("header").relative().pr_6().child(deferred(
+            div()
+                .absolute()
+                .right_0()
+                .top_0()
+                .h_full()
+                .w_6()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    Button::new("edit-columns")
+                        .icon(IconName::Plus)
+                        .ghost()
+                        .compact()
+                        .small()
+                        .tooltip("Edit columns…")
+                        .on_click(move |_, window, cx| {
+                            if let Some(focus) = &focus {
+                                focus.focus(window, cx);
+                            }
+                            window.dispatch_action(Box::new(crate::commander::SelectColumns), cx);
+                        }),
+                ),
+        ))
+    }
+
+    fn render_th(
+        &mut self,
+        col_ix: usize,
+        _: &mut Window,
+        cx: &mut Context<TableState<Self>>,
+    ) -> impl IntoElement {
+        let column = self.columns[col_ix].clone();
+        let focus = self.focus.clone();
+        let menu_focus = focus.clone();
+        let state = crate::menus::State {
+            header_column: Some(column.clone()),
+            ..Default::default()
+        };
+        let remove = crate::menus::Cmd::RemoveColumn;
+        let unavailable = remove.unavailable(&state);
+        div()
+            .id(("column-menu", col_ix))
+            .size_full()
+            .child(self.column(col_ix, cx).name.clone())
+            .capture_any_mouse_down(move |event, window, cx| {
+                if event.button == MouseButton::Right
+                    && let Some(focus) = &focus
+                {
+                    focus.focus(window, cx);
+                }
+            })
+            .context_menu(move |menu, _, _| {
+                let menu = match &menu_focus {
+                    Some(focus) => menu.action_context(focus.clone()),
+                    None => menu,
+                };
+                let label = unavailable
+                    .map(|reason| format!("{} — {reason}", remove.label()))
+                    .unwrap_or_else(|| remove.label().to_owned());
+                menu.item(
+                    PopupMenuItem::new(label)
+                        .disabled(unavailable.is_some())
+                        .action(Box::new(crate::commander::RemoveColumn {
+                            column: Some(column.as_str().to_owned()),
+                        })),
+                )
+                .menu(
+                    crate::menus::Cmd::SelectColumns.label(),
+                    Box::new(crate::commander::SelectColumns),
+                )
+            })
+    }
+
     fn render_tr(
         &mut self,
         row_ix: usize,

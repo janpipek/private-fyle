@@ -84,6 +84,14 @@ actions!(
     ]
 );
 
+/// Removes the captured header column, independently of later cursor changes.
+#[derive(Clone, Debug, Default, PartialEq, Action)]
+#[action(namespace = fyle, no_json)]
+pub struct RemoveColumn {
+    /// Persisted ID captured when the header menu opened.
+    pub column: Option<String>,
+}
+
 pub const CONTEXT: &str = "Commander";
 /// Overrides for keys the DataTable would otherwise use for column navigation.
 pub const TABLE_CONTEXT: &str = "Commander > DataTable";
@@ -329,6 +337,7 @@ pub fn action_for(cmd: Cmd) -> Box<dyn Action> {
         Cmd::Collapse => Box::new(Collapse),
         Cmd::ToggleHidden => Box::new(ToggleHidden),
         Cmd::SelectColumns => Box::new(SelectColumns),
+        Cmd::RemoveColumn => Box::new(RemoveColumn::default()),
         Cmd::SelectTheme => Box::new(SelectTheme),
         Cmd::ToggleCustomTitlebar => Box::new(ToggleCustomTitlebar),
         Cmd::Refresh => Box::new(Refresh),
