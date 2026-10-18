@@ -1,6 +1,8 @@
 //! Preview lifecycle and navigation decisions, independent of GUI scheduling.
 
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::location::Location;
 
@@ -37,6 +39,10 @@ pub struct Request {
     /// PDF page (one based) or sheet index (zero based); zero for a full load.
     pub index: usize,
     generation: u64,
+    /// Original typed identity captured when full preview work was scheduled.
+    pub identity: Option<Location>,
+    /// Cancellation signal owned by the session for full preview work.
+    pub cancel: Arc<AtomicBool>,
 }
 
 /// Effect of changing the selected target or search-hit line.
@@ -61,6 +67,7 @@ pub struct PreviewSession {
     pdf_result: Option<Result<PathBuf, String>>,
     sheet_index: usize,
     sheet: Option<Result<Sheet, String>>,
+    load_cancel: Option<Arc<AtomicBool>>,
 }
 
 impl Default for PreviewSession {
@@ -76,6 +83,7 @@ impl Default for PreviewSession {
             pdf_result: None,
             sheet_index: 0,
             sheet: None,
+            load_cancel: None,
         }
     }
 }
@@ -153,6 +161,7 @@ impl PreviewSession {
             return TargetChange::Unchanged;
         }
         self.generation = self.generation.wrapping_add(1);
+        self.cancel_load();
         self.pdf_generation = self.pdf_generation.wrapping_add(1);
         self.sheet_generation = self.sheet_generation.wrapping_add(1);
         self.state = State::Empty;
@@ -188,10 +197,13 @@ impl PreviewSession {
             path: path.clone(),
             index: self.sheet_index,
             generation: self.sheet_generation,
+            identity: None,
+            cancel: Arc::new(AtomicBool::new(false)),
         })
     }
 
     fn reset(&mut self) -> TargetChange {
+        self.cancel_load();
         self.generation = self.generation.wrapping_add(1);
         self.pdf_generation = self.pdf_generation.wrapping_add(1);
         self.sheet_generation = self.sheet_generation.wrapping_add(1);
@@ -203,10 +215,19 @@ impl PreviewSession {
             .target
             .as_ref()
             .and_then(|target| target.path.clone())
-            .map(|path| Request {
-                path,
-                index: 0,
-                generation: self.generation,
+            .map(|path| {
+                let cancel = Arc::new(AtomicBool::new(false));
+                self.load_cancel = Some(cancel.clone());
+                Request {
+                    path,
+                    index: 0,
+                    generation: self.generation,
+                    identity: self
+                        .target
+                        .as_ref()
+                        .and_then(|target| target.identity.clone()),
+                    cancel,
+                }
             });
         self.state = if request.is_some() {
             State::Loading
@@ -218,9 +239,18 @@ impl PreviewSession {
 
     /// Accepts a full load only while its request is still current.
     pub fn complete(&mut self, request: &Request, result: Result<Preview, String>) -> bool {
-        if request.generation != self.generation || !matches!(self.state, State::Loading) {
+        if request.generation != self.generation
+            || !matches!(self.state, State::Loading)
+            || request.cancel.load(Ordering::Acquire)
+            || request.identity.as_ref()
+                != self
+                    .target
+                    .as_ref()
+                    .and_then(|target| target.identity.as_ref())
+        {
             return false;
         }
+        self.load_cancel = None;
         self.state = match result {
             Ok(preview) => {
                 if let Content::Spreadsheet { first, .. } = &preview.content {
@@ -247,6 +277,8 @@ impl PreviewSession {
             path: path.clone(),
             index: self.pdf_page,
             generation: self.pdf_generation,
+            identity: None,
+            cancel: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -296,6 +328,8 @@ impl PreviewSession {
             path: path.clone(),
             index,
             generation: self.sheet_generation,
+            identity: None,
+            cancel: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -307,6 +341,18 @@ impl PreviewSession {
         self.sheet = Some(result);
         true
     }
+
+    fn cancel_load(&mut self) {
+        if let Some(cancel) = self.load_cancel.take() {
+            cancel.store(true, Ordering::Release);
+        }
+    }
+}
+
+impl Drop for PreviewSession {
+    fn drop(&mut self) {
+        self.cancel_load();
+    }
 }
 
 #[cfg(test)]
@@ -316,6 +362,7 @@ mod tests {
     use crate::location::RemoteLocation;
     use crate::preview::{Content, Preview, Sheet};
     use std::path::PathBuf;
+    use std::sync::atomic::Ordering;
 
     fn request(change: TargetChange) -> Request {
         let TargetChange::Reset(Some(request)) = change else {
@@ -395,7 +442,9 @@ mod tests {
         let identity = TypedLocation::Remote(RemoteLocation::root("drive").unwrap());
         let old =
             request(session.set_target(Some("cache".into()), Some(identity.clone()), Some(9)));
+        assert_eq!(old.identity, Some(identity.clone()));
         let reload = request(session.reload());
+        assert!(old.cancel.load(Ordering::Acquire));
         assert_eq!(session.line(), Some(9));
         assert_eq!(session.target.as_ref().unwrap().identity, Some(identity));
         assert!(!session.complete(&old, Err("obsolete".into())));
@@ -411,6 +460,7 @@ mod tests {
         let mut session = PreviewSession::default();
         let first = select(&mut session, "first");
         let second = select(&mut session, "second");
+        assert!(first.cancel.load(Ordering::Acquire));
         assert!(!session.complete(&first, Ok(pdf())));
         assert!(matches!(session.state(), State::Loading));
         assert!(matches!(
@@ -420,6 +470,18 @@ mod tests {
         assert!(!session.complete(&second, Err("obsolete".into())));
         assert!(matches!(session.state(), State::Empty));
         assert!(matches!(session.reload(), TargetChange::Unchanged));
+    }
+
+    #[test]
+    fn suspend_and_drop_cancel_the_active_full_load() {
+        let mut session = PreviewSession::default();
+        let request = select(&mut session, "active");
+        assert!(matches!(session.suspend(), TargetChange::Reset(None)));
+        assert!(request.cancel.load(Ordering::Acquire));
+
+        let request = select(&mut session, "drop");
+        drop(session);
+        assert!(request.cancel.load(Ordering::Acquire));
     }
 
     #[test]

@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use gpui_kit::base::SelectableText;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Editor, EditorState, Position};
 use gpui_kit::component::scroll::ScrollableElement as _;
@@ -113,6 +114,7 @@ impl PreviewPane {
 
     /// Cancels an unfinished full preview read while retaining completed view state.
     pub fn suspend(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        gpui_kit::base::TextSelection::clear(window, cx);
         if let State::Ready(preview) = self.session.state() {
             self.resume_pdf = matches!(&preview.content, Content::Pdf { .. })
                 && self.session.pdf_result().is_none();
@@ -155,6 +157,7 @@ impl PreviewPane {
             }
             TargetChange::Reset(request) => request,
         };
+        gpui_kit::base::TextSelection::clear(window, cx);
         self.table_scroll.set_offset(point(px(0.), px(0.)));
         self.release_notebook_images(window, cx);
         self._pdf_render = Task::ready(());
@@ -166,6 +169,8 @@ impl PreviewPane {
             return;
         };
         let path = request.path.clone();
+        let identity = request.identity.clone();
+        let cancel = request.cancel.clone();
         let registry = self.registry.clone();
         let style = preview_style(cx.theme());
         self.style = style;
@@ -175,7 +180,8 @@ impl PreviewPane {
             cx.background_executor().timer(LOAD_DELAY).await;
             let result = cx
                 .background_spawn(async move {
-                    let preview = registry.preview_styled(&path, style)?;
+                    let preview =
+                        registry.preview_styled_for(&path, style, identity.as_ref(), &cancel)?;
                     let images = match &preview.content {
                         Content::Notebook(notebook) => {
                             crate::notebook_view::prepare_images(notebook)
@@ -519,6 +525,37 @@ impl PreviewPane {
                 .p_4()
                 .child(details(info, cx))
                 .into_any_element(),
+            Content::Scene {
+                scene,
+                completeness,
+                label,
+            } => {
+                let body = crate::preview_scene_view::render(scene, cx);
+                let note = match completeness {
+                    crate::data_providers::Completeness::Complete => label.clone(),
+                    crate::data_providers::Completeness::Truncated(reason) => {
+                        format!("{label} · Partial: {reason}")
+                    }
+                    crate::data_providers::Completeness::LowerBound => {
+                        format!("{label} · Lower bound")
+                    }
+                };
+                v_flex()
+                    .size_full()
+                    .min_w_0()
+                    .child(div().flex_1().min_h_0().min_w_0().child(body))
+                    .child(
+                        div()
+                            .px_2()
+                            .text_xs()
+                            .text_color(theme.muted_foreground)
+                            .child(
+                                SelectableText::new("preview-scene-completeness", note)
+                                    .document_order(u64::MAX),
+                            ),
+                    )
+                    .into_any_element()
+            }
             Content::Geo { info, outline } => v_flex()
                 .size_full()
                 .p_3()
@@ -759,7 +796,17 @@ impl Render for PreviewPane {
             State::Ready(preview) => self.render_content(preview, cx),
             State::Loading => center(String::new()).into_any_element(),
             State::Empty => center("Nothing to preview".into()).into_any_element(),
-            State::Failed(e) => center(e.clone()).into_any_element(),
+            State::Failed(error) => div()
+                .size_full()
+                .min_w_0()
+                .overflow_y_scrollbar()
+                .p_3()
+                .child(
+                    div()
+                        .whitespace_normal()
+                        .child(SelectableText::new("preview-error", error.clone())),
+                )
+                .into_any_element(),
         };
 
         let content = v_flex()

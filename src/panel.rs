@@ -12,13 +12,14 @@ use gpui_kit::component::{ActiveTheme as _, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use crate::columns::ColumnKind;
+use crate::columns::{Catalog, ColumnId};
 use crate::context_menu::ContextMenuBuilder;
-use crate::git_status;
+use crate::data_providers::git;
 use crate::grid::ViewMode;
 use crate::icon_view::{GridEvent, IconGrid};
 use crate::location::PanelTarget;
 use crate::model::{DragSnapshot, Folder};
+use std::sync::Arc;
 
 /// Breadcrumb, location-bar and header-button rendering.
 pub mod header_view;
@@ -117,6 +118,14 @@ pub fn bind_keys(cx: &mut App) {
     ]);
 }
 
+/// Shared native and extension acquisition services used by a panel.
+pub struct Providers {
+    /// Immutable display-column definitions.
+    pub columns: Arc<Catalog>,
+    /// Contextual Git snapshots shared with Properties.
+    pub git: git::Service,
+}
+
 pub struct FolderView {
     folder: Entity<Folder>,
     table: Entity<TableState<FileTable>>,
@@ -138,8 +147,8 @@ pub struct FolderView {
     /// Locations popup under the map button, while open.
     locations_menu: Option<Entity<PopupMenu>>,
     _locations_menu_dismiss: Option<Subscription>,
-    /// Listing generation the Git column was last computed for.
-    git_generation: Option<u64>,
+    git_service: git::Service,
+    git_session: git::ColumnSession,
     expanded_snapshot: HashSet<crate::location::Location>,
     drop_row: Rc<Cell<Option<usize>>>,
     _git_task: Task<()>,
@@ -154,15 +163,26 @@ impl EventEmitter<PanelDrop> for FolderView {}
 impl FolderView {
     pub fn new(
         folder: Entity<Folder>,
-        columns: Vec<ColumnKind>,
+        columns: Vec<ColumnId>,
+        providers: Providers,
         mode: ViewMode,
         icon_size: u32,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let metadata = cx.new(|_| metadata::MetadataState::new());
+        let Providers {
+            columns: catalog,
+            git: git_service,
+        } = providers;
+        let metadata = cx.new(|_| metadata::MetadataState::new(catalog.clone()));
         let drop_row = Rc::new(Cell::new(None));
-        let delegate = FileTable::new(folder.clone(), columns, metadata.clone(), drop_row.clone());
+        let delegate = FileTable::new(
+            folder.clone(),
+            columns,
+            catalog,
+            metadata.clone(),
+            drop_row.clone(),
+        );
         let table = cx.new(|cx| {
             TableState::new(delegate, window, cx)
                 .row_header(false)
@@ -228,7 +248,8 @@ impl FolderView {
             breadcrumb_scroll: ScrollHandle::new(),
             locations_menu: None,
             _locations_menu_dismiss: None,
-            git_generation: None,
+            git_service,
+            git_session: git::ColumnSession::default(),
             expanded_snapshot,
             drop_row,
             _git_task: Task::ready(()),
@@ -279,51 +300,91 @@ impl FolderView {
         cx.notify();
     }
 
-    pub fn columns(&self, cx: &App) -> Vec<ColumnKind> {
+    pub fn columns(&self, cx: &App) -> Vec<ColumnId> {
         self.table.read(cx).delegate().columns().to_vec()
     }
 
     /// Shows `columns` (Name first, see [`crate::columns::normalize`]).
-    pub fn set_columns(&mut self, columns: Vec<ColumnKind>, cx: &mut Context<Self>) {
+    pub fn set_columns(&mut self, columns: Vec<ColumnId>, cx: &mut Context<Self>) {
         self.table.update(cx, |table, cx| {
             table.delegate_mut().set_columns(columns);
             table.refresh(cx);
             cx.notify();
         });
-        self.git_generation = None; // a newly shown Git column needs data
         self.refresh_git(cx);
         cx.notify();
     }
 
-    /// With a Git column: re-runs `git status` in the background whenever
-    /// the listing was read again.
-    fn refresh_git(&mut self, cx: &mut Context<Self>) {
-        if !self
+    /// Captures local Git demand and schedules shared bounded work off the UI thread.
+    pub fn refresh_git(&mut self, cx: &mut Context<Self>) {
+        let folder = self.folder.read(cx);
+        let target = self
             .table
             .read(cx)
             .delegate()
             .columns()
-            .contains(&ColumnKind::GitStatus)
-        {
+            .iter()
+            .any(|column| column.as_str() == self.git_service.definition().columns[0].column_id)
+            .then(|| folder.location().cloned())
+            .flatten()
+            .and_then(|location| {
+                let scope = location.as_local_path()?;
+                Some((
+                    location.clone(),
+                    folder.generation(),
+                    self.git_service.key_for_scope(scope),
+                ))
+            });
+        let request = self.git_session.sync(target);
+        if request.is_none() {
+            // A disabled/nonlocal demand must also clear prepared marks.
+            if folder
+                .location()
+                .and_then(|location| location.as_local_path())
+                .is_none()
+                || !self
+                    .table
+                    .read(cx)
+                    .delegate()
+                    .columns()
+                    .iter()
+                    .any(|column| {
+                        column.as_str() == self.git_service.definition().columns[0].column_id
+                    })
+            {
+                self.table.update(cx, |table, cx| {
+                    table.delegate_mut().set_git_snapshot(None);
+                    cx.notify();
+                });
+            }
             return;
         }
-        let folder = self.folder.read(cx);
-        let generation = folder.generation();
-        // `git status` would run in whatever local directory `proton:/`
-        // happens to resolve to.
-        if folder.is_remote() || self.git_generation == Some(generation) {
-            return;
-        }
-        self.git_generation = Some(generation);
-        let dir = folder.path().to_path_buf();
-        let table = self.table.clone();
-        self._git_task = cx.spawn(async move |_, cx| {
-            let status = cx
-                .background_spawn(async move { git_status::status(&dir) })
+        let request = request.expect("a changed local demand returned a request");
+        self.table.update(cx, |table, cx| {
+            table.delegate_mut().set_git_snapshot(None);
+            cx.notify();
+        });
+        let lease = self.git_service.subscribe(request.key.clone());
+        self._git_task = cx.spawn(async move |this, cx| {
+            let worker_request = request.clone();
+            let result = cx
+                .background_spawn(async move {
+                    lease.and_then(|lease| lease.wait(&worker_request.cancel))
+                })
                 .await;
-            table.update(cx, |table, cx| {
-                table.delegate_mut().set_git_status(status);
-                cx.notify();
+            let _ = this.update(cx, |this, cx| {
+                let folder = this.folder.read(cx);
+                if !this.git_session.accepts(&request)
+                    || folder.generation() != request.generation
+                    || folder.location() != Some(&request.location)
+                    || this.git_service.key_for_scope(&request.key.scope) != request.key
+                {
+                    return;
+                }
+                this.table.update(cx, |table, cx| {
+                    table.delegate_mut().set_git_snapshot(result.ok().flatten());
+                    cx.notify();
+                });
             });
         });
     }

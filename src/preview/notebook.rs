@@ -582,6 +582,7 @@ mod tests {
             name: "demo.ipynb".into(),
             ext: "ipynb".into(),
             is_dir: false,
+            is_file: true,
             size: 0,
             head: Vec::new(),
         }

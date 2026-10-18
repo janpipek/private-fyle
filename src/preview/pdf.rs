@@ -174,6 +174,7 @@ mod tests {
             name: String::new(),
             ext: ext.into(),
             is_dir: false,
+            is_file: true,
             size: 0,
             head: head.to_vec(),
         };

@@ -10,14 +10,15 @@ use std::time::SystemTime;
 use crate::entry::{Attrs, Entry};
 use crate::location::Location;
 
-mod exif_reader;
 mod filesystem;
 mod geo;
+mod git;
 mod media;
 mod parquet;
+mod registry;
 mod sqlite;
 
-pub use exif_reader::{ExifField, ExifFieldId};
+pub use crate::formats::exif::{Field as ExifField, Tag as ExifFieldId};
 
 /// A selected listing row paired with its source address.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,6 +47,7 @@ pub struct ListingFacts {
 }
 
 pub use filesystem::{FilesystemFacts, StatFacts};
+pub use registry::{Probe, PropertyProvider, Registry};
 
 /// Status for one independently loaded properties section.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -72,7 +74,7 @@ impl<T> Section<Vec<T>> {
 }
 
 /// Results of inspecting a selected source item.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Inspection {
     /// Original source identity.
     pub location: Location,
@@ -82,8 +84,10 @@ pub struct Inspection {
     pub filesystem: Section<FilesystemFacts>,
     /// EXIF details for supported local image and RAW files.
     pub exif: Section<Vec<ExifField>>,
-    /// Additional format groups, such as future database or columnar metadata.
+    /// Additional native format groups, such as database or columnar metadata.
     pub additional_groups: Vec<PropertyGroup>,
+    /// Independently prepared, typed sections from enabled extensions.
+    pub extension_sections: Vec<crate::extensions::properties::PreparedSection>,
 }
 
 /// Stable identity for a Properties group.
@@ -173,117 +177,6 @@ pub struct PropertyTable {
     pub rows: Vec<Vec<PropertyValue>>,
 }
 
-/// Cheap local-file facts supplied to property providers during selection.
-#[derive(Debug)]
-pub struct Probe {
-    /// Local source path inspected by the provider.
-    pub path: PathBuf,
-    /// File name, as shown in the listing.
-    pub name: String,
-    /// Lowercase extension without the dot.
-    pub ext: String,
-    /// Whether the local path is a directory.
-    pub is_dir: bool,
-    /// Whether the local path is a regular file.
-    pub is_file: bool,
-    /// Current local file size.
-    pub size: u64,
-}
-
-impl Probe {
-    fn read(path: &std::path::Path) -> io::Result<Self> {
-        let metadata = fs::metadata(path)?;
-        Ok(Self {
-            path: path.to_path_buf(),
-            name: path
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_else(|| path.display().to_string()),
-            ext: path
-                .extension()
-                .map(|extension| extension.to_string_lossy().to_lowercase())
-                .unwrap_or_default(),
-            is_dir: metadata.is_dir(),
-            is_file: metadata.is_file(),
-            size: metadata.len(),
-        })
-    }
-}
-
-/// A provider that contributes Properties groups when its probe matches.
-pub trait PropertyProvider: Send + Sync {
-    /// Stable group identity used when a provider fails.
-    fn id(&self) -> &'static str;
-    /// Whether this provider can contribute properties for the local source.
-    fn matches(&self, probe: &Probe) -> bool;
-    /// Reads zero or more semantic groups; call from a background worker.
-    fn read(&self, probe: &Probe, cancel: &Arc<AtomicBool>) -> io::Result<Vec<PropertyGroup>>;
-    /// Converts a reader failure into a visible independent group.
-    fn failure(&self, error: &io::Error) -> PropertyGroup {
-        PropertyGroup {
-            id: GroupId(self.id().into()),
-            status: GroupStatus::Failed(error.to_string()),
-            fields: Vec::new(),
-            groups: Vec::new(),
-            tables: Vec::new(),
-        }
-    }
-}
-
-/// Ordered providers; all providers matching a file contribute their groups.
-#[derive(Default)]
-pub struct Registry {
-    providers: Vec<Box<dyn PropertyProvider>>,
-}
-
-impl Registry {
-    /// Built-in format property providers.
-    pub fn with_defaults() -> Self {
-        let mut registry = Self::default();
-        registry.register(Box::new(parquet::Provider));
-        registry.register(Box::new(sqlite::Provider));
-        registry.register(Box::new(media::Provider));
-        registry.register(Box::new(geo::Provider));
-        registry
-    }
-
-    /// Adds a provider after existing providers.
-    pub fn register(&mut self, provider: Box<dyn PropertyProvider>) {
-        self.providers.push(provider);
-    }
-
-    /// Reads all matching provider groups, retaining independent failures.
-    pub fn read(
-        &self,
-        path: &std::path::Path,
-        cancel: &Arc<AtomicBool>,
-    ) -> io::Result<Vec<PropertyGroup>> {
-        let probe = match Probe::read(path) {
-            Ok(probe) => probe,
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => return Err(error),
-            // A vanished or unreadable path must not discard independent
-            // listing, filesystem, or EXIF results from the inspection.
-            Err(_) => return Ok(Vec::new()),
-        };
-        let mut groups = Vec::new();
-        for provider in self
-            .providers
-            .iter()
-            .filter(|provider| provider.matches(&probe))
-        {
-            if cancel.load(Ordering::Relaxed) {
-                return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
-            }
-            match provider.read(&probe, cancel) {
-                Ok(mut provided) => groups.append(&mut provided),
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => return Err(error),
-                Err(error) => groups.push(provider.failure(&error)),
-            }
-        }
-        Ok(groups)
-    }
-}
-
 /// A cancellable inspection request for the background worker.
 #[derive(Clone, Debug)]
 pub struct Request {
@@ -291,6 +184,8 @@ pub struct Request {
     pub generation: u64,
     /// Selected original source and listing facts.
     pub selection: Selection,
+    /// Captured repository scope and revision, separate from source identity.
+    pub git_context: Option<crate::data_providers::git::Key>,
     /// Cancellation signal shared with the worker.
     pub cancel: Arc<AtomicBool>,
 }
@@ -317,6 +212,7 @@ pub enum State {
 pub struct PropertiesSession {
     generation: u64,
     selection: Option<Selection>,
+    git_context: Option<crate::data_providers::git::Key>,
     state: State,
 }
 
@@ -328,9 +224,19 @@ impl PropertiesSession {
 
     /// Selects a new source and returns its cancellable background request.
     pub fn set_target(&mut self, target: Option<Selection>) -> Option<Request> {
-        if self.selection == target {
+        self.set_contextual_target(target, None)
+    }
+
+    /// Captures repository revision independently of selected file metadata.
+    pub fn set_contextual_target(
+        &mut self,
+        target: Option<Selection>,
+        git_context: Option<crate::data_providers::git::Key>,
+    ) -> Option<Request> {
+        if self.selection == target && self.git_context == git_context {
             return None;
         }
+        self.git_context = git_context;
         self.cancel_current();
         self.generation = self.generation.wrapping_add(1);
         self.selection = target.clone();
@@ -341,6 +247,7 @@ impl PropertiesSession {
         let request = Request {
             generation: self.generation,
             selection,
+            git_context: self.git_context.clone(),
             cancel: Arc::new(AtomicBool::new(false)),
         };
         self.state = State::Loading(request.clone());
@@ -351,7 +258,7 @@ impl PropertiesSession {
     pub fn invalidate(&mut self) -> Option<Request> {
         let target = self.selection.clone();
         self.selection = None;
-        self.set_target(target)
+        self.set_contextual_target(target, self.git_context.clone())
     }
 
     /// Applies a completion only when it still belongs to the active request.
@@ -408,6 +315,16 @@ pub fn inspect_with_registry(
     cancel: &Arc<AtomicBool>,
     registry: &Registry,
 ) -> io::Result<Inspection> {
+    inspect_with_context(selection, cancel, registry, None)
+}
+
+/// Reads native and extension facts with an explicitly captured local query context.
+pub fn inspect_with_context(
+    selection: &Selection,
+    cancel: &Arc<AtomicBool>,
+    registry: &Registry,
+    git_context: Option<&crate::data_providers::git::Key>,
+) -> io::Result<Inspection> {
     if cancel.load(Ordering::Relaxed) {
         return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
     }
@@ -422,7 +339,7 @@ pub fn inspect_with_registry(
         },
         link: selection.entry.link.clone(),
     };
-    let (filesystem, exif, additional_groups) = match &selection.location {
+    let (filesystem, exif, additional_groups, extension_sections) = match &selection.location {
         Location::Local(path) => {
             let current = fs::metadata(path.as_path());
             let regular_file = current.as_ref().is_ok_and(fs::Metadata::is_file);
@@ -438,23 +355,31 @@ pub fn inspect_with_registry(
             } else if selection.entry.is_dir {
                 Section::Unavailable("directories have no EXIF metadata".into())
             } else {
-                match exif_reader::read(path.as_path(), cancel) {
-                    Ok(read) if read.truncated => Section::Truncated {
-                        value: read.fields,
-                        limit: read.limit,
+                match crate::data_providers::exif::properties().read(path.as_path(), cancel) {
+                    Ok(prepared) if prepared.truncated => Section::Truncated {
+                        value: prepared.fields,
+                        limit: prepared.limit,
                     },
-                    Ok(read) if read.fields.is_empty() => {
+                    Ok(prepared) if prepared.fields.is_empty() => {
                         Section::Unavailable("no supported EXIF fields".into())
                     }
-                    Ok(read) => Section::Available(read.fields),
+                    Ok(prepared) => Section::Available(prepared.fields),
                     Err(error) if error.kind() == io::ErrorKind::Interrupted => {
                         return Err(error);
                     }
                     Err(error) => Section::Failed(error.to_string()),
                 }
             };
-            let additional_groups = registry.read(path.as_path(), cancel)?;
-            (fs, exif, additional_groups)
+            let mut additional_groups = registry.read(path.as_path(), cancel)?;
+            additional_groups.extend(registry.read_context(selection, git_context, cancel)?);
+            // Metadata follows a selected symlink like native readers do; the
+            // worker still receives the original selection and brokered path.
+            let extension_sections = if regular_file && !selection.entry.is_dir {
+                registry.read_extensions(selection, cancel)?
+            } else {
+                Vec::new()
+            };
+            (fs, exif, additional_groups, extension_sections)
         }
         Location::Remote(_) => (
             Section::Unavailable(
@@ -462,12 +387,14 @@ pub fn inspect_with_registry(
             ),
             Section::Unavailable("EXIF is not read from remote items".into()),
             Vec::new(),
+            Vec::new(),
         ),
         Location::Archive { .. } => (
             Section::Unavailable(
                 "local filesystem attributes are unavailable for archive members".into(),
             ),
             Section::Unavailable("EXIF is not read from archive members".into()),
+            Vec::new(),
             Vec::new(),
         ),
     };
@@ -477,6 +404,7 @@ pub fn inspect_with_registry(
         filesystem,
         exif,
         additional_groups,
+        extension_sections,
     })
 }
 
@@ -891,11 +819,43 @@ mod tests {
             filesystem: super::Section::Unavailable("x".into()),
             exif: super::Section::Unavailable("x".into()),
             additional_groups: Vec::new(),
+            extension_sections: Vec::new(),
         };
         assert!(!session.complete(&first, Ok(dummy.clone())));
         assert!(session.complete(&second, Ok(dummy)));
         assert!(matches!(session.state(), State::Ready { .. }));
         let refresh = session.invalidate().expect("refresh request");
         assert!(refresh.generation > second.generation);
+    }
+
+    #[test]
+    fn context_epoch_replaces_same_selection_and_rejects_earlier_result() {
+        let temp = TempDir::new().expect("temporary directory");
+        let item = selection(temp.path().join("unchanged"));
+        let key = crate::data_providers::git::Key {
+            scope: temp.path().into(),
+            epoch: 1,
+        };
+        let mut session = PropertiesSession::default();
+        let first = session
+            .set_contextual_target(Some(item.clone()), Some(key.clone()))
+            .expect("first request");
+        assert!(
+            session
+                .set_contextual_target(Some(item.clone()), Some(key.clone()))
+                .is_none()
+        );
+        let mut next_key = key;
+        next_key.epoch += 1;
+        let second = session
+            .set_contextual_target(Some(item), Some(next_key.clone()))
+            .expect("index refresh request");
+        assert!(first.cancel.load(std::sync::atomic::Ordering::Acquire));
+        assert!(!session.complete(&first, Err("old result".into())));
+        assert_eq!(second.git_context, Some(next_key.clone()));
+        assert!(session.complete(&second, Err("current failure".into())));
+        let refreshed = session.invalidate().expect("explicit reload");
+        assert_eq!(refreshed.git_context, Some(next_key));
+        assert!(refreshed.generation > second.generation);
     }
 }

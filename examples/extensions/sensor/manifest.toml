@@ -1,0 +1,39 @@
+api_version = 1
+id = "sensor"
+entry = "main.lua"
+
+[[providers]]
+id = "extension.sensor.reader"
+
+[[providers.fields]]
+id = "extension.sensor.reader.duration"
+kind = "quantity"
+unit = "seconds"
+
+[[providers.fields]]
+id = "extension.sensor.reader.distance"
+kind = "quantity"
+unit = "metres"
+
+[[providers.properties]]
+id = "extension.sensor.reader.summary"
+label = "Sensor summary"
+fields = ["extension.sensor.reader.duration", "extension.sensor.reader.distance"]
+max_bytes = 65536
+max_items = 128
+
+[[providers.columns]]
+id = "extension.sensor.reader.distance-cell"
+label = "Sensor distance"
+column_id = "extension.sensor.reader.distance"
+field = "extension.sensor.reader.distance"
+max_bytes = 65536
+max_items = 128
+
+[[providers.viewers]]
+id = "extension.sensor.reader.graph"
+label = "Sensor graph"
+representation = "fyle.scene"
+version = 1
+max_bytes = 65536
+max_items = 128

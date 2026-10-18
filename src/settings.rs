@@ -33,11 +33,21 @@ pub struct Settings {
     pub openers: Vec<crate::openers::Opener>,
     /// Extra key bindings, applied after (and so overriding) the defaults.
     pub keymap: Vec<KeymapEntry>,
+    /// User extension packages that may load from the config directory.
+    pub extensions: ExtensionSettings,
     pub window: WindowSettings,
     pub panels: PanelSettings,
     pub workspace: WorkspaceSettings,
     pub editor: EditorSettings,
     pub terminal: TerminalSettings,
+}
+
+/// Explicit user extension package enablement.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct ExtensionSettings {
+    /// Valid package IDs permitted to load automatically at startup.
+    pub enabled: Vec<crate::extensions::PackageId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
@@ -105,7 +115,7 @@ pub struct PanelSettings {
     /// Icon size in pixels in icon view; snaps to 48, 64, 96, 128 or 160.
     pub icon_size: u32,
     /// Columns shown, in order; Name is always first.
-    pub columns: Vec<crate::columns::ColumnKind>,
+    pub columns: Vec<crate::columns::ColumnId>,
     pub sort: SortSetting,
     pub sort_descending: bool,
 }
@@ -139,6 +149,7 @@ impl Default for Settings {
             openers: Vec::new(),
             window: WindowSettings::default(),
             panels: PanelSettings::default(),
+            extensions: ExtensionSettings::default(),
             workspace: WorkspaceSettings::default(),
             editor: EditorSettings::default(),
             terminal: TerminalSettings::default(),
@@ -165,7 +176,10 @@ impl Default for PanelSettings {
             left_view: ViewMode::List,
             right_view: ViewMode::List,
             icon_size: crate::grid::DEFAULT_SIZE,
-            columns: crate::columns::ColumnKind::DEFAULT.to_vec(),
+            columns: crate::columns::ColumnKind::DEFAULT
+                .into_iter()
+                .map(crate::columns::ColumnId::from)
+                .collect(),
             sort: SortSetting::Name,
             sort_descending: false,
         }
@@ -278,6 +292,9 @@ mod tests {
             [workspace]
             layout = "one_panel_inspector"
 
+            [extensions]
+            enabled = ["sensor", "future-package"]
+
             [terminal]
             command = ["kitty", "-d", "{dir}"]
             "#,
@@ -302,6 +319,13 @@ mod tests {
             }
         );
         assert_eq!(settings.workspace.layout, LayoutMode::OnePanelInspector);
+        assert_eq!(
+            settings.extensions.enabled,
+            vec![
+                crate::extensions::PackageId::new("sensor").unwrap(),
+                crate::extensions::PackageId::new("future-package").unwrap(),
+            ]
+        );
     }
 
     #[test]
@@ -325,6 +349,25 @@ mod tests {
         assert!(Settings::parse("[panels]\nsort = \"color\"").is_err());
         assert!(Settings::parse("[workspace]\nlayout = \"three_panels\"").is_err());
         assert!(Settings::parse("[preview]\nopen_on_start = true").is_err());
+        assert!(Settings::parse("[extensions]\nunknown = true").is_err());
+        for value in ["../outside", "..", "nested/path", "Sensor", "", "a\\b"] {
+            assert!(
+                Settings::parse(&format!("[extensions]\nenabled = [{value:?}]")).is_err(),
+                "accepted invalid extension package ID {value:?}"
+            );
+        }
+        assert!(Settings::parse("[extensions]\nenabled = [1]").is_err());
+    }
+
+    #[test]
+    fn extension_enablement_defaults_empty_and_preserves_valid_unknown_ids() {
+        assert!(Settings::parse("").unwrap().extensions.enabled.is_empty());
+        let settings = Settings::parse(
+            "[extensions]\nenabled = [\"not-installed-yet\", \"sensor\", \"sensor\"]",
+        )
+        .unwrap();
+        assert_eq!(settings.extensions.enabled.len(), 3);
+        assert_eq!(settings.extensions.enabled[0].as_str(), "not-installed-yet");
     }
 
     #[test]

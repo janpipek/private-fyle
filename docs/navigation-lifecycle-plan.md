@@ -102,3 +102,13 @@ while navigation is pending. Record unavailable live checks explicitly.
 Acceptance: the three parallel arrays are gone, request lifecycle tests run
 without GPUI, and user-visible navigation, errors, cancellation and selection
 behavior are preserved. No dependencies or new commands are needed.
+
+## Startup diagnostic presentation
+
+The provider migration's slice 4c preserves initial config/package diagnostics
+through routine `Opening`/`Opened` messages for `ListingCommit::Startup`.
+Listing warnings and failures still take priority, and later navigation or
+refresh replaces the status normally. Pure status-policy tests cover these
+cases. Request tokens, guards, cancellation, history and commit ordering are
+unchanged. Remote startup currently enters through `Navigate` and retains its
+existing status behavior; this presentation fix does not reinterpret that intent.

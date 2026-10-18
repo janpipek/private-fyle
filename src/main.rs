@@ -12,12 +12,16 @@ mod commander;
 mod conflict_view;
 mod context_menu;
 mod copy_path;
+/// Pure contracts for file, metadata and contextual data providers.
+pub mod data_providers;
 #[cfg_attr(windows, allow(dead_code))]
 mod desktop;
 mod dirsize;
 mod editor;
 mod editor_view;
 mod entry;
+/// Static package manifests for provider extensions.
+pub mod extensions;
 mod formats;
 mod fs_ops;
 mod git_status;
@@ -53,6 +57,9 @@ mod panels;
 mod places;
 mod presentation_view;
 mod preview;
+/// Validated static display scenes for extension viewers.
+pub mod preview_scene;
+mod preview_scene_view;
 mod preview_view;
 pub mod properties;
 mod properties_view;
@@ -87,7 +94,25 @@ use commander::Commander;
 use themes::ThemeChoice;
 
 fn main() {
+    extensions::run_worker_if_requested();
     let (settings, settings_error) = settings::persistence::load();
+    let config_directory =
+        settings::persistence::path().and_then(|path| path.parent().map(PathBuf::from));
+    let mut prepared_extensions =
+        extensions::catalog::prepare(config_directory.as_deref(), &settings.extensions.enabled);
+    let git = data_providers::git::Service::new();
+    prepared_extensions.properties.register_git(git.clone());
+    let mut preview_registry = preview::Registry::with_defaults();
+    preview_registry.register_extensions(prepared_extensions.viewers);
+    let registries = std::sync::Arc::new(commander::ProviderRegistries {
+        columns: std::sync::Arc::new(prepared_extensions.catalog),
+        git,
+        properties: std::sync::Arc::new(prepared_extensions.properties),
+        preview: std::sync::Arc::new(preview_registry),
+    });
+    let git_service = registries.git.clone();
+    let supervisor = prepared_extensions.supervisor;
+    let extension_diagnostics = prepared_extensions.diagnostics;
 
     // Command-line directories override the configured ones.
     let mut args = std::env::args_os().skip(1).map(PathBuf::from);
@@ -142,6 +167,26 @@ fn main() {
                 ..window_chrome_view::window_options("Fyle".into(), cx)
             };
             let mut errors: Vec<String> = settings_error.into_iter().collect();
+            errors.extend(
+                extension_diagnostics
+                    .into_iter()
+                    .map(|diagnostic| match diagnostic {
+                        extensions::catalog::StartupDiagnostic::Package(diagnostic) => {
+                            format!("{}: {}", diagnostic.path.display(), diagnostic.error)
+                        }
+                        extensions::catalog::StartupDiagnostic::Operation { path, error } => {
+                            format!("{}: {}", path.display(), error)
+                        }
+                        extensions::catalog::StartupDiagnostic::ConfigDirectoryUnavailable(
+                            package,
+                        ) => {
+                            format!(
+                                "extensions/{}: no configuration directory is available",
+                                package.as_str()
+                            )
+                        }
+                    }),
+            );
             if let Err(keymap_errors) = commander::validate_user_keys(&settings.keymap, cx) {
                 errors.extend(keymap_errors);
             }
@@ -152,8 +197,16 @@ fn main() {
                     errors.push(e);
                 }
                 let error = (!errors.is_empty()).then(|| errors.join("; "));
-                let commander =
-                    cx.new(|cx| Commander::new([left, right], &settings, error, window, cx));
+                let commander = cx.new(|cx| {
+                    Commander::new(
+                        [left, right],
+                        &settings,
+                        error,
+                        registries.clone(),
+                        window,
+                        cx,
+                    )
+                });
                 commander.update(cx, |commander, cx| commander.init(window, cx));
                 errors.extend(commander::bind_user_keys(&settings.keymap, cx));
                 commander
@@ -161,4 +214,10 @@ fn main() {
             .expect("failed to open window");
             cx.activate(true);
         });
+    git_service.shutdown();
+    if let Some(supervisor) = supervisor
+        && let Err(error) = supervisor.shutdown()
+    {
+        eprintln!("extension worker shutdown failed: {error}");
+    }
 }

@@ -1,5 +1,8 @@
 # Organizing data providers and presentation in fyle
 
+The proposed [implementation plan](implementation-plan.md) turns this
+recommendation into ordered slices, decision checkpoints and acceptance checks.
+
 This is a design comparison, not an implementation plan approved for execution. The recommendation incorporates the owner's subsequent preference for fewer abstractions and similar organization across Properties, columns and viewers: organize around data providers, with one recognizable contribution model and typed results for each presentation. Providers can apply through file content, filesystem attributes or surrounding context; formats are one source of data, not the organizing principle for every contribution. Keep bounded reading and host-owned rendering, and prove user extensibility with a small vertical example before building general infrastructure.
 
 ## The experiment and its limits

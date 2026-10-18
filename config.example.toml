@@ -36,6 +36,11 @@ bookmarks = []
 # keys = "ctrl-c"
 # action = "Copy"
 
+[extensions]
+# Package IDs from the config directory's extensions folder. Enabling a package
+# permits its declared readers to run automatically; restart after changing.
+enabled = []
+
 [window]
 width = 1200
 height = 760
@@ -64,6 +69,7 @@ icon_size = 96
 #   exif:       exif.taken, exif.camera, exif.lens, exif.exposure,
 #               exif.aperture, exif.iso, exif.focal_length,
 #               exif.dimensions, exif.gps
+# Unknown column IDs are preserved and shown as unavailable until registered.
 columns = ["name", "ext", "size", "modified"]
 sort = "name"             # "name" | "ext" | "size" | "modified"
 sort_descending = false

@@ -6,7 +6,9 @@ use std::path::Path;
 
 use roxmltree::{Document, Node};
 
-use super::{GeoData, MAX_BYTES, MAX_POINTS, Point, distance, point};
+use super::{
+    GeoData, MAX_BYTES, MAX_POINTS, Measurement, MeasurementOrigin, Point, distance, point,
+};
 
 pub fn read(path: &Path, cancelled: impl Fn() -> bool) -> io::Result<GeoData> {
     let bytes = fs::read(path)?;
@@ -147,10 +149,16 @@ pub fn read(path: &Path, cancelled: impl Fn() -> bool) -> io::Result<GeoData> {
         )
         && last.as_second() >= first.as_second()
     {
-        data.duration_seconds = Some((last.as_second() - first.as_second()) as f64);
+        data.duration_seconds = Some(Measurement {
+            value: (last.as_second() - first.as_second()) as f64,
+            origin: MeasurementOrigin::Inferred,
+        });
     }
     if measured {
-        data.distance_meters = Some(distance_meters);
+        data.distance_meters = Some(Measurement {
+            value: distance_meters,
+            origin: MeasurementOrigin::Inferred,
+        });
     }
     if ascent > 0.0 {
         data.ascent_meters = Some(ascent);
@@ -189,6 +197,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::read;
+    use crate::formats::geo::MeasurementOrigin;
 
     #[test]
     fn reads_tracks_without_joining_segments() {
@@ -199,8 +208,16 @@ mod tests {
         assert_eq!(data.name.as_deref(), Some("Morning"));
         assert_eq!(data.segments.len(), 2);
         assert_eq!(data.points, 3);
-        assert!((data.distance_meters.expect("distance") - 111.2).abs() < 1.0);
-        assert_eq!(data.duration_seconds, Some(60.0));
+        assert!((data.distance_meters.expect("distance").value - 111.2).abs() < 1.0);
+        assert_eq!(data.duration_seconds.expect("duration").value, 60.0);
+        assert_eq!(
+            data.duration_seconds.expect("duration").origin,
+            MeasurementOrigin::Inferred
+        );
+        assert_eq!(
+            data.distance_meters.expect("distance").origin,
+            MeasurementOrigin::Inferred
+        );
         assert_eq!(data.ascent_meters, Some(5.0));
     }
 
