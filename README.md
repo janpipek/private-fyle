@@ -237,7 +237,10 @@ use Properties for EXIF details. Audio keeps its standalone format and tag
 details in View. Properties and audio View share the bounded `formats/media.rs`
 reader, including decoded ID3/common tags: title, artist, album, album artist,
 composer, date, genre, track, disc, comment and copyright. This requires
-`ffprobe`; raw ID3 frames and embedded artwork are not displayed.
+`ffprobe`; raw ID3 frames and embedded artwork are not displayed. Ogg Vorbis
+uses Vorbis comments rather than ID3. Missing container tags fall back to the
+first audio stream among the first 32 streams, including common Vorbis tag names
+such as `ALBUMARTIST`, `TRACKNUMBER`, `DISCNUMBER` and `DESCRIPTION`.
 
 File recognition is shared by Open With, panel icons and Preview through the
 UI-independent `recognition` model and its swappable content `Detector` interface.

@@ -59,7 +59,7 @@ pub struct MediaMetadata {
     pub duration: Option<f64>,
     /// Container bit rate in bits per second.
     pub bit_rate: Option<u64>,
-    /// Selected container tags with stable display names.
+    /// Selected tags with stable display names; container values precede first-audio-stream values.
     pub tags: Vec<(String, String)>,
     /// Selected media streams.
     pub streams: Vec<Stream>,
@@ -218,28 +218,34 @@ pub fn parse(json: &[u8]) -> io::Result<MediaMetadata> {
         ..MediaMetadata::default()
     };
     result.format = bounded_text(format["format_long_name"].as_str(), &mut result.truncated);
-    const TAGS: &[(&str, &str)] = &[
-        ("title", "Title"),
-        ("artist", "Artist"),
-        ("album", "Album"),
-        ("album_artist", "Album artist"),
-        ("composer", "Composer"),
-        ("date", "Date"),
-        ("genre", "Genre"),
-        ("track", "Track"),
-        ("disc", "Disc"),
-        ("comment", "Comment"),
-        ("copyright", "Copyright"),
+    const TAGS: &[(&[&str], &str)] = &[
+        (&["title"], "Title"),
+        (&["artist"], "Artist"),
+        (&["album"], "Album"),
+        (
+            &["album_artist", "albumartist", "album artist"],
+            "Album artist",
+        ),
+        (&["composer"], "Composer"),
+        (&["date", "year"], "Date"),
+        (&["genre"], "Genre"),
+        (&["track", "tracknumber", "track_number"], "Track"),
+        (&["disc", "discnumber", "disc_number"], "Disc"),
+        (&["comment", "description"], "Comment"),
+        (&["copyright"], "Copyright"),
     ];
-    if let Some(tags) = format["tags"].as_object() {
-        for (key, label) in TAGS.iter().take(TAG_LIMIT) {
-            let value = tags
-                .iter()
-                .find(|(name, _)| name.eq_ignore_ascii_case(key))
-                .and_then(|(_, value)| value.as_str());
-            if let Some(value) = bounded_text(value, &mut result.truncated) {
-                result.tags.push(((*label).into(), value));
-            }
+    let audio_tags = root["streams"].as_array().and_then(|streams| {
+        streams
+            .iter()
+            .take(STREAM_LIMIT)
+            .find(|stream| stream["codec_type"].as_str() == Some("audio"))
+            .and_then(|stream| stream["tags"].as_object())
+    });
+    for (keys, label) in TAGS.iter().take(TAG_LIMIT) {
+        let value =
+            tag_value(format["tags"].as_object(), keys).or_else(|| tag_value(audio_tags, keys));
+        if let Some(value) = bounded_text(value, &mut result.truncated) {
+            result.tags.push(((*label).into(), value));
         }
     }
     if let Some(streams) = root["streams"].as_array() {
@@ -272,6 +278,19 @@ pub fn parse(json: &[u8]) -> io::Result<MediaMetadata> {
         }
     }
     Ok(result)
+}
+
+fn tag_value<'a>(
+    tags: Option<&'a serde_json::Map<String, Value>>,
+    keys: &[&str],
+) -> Option<&'a str> {
+    let tags = tags?;
+    keys.iter().find_map(|key| {
+        tags.iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(key))
+            .and_then(|(_, value)| value.as_str())
+            .filter(|value| !value.trim().is_empty())
+    })
 }
 
 fn bounded_text(value: Option<&str>, truncated: &mut bool) -> Option<String> {
@@ -347,6 +366,29 @@ mod tests {
                 ("Disc".into(), "2/3".into()),
                 ("Comment".into(), "x".repeat(1024)),
                 ("Copyright".into(), "Owner".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn vorbis_comments_use_first_audio_stream_and_preserve_container_precedence() {
+        let metadata = parse(br#"{
+            "format":{"tags":{"title":"Container title","artist":" "}},
+            "streams":[
+                {"codec_type":"subtitle","tags":{"artist":"Subtitle artist"}},
+                {"codec_type":"audio","tags":{"TITLE":"Stream title","ARTIST":"Audio artist","ALBUMARTIST":"Ensemble","TRACKNUMBER":"4/9","DISCNUMBER":"2/3","DESCRIPTION":"Live"}},
+                {"codec_type":"audio","tags":{"album":"Other recording"}}
+            ]
+        }"#).unwrap();
+        assert_eq!(
+            metadata.tags,
+            vec![
+                ("Title".into(), "Container title".into()),
+                ("Artist".into(), "Audio artist".into()),
+                ("Album artist".into(), "Ensemble".into()),
+                ("Track".into(), "4/9".into()),
+                ("Disc".into(), "2/3".into()),
+                ("Comment".into(), "Live".into()),
             ]
         );
     }

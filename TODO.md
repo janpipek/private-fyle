@@ -144,6 +144,11 @@ not to pursue an item.
 
 ## Done
 
+- [x] Ogg/Vorbis audio tags: fall back from container metadata to the first
+      audio stream among the first 32 streams, with common Vorbis comment aliases.
+      Container values take precedence; unrelated streams are not combined.
+      Reuse the existing bounded ffprobe reader for Properties and audio View.
+
 - [x] Shared bounded MIME recognition for Open With, Preview and panel icons:
       swappable detector interface with a native reader, ranked evidence/candidates,
       known names/extensions and 8 KiB signatures/text heuristics including SQLite,
