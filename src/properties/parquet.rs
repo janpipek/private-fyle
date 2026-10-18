@@ -1,12 +1,12 @@
 //! Bounded Parquet metadata mapped into a Properties group.
 
-use std::fs::{File, OpenOptions};
-use std::io::{self, Read};
+use std::io;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use crate::formats::parquet::{check_cancel, read_metadata};
+use crate::data_providers::parquet as parquet_provider;
+use crate::formats::parquet::check_cancel;
 use crate::properties::{
     GroupId, GroupStatus, Probe, PropertyField, PropertyGroup, PropertyProvider, PropertyTable,
     PropertyValue,
@@ -25,7 +25,7 @@ impl PropertyProvider for Provider {
     }
 
     fn matches(&self, probe: &Probe) -> bool {
-        probe.is_file && is_candidate(&probe.path)
+        probe.is_file && parquet_provider::properties().matches_path(&probe.path)
     }
 
     fn read(&self, probe: &Probe, cancel: &Arc<AtomicBool>) -> io::Result<Vec<PropertyGroup>> {
@@ -33,26 +33,9 @@ impl PropertyProvider for Provider {
     }
 }
 
-/// Checks whether a regular local path has a Parquet extension or magic.
-pub fn is_candidate(path: &Path) -> bool {
-    if path
-        .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("parquet"))
-    {
-        return true;
-    }
-    let Ok(mut file) = open_regular_file(path) else {
-        return false;
-    };
-    let mut magic = [0; 4];
-    file.read_exact(&mut magic).is_ok() && &magic == b"PAR1"
-}
-
 /// Builds one semantic Properties group from a local regular Parquet file.
 pub fn read(path: &Path, cancel: &AtomicBool) -> io::Result<PropertyGroup> {
-    check_cancel(Some(cancel))?;
-    let mut file = open_regular_file(path)?;
-    let metadata = read_metadata(&mut file, Some(cancel))?;
+    let metadata = parquet_provider::properties().read_metadata(path, cancel)?;
     let schema = metadata.file_metadata().schema_descr();
     let columns = schema.columns();
     let mut truncations = Vec::new();
@@ -164,35 +147,6 @@ pub fn read(path: &Path, cancel: &AtomicBool) -> io::Result<PropertyGroup> {
             },
         ],
     })
-}
-
-fn open_regular_file(path: &Path) -> io::Result<File> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        let file = OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NONBLOCK)
-            .open(path)?;
-        if !file.metadata()?.is_file() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Parquet Properties requires a local regular file",
-            ));
-        }
-        Ok(file)
-    }
-    #[cfg(not(unix))]
-    {
-        let file = OpenOptions::new().read(true).open(path)?;
-        if !file.metadata()?.is_file() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Parquet Properties requires a local regular file",
-            ));
-        }
-        Ok(file)
-    }
 }
 
 fn text(value: String, truncations: &mut Vec<String>) -> PropertyValue {

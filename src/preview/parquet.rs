@@ -9,6 +9,7 @@ use parquet::record::Field;
 use parquet::schema::types::Type;
 
 use super::{Content, Previewer, Probe};
+use crate::data_providers::parquet as parquet_provider;
 
 const MAX_ROWS: usize = 500;
 const MAX_COLS: usize = 40;
@@ -24,14 +25,14 @@ impl Previewer for ParquetPreviewer {
     }
 
     fn matches(&self, probe: &Probe) -> bool {
-        !probe.is_dir && (probe.ext == "parquet" || probe.head.starts_with(b"PAR1"))
+        !probe.is_dir && parquet_provider::viewer().matches_probe(&probe.ext, &probe.head)
     }
 
     fn load(&self, probe: &Probe) -> io::Result<Content> {
-        let mut file = File::open(&probe.path)?;
         // Share the bounded checked footer decoder with Properties before the
         // preview reader reads its row groups through Parquet's streaming API.
-        crate::formats::parquet::read_metadata(&mut file, None)?;
+        let mut file = File::open(&probe.path)?;
+        parquet_provider::viewer().read_metadata(&mut file)?;
         let reader = SerializedFileReader::new(file).map_err(invalid_data)?;
         let metadata = reader.metadata();
         let schema = metadata.file_metadata().schema_descr();

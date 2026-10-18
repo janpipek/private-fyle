@@ -302,8 +302,10 @@ Each commit names the old adapter removed and the behavior/limits preserved.
 - Media first: **complete on 2026-10-18**. One native typed definition now binds
   the existing duration, Properties and Preview handles. Preserve timed bounded
   probing; video frame extraction remains a distinct demand.
-- Parquet: keep footer/schema acquisition separate from row samples; unsupported
-  sample types must not erase readable schema. Samples never feed conversion.
+- Parquet: **complete on 2026-10-18**. One native definition binds bounded
+  footer metadata in Properties and Preview; row samples retain their separate
+  500-row/40-column/64 MiB demand. Unsupported sample types do not erase the
+  readable schema. Samples never feed conversion.
 - EXIF/RAW: compare `properties/exif_reader.rs` against `formats/exif.rs` and
   panel adapters before consolidating. Keep Properties metadata-only behavior;
   embedded-image decoding/materialization is a separate request.
@@ -334,10 +336,10 @@ Never push or open a PR without a request.
 
 ## Completion record
 
-Slices 1–7 and slice 8 media are complete. The slice 7 review accepts the shared
+Slices 1–7 and slice 8 Media and Parquet are complete. EXIF/RAW is authorized
+and in progress. The slice 7 review accepts the shared
 contribution vocabulary, removes the unused generic observation/reuse API, and
-passes repository verification. Parquet and EXIF/RAW remain subject to the
-owner's choice. See the
+passes repository verification. See the
 [progress and handoff log](progress.md)
 for ownership, completed steps, checks and the next task. The owner's start request
 authorizes the initial proof scope; later decision checkpoints remain attached

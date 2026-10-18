@@ -11,7 +11,8 @@ can be reconstructed without the chat.
 - The owner authorized starting the plan after the planning commit `5da8dee`.
 - Completed: slices 1–7, including the sensor Properties/column/viewer proof,
   contextual Git column/Properties proof, and verified slice 7 cleanup; slice 8
-  Media is also complete. Remaining provider choices are Parquet and EXIF/RAW.
+  Media and Parquet are also complete. EXIF/RAW is in progress under the owner's
+  authorization to finish all migrations.
 - Slice 4a static package validation/loading is committed as `c2913dc`, and the
   protocol/broker/queue foundation as `cf11f3b`. Standalone worker execution and
   Linux supervision are committed as `a2f7021`. Settings/catalog integration
@@ -1195,8 +1196,47 @@ package-format Properties and xattrs remain their separate open TODOs.
   `/tmp/fyle-slice7-build/target` to avoid the shared target lock held outside
   this process namespace. Dependencies were available offline. `git diff
   --check` and the final commit remain to be completed.
-- Decision: **accept after final-source verification**. Keep Parquet and EXIF/RAW
-  undecided. If future consumers demonstrate identical
-  reusable acquisition, its key must capture freshness, demand/limits and
-  access policy; Media did not justify cross-consumer reuse. No new abstraction
-  was introduced.
+- Decision: **accept after final-source verification**. At that point Parquet
+  and EXIF/RAW remained undecided; the owner later authorized all remaining
+  migrations. If future consumers demonstrate identical reusable acquisition,
+  its key must capture freshness, demand/limits and access policy; Media did not
+  justify cross-consumer reuse. No new abstraction was introduced.
+
+### 2026-10-18 — Migrate Parquet footer metadata through a provider
+
+- The owner authorized finishing all remaining built-in migrations. Read the
+  current plan, TODO, README, architecture map, native reader, adapters and
+  limits before editing. The native `ParquetMetaData` stays the prepared value;
+  the provider adds no scalar field model or row-sample conversion.
+- Added one `builtin.parquet` definition with independent Properties metadata
+  and Preview row-sample descriptors. Their demands record the distinct
+  8 MiB footer/384 metadata-item bound and the footer plus 64 MiB selected-chunk,
+  20,000-cell Preview bound. Properties and Preview keep their own calls and
+  cancellation; there is no cross-consumer cache.
+- Both adapters now read the checked native footer through provider-owned
+  handles. Preview passes the same open file descriptor to footer validation
+  and `SerializedFileReader`, so metadata and row groups cannot come from two
+  different files if the path is replaced between opens. Properties continues
+  to use a nonblocking regular-file open, with symlink-following behavior.
+  Existing extension-or-magic gates remain separate: Properties checks local
+  path extension or file magic; Preview checks extension or its captured head.
+- The actual Properties registry and Preview registry regression uses the same
+  generated repeated-schema fixture: Properties retains both schema leaves,
+  while the row-sample adapter declines repeated columns. Other tests validate
+  distinct descriptors/demands, extension and magic matching, metadata reads,
+  8 MiB footer validation, Properties caps/truncation and the 500-row/40-column/
+  64 MiB Preview sample limits.
+- Scratch-XDG/Xvfb app check in `/tmp/fyle-parquet-ui` showed a generated
+  two-row Parquet file as a Preview table (`7`, `42`) and its Properties group
+  with row count, schema and row-group details. Menu selection was used because
+  F3 key synthesis is unreliable under bare Xvfb; the app and Xvfb were stopped
+  afterward. No host settings or data were used.
+- Focused tests pass: provider 3, Properties 5 and Preview 10. The full suite
+  passes **713 tests, zero failed/ignored**; `cargo fmt --check`, all-target
+  Clippy with `-D warnings`, and `cargo build --offline` also pass. Cargo used
+  `/tmp/fyle-slice7-build/target` and offline dependencies to avoid the shared
+  target lock. `git diff --check` passes.
+- Decision: **accept Parquet after final-source verification**. Metadata and
+  row samples are concrete different demands. Any later reuse key would need to
+  name freshness, producer, demand/limits and access policy; this migration
+  does not share in-flight work.

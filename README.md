@@ -164,6 +164,9 @@ footer metadata at 8 MiB, and selected column chunks have a 64 MiB decoding
 budget. Uncompressed, Snappy, gzip, Brotli, LZ4 and Zstandard chunks are
 supported. Files with
 repeated, list or map columns show an unsupported-format message.
+One native `builtin.parquet` definition binds Properties metadata and the
+Preview row sample to the checked footer reader; footer inspection and row
+sampling retain separate demand and presentation limits.
 
 F3 previews local GPX and FIT files with available name, type, sport, start,
 duration, distance, ascent/descent and track/lap counts, plus an offline route
@@ -744,7 +747,7 @@ Where things live (`src/`):
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
 | `entry.rs`, `model.rs`, `location.rs`, `location/`, `location_codec.rs` | Shared `Entry`/`Attrs` and pure sort rules; `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; pure local, remote and archive address semantics; versioned lossless location persistence |
 | `formats.rs`, `formats/` | Semantic EXIF fields, bounded RAW embedded-JPEG selection, Parquet footer validation/decoding, and shared bounded GPX/FIT route/activity readers used by Preview and Properties |
-| `data_providers.rs`, `data_providers/` | Pure contribution definitions and typed result vocabulary; `geo.rs` owns the GPX/FIT Properties/viewer bundle and typed quantities; `media.rs` binds the existing Duration, media Properties and Preview adapters to one typed definition while preserving independent scheduling; `git.rs` owns contextual Git contributions, shared bounded snapshots, scope epochs and subscriber/request lifecycles |
+| `data_providers.rs`, `data_providers/` | Pure contribution definitions and typed result vocabulary; `geo.rs` owns the GPX/FIT Properties/viewer bundle and typed quantities; `media.rs` binds Duration, Properties and Preview to one typed definition with independent scheduling; `parquet.rs` binds metadata Properties and row-sample Preview to the checked native footer; `git.rs` owns contextual Git contributions, shared bounded snapshots, scope epochs and subscriber/request lifecycles |
 | `extensions.rs`, `extensions/` | Static manifest/package validation, enabled-package Columns/Properties/View registration, typed protocol/result validation and retained-file brokerage; restricted Lua worker and shared Linux supervisor with bounded queue, cancellation/deadline and child reaping. Reserved helper dispatch precedes config/GUI startup; main owns normal-exit cleanup. |
 | `copy_path.rs` | UI-independent selection path policy: local native paths, provider supplied standard URLs and no archive pseudo-paths |
 | `listing.rs`, `listing/contracts.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; shared request/result values and bounded per-panel remote listing cache |

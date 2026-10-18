@@ -9,11 +9,10 @@ implementation. Keep unfinished follow-ups here; move completed items to
 **Done**. **Later** holds deferred goals, and **Dropped** records decisions
 not to pursue an item.
 
-- [ ] Data-provider migration, slice 8 remaining work (undecided): choose
-      whether to migrate Parquet or EXIF/RAW after the completed media migration.
-      Each has distinct acquisition and presentation limits; see the
-      [implementation plan](docs/format-organization/implementation-plan.md).
-      No further migration is authorized by this backlog entry.
+- [ ] Data-provider migration, slice 8 EXIF/RAW: in progress under the owner's
+      authorization to finish all remaining migrations. Media and Parquet are
+      complete; keep EXIF bounds and RAW image extraction as distinct demands.
+      See the [implementation plan](docs/format-organization/implementation-plan.md).
 - [ ] Menus and selection, remaining parts: output/history in Tools.
       Implement missing actions as separate features.
 - [ ] Idea: replace the Git status column's `git` subprocess with a Rust
@@ -164,15 +163,16 @@ not to pursue an item.
       Properties. Slice 7's review accepts the contribution vocabulary and
       recommends removing the unused generic observation/reuse model; repository
       verification passed. Feature-specific freshness stays with each consumer.
-      Media is now the first completed slice 8 migration; Parquet and EXIF/RAW
-      still need an owner choice.
+      Media and Parquet are completed slice 8 migrations; EXIF/RAW is in
+      progress under the owner's authorization to finish all migrations.
       See the
       [implementation plan](docs/format-organization/implementation-plan.md).
 
 - [x] Data-provider proof review, slice 7: accept the production sensor and Git
       proofs and remove the unused generic observation/reuse API. Focused tests,
-      all-target Clippy, formatting and the full test suite passed. Further
-      migrations remain subject to the owner's slice 8 choice. See the
+      all-target Clippy, formatting and the full test suite passed. At that
+      review point, further migrations awaited owner choice; the owner later
+      authorized completing slice 8. See the
       [proof review](docs/format-organization/proof-review.md).
 
 - [x] Data-provider migration, slice 8 media: bind the existing local audio/video
@@ -182,6 +182,13 @@ not to pursue an item.
       stays separate. Preserve all probe and display limits, blank duration
       behavior and existing ffprobe hints. See the
       [implementation plan](docs/format-organization/implementation-plan.md)
+      and [verification log](docs/format-organization/progress.md).
+
+- [x] Data-provider migration, slice 8 Parquet: bind metadata-only Properties
+      and row-sample Preview to one native typed footer provider. Preserve
+      extension/magic gates, the 8 MiB footer cap, independent cancellation and
+      presentation limits; unsupported row samples leave schema Properties
+      available. See the [implementation plan](docs/format-organization/implementation-plan.md)
       and [verification log](docs/format-organization/progress.md).
 
 - [x] Data-provider migration, slice 6: share bounded contextual Git snapshots

@@ -15,6 +15,9 @@ pub mod geo;
 /// Bounded media metadata provider shared by Duration, Properties and Preview.
 pub mod media;
 
+/// Native bounded Parquet footer shared by Properties metadata and Preview.
+pub mod parquet;
+
 /// Validated IDs exposed to provider definitions and prepared data.
 pub use identity::{ContributionId, FieldId, ProviderId};
 
