@@ -9,11 +9,12 @@ implementation. Keep unfinished follow-ups here; move completed items to
 **Done**. **Later** holds deferred goals, and **Dropped** records decisions
 not to pursue an item.
 
-- [ ] Data-provider migration follow-up: review the completed sensor and Git
-      proofs (slice 7) before choosing further built-in migrations (slice 8).
-      Follow the [implementation plan](docs/format-organization/implementation-plan.md)
-      and [handoff log](docs/format-organization/progress.md). New metadata
-      sorting remains a separate design task; extension columns are display-only.
+- [ ] Data-provider migration, slice 8 (undecided): choose whether to proceed
+      and which built-in provider to migrate after the sensor/Git proof review.
+      Media, Parquet and EXIF/RAW are candidates with distinct acquisition and
+      presentation limits; see the
+      [proof review](docs/format-organization/proof-review.md). No migration is
+      authorized by this backlog entry.
 - [ ] Menus and selection, remaining parts: output/history in Tools.
       Implement missing actions as separate features.
 - [ ] Idea: replace the Git status column's `git` subprocess with a Rust
@@ -161,9 +162,18 @@ not to pursue an item.
       GPX/FIT adapter, extensible display-only columns, explicitly enabled
       supervised Lua packages, and the sensor Properties/column/custom-viewer
       proof. Contextual Git contributes shared status snapshots to columns and
-      Properties. Both proofs are implemented and verified; broader migrations
-      remain subject to the open proof review. See the
+      Properties. Slice 7's review accepts the contribution vocabulary and
+      recommends removing the unused generic observation/reuse model; repository
+      verification passed. Feature-specific freshness stays with each consumer.
+      Broader migrations need the owner's slice 8 choice.
+      See the
       [implementation plan](docs/format-organization/implementation-plan.md).
+
+- [x] Data-provider proof review, slice 7: accept the production sensor and Git
+      proofs and remove the unused generic observation/reuse API. Focused tests,
+      all-target Clippy, formatting and the full test suite passed. Further
+      migrations remain subject to the owner's slice 8 choice. See the
+      [proof review](docs/format-organization/proof-review.md).
 
 - [x] Data-provider migration, slice 6: share bounded contextual Git snapshots
       between the existing status column and a new local Git Properties group.
@@ -235,9 +245,9 @@ not to pursue an item.
 
 - [x] Data-provider migration, slice 1: add UI-independent provider-owned
       contribution definitions, validated IDs and typed quantities, captured
-      applicability, independent result completeness, and source/context
-      freshness separate from UI generations. Sensor and contextual Git model
-      examples cover the first seams. Existing presentation registries and user
+      applicability and independent result completeness. Feature-specific
+      freshness and sharing live with their consumers; Git's scope/epoch model
+      covers contextual reuse. Existing presentation registries and user
       behavior are unchanged; see the
       [handoff log](docs/format-organization/progress.md) for the next slice.
 

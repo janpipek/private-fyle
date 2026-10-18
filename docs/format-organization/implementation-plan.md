@@ -1,7 +1,7 @@
 # Data providers and contributions: implementation plan
 
 Status: started with owner authorization on 2026-10-16, after planning commit
-`5da8dee`. Slices 1–6 are complete. The owner approved
+`5da8dee`. Slices 1–7 are complete. The owner approved
 display-only extension columns first and the proposed supervised Lua worker
 with explicit package enablement. On 2026-10-17 the owner approved static
 layout, selectable text, typed tables and a bounded path canvas for slice 5;
@@ -51,8 +51,8 @@ opt-in belongs to this delivery.
   metadata queue's policies. Controllers own GPUI tasks/resources; independent
   models own requests, applicability, invalidation and stale-result acceptance.
 - Distinguish pending/ready/absent/unavailable/failed from completeness. A ready
-  result may be truncated or a lower bound. A field's identity includes its
-  subject, producer and source/context revision, not just a string key.
+  result may be truncated or a lower bound. Keep field identity provider-owned;
+  source/context freshness belongs to the consumer's request lifecycle.
 - Properties for remote/archive items stays listing-only, including after View
   materializes the same item. Source identity, readable access and permission
   to use that access remain separate. V1 user readers accept local sources only.
@@ -61,6 +61,12 @@ The current [architecture record](../architecture-plan.md) describes separate
 registries and a fixed column catalog. The proposed common contribution
 contracts and dynamic IDs supersede those parts only when their slices land;
 they do not require merging feature execution or changing Tools.
+
+The [slice 7 proof review](proof-review.md) accepts the shared descriptors and
+result vocabulary, while removing the unused generic observation and
+cross-request reuse model. Source identity and freshness stay with the feature
+that owns them. The Git scope/epoch service is the only demonstrated shared
+acquisition boundary so far.
 
 ## Decision checkpoints
 
@@ -103,17 +109,21 @@ Touch: new `src/data_providers.rs` and focused files under
 - Define namespaced provider/contribution IDs, field descriptors, typed
   quantities, captured applicability context, demand limits and result states.
   Reserve built-in namespaces; preserve existing public column spellings.
-- Keep source and context revisions distinct from UI request generations.
-  Unknown revision disables cross-request reuse; it is not a stable cache key.
+- Keep source identity typed and separate from presentation selection. A
+  feature that shares work owns its source/context freshness and stale-result
+  rules; unknown freshness cannot authorize reuse. Do not prescribe a universal
+  cache identity before a real consumer needs one.
 - Define separate typed contribution descriptors for Properties, columns and
   viewers, using the same stage names. Applicability consumes captured data;
   filesystem/context discovery runs in background execution.
-- Use in-memory sensor and Git fixtures to exercise the interface before
-  committing to a generic trait. One provider can omit any presentation.
+- Exercise the contract with the exact sensor package definition and the
+  contextual Git definition. One provider can omit any presentation; adapters
+  keep their feature-specific execution and prepared types.
 
 Done when model tests cover duplicate IDs, invalid/nonfinite quantities,
-independent failure/completeness, link-object versus target identity and
-rejection of stale source/context results. Contracts import neither GPUI nor
+independent failure/completeness and link-object versus target identity.
+Consumer-specific tests cover stale-result acceptance and reuse where needed:
+the Git scope/epoch model owns that boundary. Contracts import neither GPUI nor
 concrete remote providers, and do not depend on presentation views.
 
 ### 2. Adapt one existing reader through Properties and View
@@ -267,6 +277,11 @@ repository. Git is not required by the automated model tests.
 
 ### 7. Review the proof before broad migration
 
+Accepted on 2026-10-18 after unused API cleanup and repository verification.
+See [proof-review.md](proof-review.md) for the decision and evidence. The shared
+vocabulary is retained; generic observation and request-reuse types were
+removed. Slice 8 remains subject to the owner's choice.
+
 Compare the sensor and Git implementations. Both must register contributions
 without edits to every presentation's dispatch logic, and must explain source,
 limits, applicability and failure using the same vocabulary. Native providers
@@ -317,8 +332,11 @@ Never push or open a PR without a request.
 
 ## Completion record
 
-Slices 1–6 are complete. The proof review (slice 7) precedes remaining built-in
-migrations. See the [progress and handoff log](progress.md)
+Slices 1–7 are complete. The slice 7 review accepts the shared contribution
+vocabulary, removes the unused generic observation/reuse API, and passes
+repository verification. Any remaining built-in migration requires
+the owner's slice 8 choice. See the
+[progress and handoff log](progress.md)
 for ownership, completed steps, checks and the next task. The owner's start request
 authorizes the initial proof scope; later decision checkpoints remain attached
 to their respective slices. Unrelated deferred TODO features stay deferred.

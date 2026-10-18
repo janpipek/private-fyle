@@ -12,7 +12,7 @@ pub mod git;
 /// GPX/FIT provider shared by the Properties and View adapters.
 pub mod geo;
 
-/// Validated IDs exposed to provider definitions and prepared observations.
+/// Validated IDs exposed to provider definitions and prepared data.
 pub use identity::{ContributionId, FieldId, ProviderId};
 
 /// Where a provider definition came from; namespace trust is never inferred from its ID.
@@ -280,24 +280,6 @@ pub enum Subject {
     LinkTarget { link: Location, target: Location },
 }
 
-/// A content or context revision; unknown values are never reusable.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Revision {
-    /// The producer cannot establish a stable revision.
-    Unknown,
-    /// Stable token captured with the request.
-    Known(String),
-}
-
-/// Identity for surrounding context such as a repository root.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct ContextRevision {
-    /// Context source identity, such as a repository root with native path bytes.
-    pub identity: Location,
-    /// Context-specific revision token.
-    pub revision: Revision,
-}
-
 /// Resource limits requested for one acquisition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct DemandLimits {
@@ -305,25 +287,6 @@ pub struct DemandLimits {
     pub max_bytes: u64,
     /// Maximum items requested.
     pub max_items: u64,
-}
-
-/// Data identity separated from the UI request generation.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RequestIdentity {
-    /// Contribution being prepared.
-    pub contribution: ContributionId,
-    /// Provider producing the result.
-    pub producer: ProviderId,
-    /// Exact source subject.
-    pub subject: Subject,
-    /// Content revision, independent from surrounding context.
-    pub source_revision: Revision,
-    /// Optional context identity and revision.
-    pub context: Option<ContextRevision>,
-    /// Requested acquisition bounds.
-    pub demand: DemandLimits,
-    /// UI-owned request generation.
-    pub generation: u64,
 }
 
 /// Whether a result covers its requested data completely.
@@ -355,28 +318,7 @@ pub enum ResultState<T> {
     Failed(String),
 }
 
-/// A semantic fact with its source, producer and claim history preserved.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Observation {
-    /// Declared field identity.
-    pub field: FieldId,
-    /// Provider that produced this value.
-    pub producer: ProviderId,
-    /// Exact item or link subject.
-    pub subject: Subject,
-    /// Source revision captured during acquisition.
-    pub source_revision: Revision,
-    /// Surrounding context revision, when applicable.
-    pub context: Option<ContextRevision>,
-    /// Typed value.
-    pub value: Value,
-    /// Whether this value was directly recorded or derived.
-    pub provenance: Provenance,
-    /// Completeness of the value.
-    pub completeness: Completeness,
-}
-
-/// Whether an observation was recorded in the source or inferred by a provider.
+/// Whether a value was recorded in the source or inferred by a provider.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Provenance {
     /// Read directly from source data.
@@ -434,26 +376,6 @@ pub struct ContextIdentity {
     pub location: Location,
 }
 
-/// Decides whether a completion still belongs to the active request.
-pub fn accepts_result(current: &RequestIdentity, completed: &RequestIdentity) -> bool {
-    current == completed
-}
-
-/// Whether a prepared result can satisfy a later request without new acquisition.
-pub fn can_reuse(cached: &RequestIdentity, requested: &RequestIdentity) -> bool {
-    cached.contribution == requested.contribution
-        && cached.producer == requested.producer
-        && cached.subject == requested.subject
-        && cached.source_revision == requested.source_revision
-        && cached.context == requested.context
-        && cached.demand == requested.demand
-        && cached.source_revision != Revision::Unknown
-        && cached
-            .context
-            .as_ref()
-            .is_none_or(|context| context.revision != Revision::Unknown)
-}
-
 fn invalid(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, message)
 }
@@ -462,18 +384,11 @@ fn invalid(message: &str) -> io::Error {
 mod tests {
     use super::{
         Applicability, ApplicabilityContext, ColumnContribution, Completeness, ContextIdentity,
-        ContextRevision, ContributionHeader, DemandLimits, FieldDefinition, FieldKind, Observation,
-        PropertiesContribution, Provenance, ProviderDefinition, RegistrationOrigin,
-        RequestIdentity, ResultState, Revision, Subject, Unit, Value, ViewerContribution,
-        accepts_result, can_reuse, validate_definitions,
+        ContributionHeader, DemandLimits, FieldDefinition, FieldKind, ProviderDefinition,
+        RegistrationOrigin, ResultState, Subject, Unit, Value, validate_definitions,
     };
     use crate::location::Location;
-    use std::io;
     use std::path::PathBuf;
-
-    fn id_provider(value: &str) -> super::ProviderId {
-        super::ProviderId::new(value).expect("valid provider ID")
-    }
 
     fn id_field(value: &str) -> super::FieldId {
         super::FieldId::new(value).expect("valid field ID")
@@ -489,166 +404,31 @@ mod tests {
             .join(value)
     }
 
-    struct SensorData {
-        duration_seconds: f64,
-        distance_metres: f64,
-        samples: Vec<(f64, f64)>,
-    }
-
-    fn project_sensor(
-        definition: &ProviderDefinition,
-        subject: &Subject,
-        source_revision: &Revision,
-        input: &SensorData,
-    ) -> io::Result<Vec<Observation>> {
-        let values = [
-            Value::quantity(input.duration_seconds, Unit::Seconds)?,
-            Value::quantity(input.distance_metres, Unit::Metres)?,
-        ];
-        definition
-            .fields
-            .iter()
-            .zip(values)
-            .map(|(field, value)| {
-                field.validate(&value)?;
-                Ok(Observation {
-                    field: field.id.clone(),
-                    producer: definition.id.clone(),
-                    subject: subject.clone(),
-                    source_revision: source_revision.clone(),
-                    context: None,
-                    value,
-                    provenance: Provenance::Recorded,
-                    completeness: Completeness::Complete,
-                })
-            })
-            .collect()
-    }
-
     fn sensor() -> (RegistrationOrigin, ProviderDefinition) {
-        let provider = id_provider("extension.sensor.reader");
-        let duration = id_field("extension.sensor.reader.duration");
-        let distance = id_field("extension.sensor.reader.distance");
-        let property = PropertiesContribution {
-            header: ContributionHeader {
-                id: id_contribution("extension.sensor.reader.properties"),
-                label: "Sensor activity".into(),
-                applicability: Applicability::Format("sensor.activity".into()),
-                demand: DemandLimits {
-                    max_bytes: 16 * 1024 * 1024,
-                    max_items: 100_000,
-                },
-            },
-            fields: vec![duration.clone(), distance.clone()],
-        };
-        let column = ColumnContribution {
-            header: ContributionHeader {
-                id: id_contribution("extension.sensor.reader.duration-column"),
-                label: "Duration".into(),
-                applicability: Applicability::Format("sensor.activity".into()),
-                demand: DemandLimits {
-                    max_bytes: 16 * 1024 * 1024,
-                    max_items: 100_000,
-                },
-            },
-            column_id: "extension.sensor.reader.duration".into(),
-            field: duration.clone(),
-        };
-        let viewer = ViewerContribution {
-            header: ContributionHeader {
-                id: id_contribution("extension.sensor.reader.graph"),
-                label: "Sensor graph".into(),
-                applicability: Applicability::Format("sensor.activity".into()),
-                demand: DemandLimits {
-                    max_bytes: 16 * 1024 * 1024,
-                    max_items: 100_000,
-                },
-            },
-            representation: "sensor.graph".into(),
-            version: 1,
-        };
+        let package_id = crate::extensions::manifest::PackageId::new("sensor")
+            .expect("sensor package ID is valid");
+        let manifest = crate::extensions::manifest::parse(
+            &package_id,
+            include_str!("../examples/extensions/sensor/manifest.toml"),
+        )
+        .expect("sensor example manifest is valid");
         (
             RegistrationOrigin::Extension,
-            ProviderDefinition {
-                id: provider,
-                fields: vec![
-                    FieldDefinition {
-                        id: duration,
-                        kind: FieldKind::Quantity(Unit::Seconds),
-                    },
-                    FieldDefinition {
-                        id: distance,
-                        kind: FieldKind::Quantity(Unit::Metres),
-                    },
-                ],
-                properties: vec![property],
-                columns: vec![column],
-                viewers: vec![viewer],
-            },
+            manifest
+                .providers
+                .into_iter()
+                .next()
+                .expect("sensor package declares a provider"),
         )
     }
 
     fn git() -> (RegistrationOrigin, ProviderDefinition) {
-        let status = id_field("builtin.git.status");
-        (
-            RegistrationOrigin::Builtin,
-            ProviderDefinition {
-                id: id_provider("builtin.git"),
-                fields: vec![FieldDefinition {
-                    id: status.clone(),
-                    kind: FieldKind::Text,
-                }],
-                properties: vec![PropertiesContribution {
-                    header: ContributionHeader {
-                        id: id_contribution("builtin.git.properties"),
-                        label: "Git".into(),
-                        applicability: Applicability::Context("git".into()),
-                        demand: DemandLimits {
-                            max_bytes: 0,
-                            max_items: 1,
-                        },
-                    },
-                    fields: vec![status.clone()],
-                }],
-                columns: vec![ColumnContribution {
-                    header: ContributionHeader {
-                        id: id_contribution("builtin.git.status-column"),
-                        label: "Git status".into(),
-                        applicability: Applicability::Context("git".into()),
-                        demand: DemandLimits {
-                            max_bytes: 0,
-                            max_items: 1,
-                        },
-                    },
-                    column_id: "git.status".into(),
-                    field: status,
-                }],
-                viewers: Vec::new(),
-            },
-        )
-    }
-
-    fn request() -> RequestIdentity {
-        RequestIdentity {
-            contribution: id_contribution("builtin.git.properties"),
-            producer: id_provider("builtin.git"),
-            subject: Subject::Item(Location::local(absolute("repo/a.txt")).expect("absolute path")),
-            source_revision: Revision::Known("size=10;mtime=1".into()),
-            context: Some(ContextRevision {
-                identity: Location::local(absolute("repo")).expect("absolute path"),
-                revision: Revision::Known("index=1".into()),
-            }),
-            demand: DemandLimits {
-                max_bytes: 0,
-                max_items: 1,
-            },
-            generation: 1,
-        }
+        (RegistrationOrigin::Builtin, super::git::definition())
     }
 
     #[test]
-    fn sensor_and_git_register_distinct_presentations_and_keep_public_git_column() {
-        let mut sensor = sensor();
+    fn sensor_and_git_definitions_register_expected_presentations() {
+        let sensor = sensor();
         let git = git();
         validate_definitions(&[sensor.clone(), git.clone()]).expect("definitions validate");
         assert_eq!(sensor.1.properties.len(), 1);
@@ -656,135 +436,6 @@ mod tests {
         assert_eq!(sensor.1.viewers.len(), 1);
         assert_eq!(git.1.columns[0].column_id, "git.status");
         assert!(git.1.viewers.is_empty());
-
-        let sensor_context = ApplicabilityContext {
-            subject: Subject::Item(
-                Location::local(absolute("data/run.sensor")).expect("absolute path"),
-            ),
-            name: "run.sensor".into(),
-            is_dir: false,
-            formats: vec!["sensor.activity".into()],
-            context_identity: None,
-        };
-        assert!(
-            sensor.1.properties[0]
-                .header
-                .applicability
-                .matches(&sensor_context)
-        );
-        let input = SensorData {
-            duration_seconds: 61.5,
-            distance_metres: 420.0,
-            samples: vec![(0.0, 0.0), (1.0, 4.0)],
-        };
-        let observations = project_sensor(
-            &sensor.1,
-            &sensor_context.subject,
-            &Revision::Known("sensor-v1".into()),
-            &input,
-        )
-        .expect("project sensor values");
-        assert!(
-            matches!(observations[0].value, Value::Quantity(quantity) if quantity.unit() == Unit::Seconds && quantity.value() == 61.5)
-        );
-        assert!(
-            matches!(observations[1].value, Value::Quantity(quantity) if quantity.unit() == Unit::Metres && quantity.value() == 420.0)
-        );
-        let property_result = ResultState::Ready {
-            value: observations.clone(),
-            completeness: Completeness::Complete,
-        };
-        let column_field = &sensor.1.columns[0].field;
-        let column_value = observations
-            .iter()
-            .find(|observation| &observation.field == column_field)
-            .expect("column field is projected")
-            .value
-            .clone();
-        let column_result = ResultState::Ready {
-            value: column_value,
-            completeness: Completeness::Complete,
-        };
-        sensor.1.viewers[0].header.demand.max_items = 1;
-        let viewer_result: ResultState<Vec<(f64, f64)>> = ResultState::Ready {
-            value: input
-                .samples
-                .iter()
-                .take(sensor.1.viewers[0].header.demand.max_items as usize)
-                .copied()
-                .collect(),
-            completeness: Completeness::Truncated("sample bound".into()),
-        };
-        assert!(matches!(property_result, ResultState::Ready { .. }));
-        assert!(matches!(&column_result, ResultState::Ready { .. }));
-        assert!(
-            matches!(&column_result, ResultState::Ready { value: Value::Quantity(quantity), .. } if quantity.unit() == Unit::Seconds)
-        );
-        assert!(
-            matches!(&viewer_result, ResultState::Ready { value, completeness: Completeness::Truncated(_), .. } if value.len() == 1)
-        );
-        sensor.1.columns[0].field = observations[1].field.clone();
-        let rebound_value = observations
-            .iter()
-            .find(|observation| observation.field == sensor.1.columns[0].field)
-            .expect("rebound column field is projected")
-            .value
-            .clone();
-        assert!(
-            matches!(rebound_value, Value::Quantity(quantity) if quantity.unit() == Unit::Metres)
-        );
-        assert!(matches!(
-            viewer_result,
-            ResultState::Ready {
-                completeness: Completeness::Truncated(_),
-                ..
-            }
-        ));
-
-        let git_context = ApplicabilityContext {
-            subject: Subject::Item(
-                Location::local(absolute("repo/run.sensor")).expect("absolute path"),
-            ),
-            name: "run.sensor".into(),
-            is_dir: false,
-            formats: Vec::new(),
-            context_identity: Some(ContextIdentity {
-                kind: "git".into(),
-                location: Location::local(absolute("repo")).expect("absolute path"),
-            }),
-        };
-        assert!(
-            git.1.properties[0]
-                .header
-                .applicability
-                .matches(&git_context)
-        );
-        let git_status = Value::Text("modified".into());
-        git.1.fields[0]
-            .validate(&git_status)
-            .expect("Git status type");
-        let git_property: ResultState<Observation> = ResultState::Ready {
-            value: Observation {
-                field: git.1.fields[0].id.clone(),
-                producer: git.1.id.clone(),
-                subject: git_context.subject,
-                source_revision: Revision::Known("item-v1".into()),
-                context: Some(ContextRevision {
-                    identity: Location::local(absolute("repo")).expect("absolute path"),
-                    revision: Revision::Known("index-v1".into()),
-                }),
-                value: git_status.clone(),
-                provenance: Provenance::Recorded,
-                completeness: Completeness::Complete,
-            },
-            completeness: Completeness::Complete,
-        };
-        let git_column: ResultState<Value> = ResultState::Ready {
-            value: git_status,
-            completeness: Completeness::Complete,
-        };
-        assert!(matches!(git_property, ResultState::Ready { .. }));
-        assert!(matches!(git_column, ResultState::Ready { .. }));
     }
 
     #[test]
@@ -860,7 +511,7 @@ mod tests {
 
     #[test]
     fn contributions_keep_independent_failure_and_completeness() {
-        let properties: ResultState<Vec<Observation>> = ResultState::Ready {
+        let properties: ResultState<Vec<Value>> = ResultState::Ready {
             value: Vec::new(),
             completeness: Completeness::Truncated("sample limit".into()),
         };
@@ -873,7 +524,6 @@ mod tests {
             }
         ));
         assert!(matches!(viewer, ResultState::Failed(_)));
-        assert_ne!(Provenance::Recorded, Provenance::Inferred);
     }
 
     #[test]
@@ -891,67 +541,6 @@ mod tests {
             },
             Subject::LinkObject(link)
         );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn source_and_context_identity_preserve_non_utf8_path_bytes() {
-        use std::ffi::OsString;
-        use std::os::unix::ffi::OsStringExt;
-        let path = std::env::current_dir()
-            .expect("test directory exists")
-            .join(OsString::from_vec(vec![b'x', 0xff]));
-        let location = Location::local(path).expect("absolute native path");
-        let mut captured = request();
-        captured.subject = Subject::Item(location.clone());
-        captured.context.as_mut().expect("context exists").identity = location.clone();
-        assert_eq!(captured.subject, Subject::Item(location.clone()));
-        assert_eq!(captured.context.expect("context exists").identity, location);
-    }
-
-    #[test]
-    fn freshness_checks_generation_and_revisions_but_reuse_ignores_generation() {
-        let original = request();
-        let mut later = original.clone();
-        later.generation += 1;
-        assert!(!accepts_result(&later, &original));
-        assert!(can_reuse(&original, &later));
-        later = original.clone();
-        later.source_revision = Revision::Known("changed".into());
-        assert!(!accepts_result(&later, &original));
-        assert!(!can_reuse(&original, &later));
-        later = original.clone();
-        later.context.as_mut().expect("context exists").identity =
-            Location::local(absolute("other-repository")).expect("absolute path");
-        assert!(!accepts_result(&later, &original));
-        assert!(!can_reuse(&original, &later));
-        later = original.clone();
-        later.context.as_mut().expect("context exists").revision =
-            Revision::Known("changed".into());
-        assert!(!accepts_result(&later, &original));
-        assert!(!can_reuse(&original, &later));
-        later = original.clone();
-        later.subject =
-            Subject::Item(Location::local(absolute("repo/other.txt")).expect("absolute path"));
-        assert!(!accepts_result(&later, &original));
-        later = original.clone();
-        later.demand.max_items += 1;
-        assert!(!accepts_result(&later, &original));
-        assert!(!can_reuse(&original, &later));
-        let mut unknown = original.clone();
-        unknown.source_revision = Revision::Unknown;
-        assert!(accepts_result(&unknown, &unknown));
-        assert!(!can_reuse(&unknown, &unknown));
-        let mut unknown_context = original.clone();
-        unknown_context
-            .context
-            .as_mut()
-            .expect("context exists")
-            .revision = Revision::Unknown;
-        assert!(!can_reuse(&unknown_context, &unknown_context));
-        let mut context_free = original.clone();
-        context_free.context = None;
-        assert!(can_reuse(&context_free, &context_free));
     }
 
     #[test]

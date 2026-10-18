@@ -9,9 +9,9 @@ can be reconstructed without the chat.
 ## Current state
 
 - The owner authorized starting the plan after the planning commit `5da8dee`.
-- Completed: slices 1–6, contracts, the GPX/FIT adapter, display-only columns,
-  supervised packages, the sensor Properties/custom-viewer proof and contextual
-  Git columns/Properties. Next: the proof review (slice 7).
+- Completed: slices 1–7, including the sensor Properties/column/viewer proof,
+  contextual Git column/Properties proof, and verified slice 7 cleanup. Next:
+  the owner's slice 8 provider choice.
 - Slice 4a static package validation/loading is committed as `c2913dc`, and the
   protocol/broker/queue foundation as `cf11f3b`. Standalone worker execution and
   Linux supervision are committed as `a2f7021`. Settings/catalog integration
@@ -21,14 +21,12 @@ can be reconstructed without the chat.
   681 tests, fmt/clippy/build and the live sensor proof (commit `b44de7d`).
   Contextual Git (slice 6) is also complete: 706 tests, fmt/clippy/build and
   final-build live checks pass; see [git-plan.md](git-plan.md) and the latest log.
-  Luna owns the Rust extension files and helper dispatch; Sol reviews; the
-  coordinator owns documentation, final checks and commits. Read
-  [worker-plan.md](worker-plan.md) for execution and
+  Read [worker-plan.md](worker-plan.md) for execution and
   [renderer-plan.md](renderer-plan.md) for current slice 5 contracts.
-- Working roles, requested by the owner: Sol makes architecture decisions;
-  Luna implements; the coordinating agent reviews, verifies and documents.
-  Earlier slices were reviewed by Astra; the owner replaced that role with Sol
-  before slice 3 implementation resumed.
+- Current roles, requested by the owner: Sol plans; Luna does the actual
+  implementation; consult Astra only for a new abstraction, then offer it to
+  the owner for approval. The coordinator keeps review and handoff records
+  accurate. Historical entries below retain their original roles and findings.
 - Existing GPX/FIT presentation and scheduling are preserved by the shared
   adapter. The owner approved the proposed Lua worker and explicit package
   enablement. Static layout, selectable text, typed tables and a bounded path
@@ -68,6 +66,9 @@ can be reconstructed without the chat.
   below before marking the slice complete.
 
 ### 2026-10-16 — Set the slice 1 contract boundaries
+
+This records the initial proposal. Slice 7 later removed the generic
+observation/request-reuse portion; see the review and latest decision below.
 
 Astra supplied these decisions; Luna is implementing them:
 
@@ -703,11 +704,12 @@ changes separate from the completed column commit.
 
 ## Current handoff
 
-The sensor and contextual Git proofs are complete. Read
+The sensor and contextual Git proofs are complete and slice 7 accepted the
+shared vocabulary with the generic reuse model removed. Read
 [renderer-plan.md](renderer-plan.md) and [git-plan.md](git-plan.md) for the
 implemented boundaries, and [docs/extensions.md](../extensions.md) for the
-package authoring API. Next is the sensor/Git proof review (slice 7), before
-migrating more built-ins. Preserve separate
+package authoring API. Further built-in migrations await the owner's slice 8
+choice. Preserve separate
 feature lifecycles and original-source access policies. Metadata sorting,
 package-format Properties and xattrs remain their separate open TODOs.
 
@@ -721,8 +723,8 @@ package-format Properties and xattrs remain their separate open TODOs.
 | 4. Packages and worker | Complete | Explicit config activation and display-only columns; Sol approved, 644 tests/fmt/clippy/build and live UI/active-helper normal-exit checks pass |
 | 5. Sensor renderer proof | Complete | Sol approved; 681 tests/fmt/clippy/build, package-only graph edits, source/failure/fallback/copy and active-helper quit verified |
 | 6. Contextual Git | Complete | Sol reviewed; 706 tests/fmt/clippy/build, shared column/Properties scopes, unchanged-file index refresh, archive exclusion and active-child quit verified |
-| 7. Review proof | Pending | Both sensor and Git cases must work before broader migration |
-| 8. Remaining built-ins | Pending | Depends on slice 7 |
+| 7. Review proof | Complete | Accepted after removing unused generic reuse API; fmt, all-target Clippy, focused and full tests pass; see [review](proof-review.md) |
+| 8. Remaining built-ins | Not started | Awaiting the owner's provider and behavior choice |
 
 ### 2026-10-17 — Approve and start the sensor renderer proof
 
@@ -1091,5 +1093,55 @@ package-format Properties and xattrs remain their separate open TODOs.
   The wrapper, repositories, config and data are scratch-only. Application logs
   were empty. Real config/history and unrelated `title.png` remain untouched.
 - README, TODO and architecture/implementation/Git plans describe the resulting
-  behavior and handoff. Next: slice 7 proof review; compare the sensor and Git
-  authoring/acquisition boundaries before choosing any broader built-in migration.
+  behavior and handoff. The next task was slice 7 proof review.
+
+## Slice 7 review
+
+### 2026-10-18 — Accept the sensor and Git proofs; remove unused generic reuse model
+
+- Compared the exact sensor manifest and fixtures, enabled-package loading and
+  catalog, typed worker results, Properties/View/column adapters, and the Git
+  definition/service plus panel/Properties consumers. See
+  [proof-review.md](proof-review.md) for the full trace and resource bounds.
+- Sensor registers all three presentation contributions through existing
+  registries. Exact local-source gating, manifest demand, helper validation,
+  typed partial results, failures and generic fallback are covered by focused
+  tests and the prior live package-only layout, disable/fallback and
+  malformed/truncated checks.
+- Git shares a bounded snapshot only for the same typed local listing scope and
+  service epoch. Panel and Properties keep independent cancellation leases and
+  generations. Native paths, refresh invalidation, failures, limits and child
+  cleanup have focused tests and recorded scratch-repository checks.
+- Production search showed `Observation`, `RequestIdentity`, `Revision`,
+  `ContextRevision`, `accepts_result` and `can_reuse` had no callers outside
+  their synthetic module tests. Replaced the fake sensor/Git example with the
+  exact sensor manifest and production Git definition, then removed those
+  generic APIs. Git's production scope/epoch tests still exercise freshness and
+  reuse. Native GPX/FIT, Git snapshot and extension scene models remain typed.
+- Checked candidate slice 8 consumers. Media already shares its native
+  `MediaMetadata` reader between Preview and Properties, while stream facts and
+  frame extraction remain distinct. Parquet footer/schema and row sampling use
+  different demands. EXIF/RAW has bounded, cancellable metadata paths and
+  different native outputs. None needs a universal scalar observation; future
+  shared acquisition must identify source freshness, producer/version, demand,
+  limits and access policy.
+- Package adapters validate presentation-specific support independently. A
+  regression confirms an unsupported viewer reports its own diagnostic while
+  valid Properties and column siblings install; the sensor provider registers
+  all three successfully. This is documented per-contribution failure handling,
+  not evidence for a cross-presentation transaction.
+- Decision: **accept the shared contribution vocabulary; revise by removing the
+  unused generic observation/reuse layer; stop before slice 8 until the owner
+  chooses a migration.** No new abstraction was introduced. The slice 1
+  generic revision/reuse contract and synthetic projection example are
+  superseded; earlier verification entries remain historical.
+- The cleanup changed no presentation dispatch, rendering or scheduling, so the
+  previously recorded sensor and Git live UI evidence remains applicable.
+- Repository verification passed: `cargo fmt --check`, isolated offline
+  `cargo clippy --all-targets -- -D warnings`, focused `cargo test
+  data_providers` (21 passed), and full `cargo test` (704 passed). Cargo used a
+  copied target directory because the shared target lock was held outside this
+  process namespace; the shared target was left untouched. All dependencies
+  were available offline.
+- Decision: **accept after unused API cleanup and repository verification**.
+  Slice 7 is complete; slice 8 still awaits the owner's provider choice.

@@ -600,12 +600,15 @@ This is the current module map. The
 ownership boundaries and completed migration slices.
 The [data-provider implementation plan](docs/format-organization/implementation-plan.md)
 and [progress log](docs/format-organization/progress.md) track the contribution
-and extension migration. Its initial contracts live in `src/data_providers.rs`
-and `src/data_providers/`: provider-owned presentation definitions, validated
-IDs and quantities, captured applicability, result completeness and
-source/context freshness independent of UI generations. These contracts perform
-no I/O. `data_providers/geo.rs` owns the GPX/FIT contribution bundle and bounded
-native acquisition used by the existing Properties and View adapters. Its typed
+and extension migration. Its contracts live in `src/data_providers.rs` and
+`src/data_providers/`: provider-owned presentation definitions, validated IDs
+and quantities, captured applicability, result completeness and provenance.
+They perform no I/O; source freshness and stale-result checks stay with the
+consumer that owns the request. The slice 7
+[proof review](docs/format-organization/proof-review.md) found no need for a
+universal observation or cache identity. `data_providers/geo.rs` owns the
+GPX/FIT contribution bundle and bounded native acquisition used by the existing
+Properties and View adapters. Its typed
 quantities retain recorded/inferred provenance and independent completeness;
 format readers remain under `formats/geo`. Each feature keeps its own registry,
 scheduling and rendering. `columns::Catalog` resolves persisted IDs to built-in,
@@ -739,7 +742,7 @@ Where things live (`src/`):
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
 | `entry.rs`, `model.rs`, `location.rs`, `location/`, `location_codec.rs` | Shared `Entry`/`Attrs` and pure sort rules; `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; pure local, remote and archive address semantics; versioned lossless location persistence |
 | `formats.rs`, `formats/` | Semantic EXIF fields, bounded RAW embedded-JPEG selection, Parquet footer validation/decoding, and shared bounded GPX/FIT route/activity readers used by Preview and Properties |
-| `data_providers.rs`, `data_providers/` | Pure contribution/identity contracts; `geo.rs` owns the GPX/FIT Properties/viewer bundle and typed quantities; `git.rs` owns contextual Git contributions, shared bounded snapshots, scope revisions and subscriber/request lifecycles; presentation adapters keep their existing selection, scheduling and rendering policies |
+| `data_providers.rs`, `data_providers/` | Pure contribution definitions and typed result vocabulary; `geo.rs` owns the GPX/FIT Properties/viewer bundle and typed quantities; `git.rs` owns contextual Git contributions, shared bounded snapshots, scope epochs and subscriber/request lifecycles; presentation adapters keep their existing selection, scheduling and rendering policies |
 | `extensions.rs`, `extensions/` | Static manifest/package validation, enabled-package Columns/Properties/View registration, typed protocol/result validation and retained-file brokerage; restricted Lua worker and shared Linux supervisor with bounded queue, cancellation/deadline and child reaping. Reserved helper dispatch precedes config/GUI startup; main owns normal-exit cleanup. |
 | `copy_path.rs` | UI-independent selection path policy: local native paths, provider supplied standard URLs and no archive pseudo-paths |
 | `listing.rs`, `listing/contracts.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; shared request/result values and bounded per-panel remote listing cache |
