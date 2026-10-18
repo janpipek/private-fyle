@@ -222,9 +222,14 @@ pub fn parse(json: &[u8]) -> io::Result<MediaMetadata> {
         ("title", "Title"),
         ("artist", "Artist"),
         ("album", "Album"),
+        ("album_artist", "Album artist"),
+        ("composer", "Composer"),
         ("date", "Date"),
         ("genre", "Genre"),
         ("track", "Track"),
+        ("disc", "Disc"),
+        ("comment", "Comment"),
+        ("copyright", "Copyright"),
     ];
     if let Some(tags) = format["tags"].as_object() {
         for (key, label) in TAGS.iter().take(TAG_LIMIT) {
@@ -322,6 +327,29 @@ pub fn format_duration(seconds: f64) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{StreamKind, format_duration, parse};
+
+    #[test]
+    fn audio_tags_are_case_insensitive_bounded_and_allowlisted() {
+        let input = serde_json::json!({"format": {"tags": {
+            "TITLE": "Song", "album_artist": "Ensemble", "composer": "Composer",
+            "disc": "2/3", "comment": "x".repeat(1100), "copyright": "Owner",
+            "unknown": "Hidden", "track": 4
+        }}});
+        let metadata =
+            parse(&serde_json::to_vec(&input).expect("JSON fixture")).expect("tag metadata");
+        assert!(metadata.truncated);
+        assert_eq!(
+            metadata.tags,
+            vec![
+                ("Title".into(), "Song".into()),
+                ("Album artist".into(), "Ensemble".into()),
+                ("Composer".into(), "Composer".into()),
+                ("Disc".into(), "2/3".into()),
+                ("Comment".into(), "x".repeat(1024)),
+                ("Copyright".into(), "Owner".into()),
+            ]
+        );
+    }
 
     #[test]
     fn rejects_bad_durations_and_bounds_streams() {

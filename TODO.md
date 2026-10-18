@@ -145,7 +145,6 @@ not to pursue an item.
       and later a macOS package.
 - [ ] The column header should be editable, such as + icon to add a column,
       right-click to show a menu etc.
-- [ ] ID3 properties for audio files.
 - [ ] Properties for RPM, AppImage and DEB packages: show package/application
       metadata through bounded readers. Decide the fields and parsing approach
       for each format before implementation.
@@ -155,6 +154,11 @@ not to pursue an item.
       truncated values explicitly.
 
 ## Done
+
+- [x] Audio/ID3 Properties: extend the existing bounded ffprobe tag reader
+      with album artist, composer, disc, comment and copyright alongside title,
+      artist, album, date, genre and track. Shared with audio Preview; decoded
+      values only, no raw frames or embedded artwork. Requires ffprobe.
 
 - [x] Data-provider/contribution initial delivery (slices 1–6): shared contracts,
       GPX/FIT adapter, extensible display-only columns, explicitly enabled

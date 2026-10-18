@@ -70,7 +70,11 @@ fn groups(prepared: &PreparedMedia) -> Vec<PropertyGroup> {
         });
     }
     for (label, value) in &data.tags {
-        field(&mut container, &label.to_ascii_lowercase(), value.clone());
+        field(
+            &mut container,
+            &label.to_ascii_lowercase().replace(' ', "_"),
+            value.clone(),
+        );
     }
     if data.truncated {
         container.status = GroupStatus::Truncated {
@@ -177,6 +181,24 @@ mod tests {
     use crate::data_providers::media;
     use crate::formats::media::parse;
     use crate::properties::{GroupId, GroupStatus, PropertyValue};
+
+    #[test]
+    fn audio_tags_reach_properties_with_stable_field_ids() {
+        let metadata = parse(
+            br#"{"format":{"tags":{"album_artist":"Ensemble","disc":"1/2","comment":"Live"}}}"#,
+        )
+        .expect("audio tags");
+        let result = groups(&media::provider().prepare(metadata));
+        let container = &result[0];
+        for (id, value) in [
+            ("album_artist", "Ensemble"),
+            ("disc", "1/2"),
+            ("comment", "Live"),
+        ] {
+            assert!(container.fields.iter().any(|field|
+                field.id == id && field.value == PropertyValue::Text(value.into())));
+        }
+    }
 
     #[test]
     fn properties_project_typed_duration_and_keep_stream_details() {

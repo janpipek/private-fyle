@@ -234,7 +234,10 @@ decode memory and candidate count; it does not decode RAW sensor data. RAW
 thumbnails use the original file's URI and modification time in the shared
 thumbnail cache. View shows images and video frames without metadata overlays;
 use Properties for EXIF details. Audio keeps its standalone format and tag
-details in View.
+details in View. Properties and audio View share the bounded `formats/media.rs`
+reader, including decoded ID3/common tags: title, artist, album, album artist,
+composer, date, genre, track, disc, comment and copyright. This requires
+`ffprobe`; raw ID3 frames and embedded artwork are not displayed.
 
 In tree mode, clicking a folder's chevron also expands/collapses it; Enter
 still makes the folder the panel's root.
