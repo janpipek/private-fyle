@@ -5,8 +5,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::{Content, Previewer, Probe};
+use crate::data_providers::ResultState;
+use crate::data_providers::media as media_provider;
 use crate::formats::media::{self, MediaMetadata, StreamKind};
-use crate::icons::{self, FileIcon};
 
 /// Preview adapter for local audio and video files.
 pub struct MediaPreviewer;
@@ -17,18 +18,14 @@ impl Previewer for MediaPreviewer {
     }
 
     fn matches(&self, probe: &Probe) -> bool {
-        !probe.is_dir
-            && matches!(
-                icons::icon_for(&probe.name, false, false, false),
-                FileIcon::Audio | FileIcon::Video
-            )
+        !probe.is_dir && media_provider::viewer().matches_name(&probe.name)
     }
 
     fn load(&self, probe: &Probe) -> io::Result<Content> {
         // Preview currently has no cancellation signal. The shared reader still
         // enforces its deadline and output bounds for this call.
-        let probed = match media::probe(&probe.path, || false) {
-            Ok(metadata) => metadata,
+        let prepared = match media_provider::viewer().read(&probe.path, || false) {
+            Ok(prepared) => prepared,
             Err(error) if error.kind() == io::ErrorKind::NotFound && probe.path.is_file() => {
                 return Ok(Content::Text {
                     text: "Audio and video details need ffprobe from ffmpeg \
@@ -40,20 +37,31 @@ impl Previewer for MediaPreviewer {
             }
             Err(error) => return Err(error),
         };
-        if probed.has_video() {
+        if prepared.metadata.has_video() {
             // A frame a tenth of the way in: past black intros, still early.
-            let frame = grab_frame(&probe.path, probed.duration.unwrap_or(0.) / 10.)?;
+            let duration = match &prepared.duration {
+                ResultState::Ready { value, .. } => value.value(),
+                _ => 0.0,
+            };
+            let frame = grab_frame(&probe.path, duration / 10.)?;
             return Ok(Content::Image { path: frame });
         }
         Ok(Content::Info {
-            info: info(&probed),
+            info: info(&prepared.metadata, &prepared.duration),
         })
     }
 }
 
-fn info(media: &MediaMetadata) -> Vec<(String, String)> {
+fn info(
+    media: &MediaMetadata,
+    duration: &ResultState<crate::data_providers::Quantity>,
+) -> Vec<(String, String)> {
     let mut info = media.tags.clone();
-    if let Some(duration) = media.duration.and_then(media::format_duration) {
+    let seconds = match duration {
+        ResultState::Ready { value, .. } => Some(value.value()),
+        _ => None,
+    };
+    if let Some(duration) = seconds.and_then(media::format_duration) {
         info.push((
             "Duration".into(),
             duration.strip_prefix('0').unwrap_or(&duration).into(),
@@ -137,18 +145,43 @@ fn grab_frame(video: &Path, seconds: f64) -> io::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::info;
+    use crate::data_providers::media;
+    use crate::data_providers::{Completeness, ResultState, Unit};
     use crate::formats::media::{format_duration, parse};
 
     #[test]
     fn describes_video_and_audio_ignoring_cover_art() {
         let video = parse(br#"{"streams":[{"codec_type":"video","codec_name":"h264","width":1920,"height":1080,"avg_frame_rate":"30000/1001"},{"codec_type":"audio","codec_name":"aac","sample_rate":"48000","channels":2}],"format":{"format_long_name":"QuickTime / MOV","duration":"3725.4","bit_rate":"5000000","tags":{"TITLE":"Trip"}}}"#).unwrap();
         assert!(video.has_video());
-        assert!(info(&video).contains(&("Video".into(), "h264 1920×1080 29.97 fps".into())));
-        assert!(info(&video).contains(&("Duration".into(), "1:02:05".into())));
+        let video_duration = media::provider().prepare(video.clone()).duration;
+        assert!(
+            info(&video, &video_duration)
+                .contains(&("Video".into(), "h264 1920×1080 29.97 fps".into()))
+        );
+        assert!(info(&video, &video_duration).contains(&("Duration".into(), "1:02:05".into())));
         let audio = parse(br#"{"streams":[{"codec_type":"audio","codec_name":"flac","sample_rate":"44100","channels":1},{"codec_type":"video","codec_name":"mjpeg","disposition":{"attached_pic":1}}],"format":{"duration":"65.0"}}"#).unwrap();
         assert!(!audio.has_video());
-        assert!(info(&audio).contains(&("Audio".into(), "flac 44.1 kHz mono".into())));
-        assert!(info(&audio).contains(&("Duration".into(), "1:05".into())));
+        let audio_duration = media::provider().prepare(audio.clone()).duration;
+        assert!(
+            info(&audio, &audio_duration).contains(&("Audio".into(), "flac 44.1 kHz mono".into()))
+        );
+        assert!(info(&audio, &audio_duration).contains(&("Duration".into(), "1:05".into())));
         assert_eq!(format_duration(59.6).as_deref(), Some("01:00"));
+        assert!(matches!(
+            video_duration,
+            ResultState::Ready {
+                value,
+                completeness: Completeness::Complete
+            } if value.unit() == Unit::Seconds
+        ));
+        let missing =
+            parse(br#"{"streams":[{"codec_type":"audio","codec_name":"opus"}]}"#).unwrap();
+        let missing_duration = media::provider().prepare(missing.clone()).duration;
+        assert!(matches!(missing_duration, ResultState::Absent));
+        assert!(
+            info(&missing, &missing_duration)
+                .iter()
+                .all(|(label, _)| label != "Duration")
+        );
     }
 }

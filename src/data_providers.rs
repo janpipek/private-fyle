@@ -12,6 +12,9 @@ pub mod git;
 /// GPX/FIT provider shared by the Properties and View adapters.
 pub mod geo;
 
+/// Bounded media metadata provider shared by Duration, Properties and Preview.
+pub mod media;
+
 /// Validated IDs exposed to provider definitions and prepared data.
 pub use identity::{ContributionId, FieldId, ProviderId};
 

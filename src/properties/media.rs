@@ -5,8 +5,8 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::formats::media::{self, MediaMetadata, Stream, StreamKind};
-use crate::icons::{self, FileIcon};
+use crate::data_providers::media::{self as media_provider, PreparedMedia};
+use crate::formats::media::{self, Stream, StreamKind};
 use crate::properties::{
     GroupId, GroupStatus, Probe, PropertyField, PropertyGroup, PropertyProvider, PropertyValue,
 };
@@ -20,7 +20,7 @@ impl PropertyProvider for Provider {
     }
 
     fn matches(&self, probe: &Probe) -> bool {
-        probe.is_file && is_candidate(&probe.path)
+        probe.is_file && media_provider::properties().matches_path(&probe.path)
     }
 
     fn read(&self, probe: &Probe, cancel: &Arc<AtomicBool>) -> io::Result<Vec<PropertyGroup>> {
@@ -32,21 +32,10 @@ impl PropertyProvider for Provider {
     }
 }
 
-/// Whether a local regular path is a media file supported by the media preview.
-pub fn is_candidate(path: &Path) -> bool {
-    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
-        return false;
-    };
-    matches!(
-        icons::icon_for(name, false, false, false),
-        FileIcon::Audio | FileIcon::Video
-    )
-}
-
 /// Reads local media metadata and maps it to bounded semantic groups.
 pub fn read(path: &Path, cancel: &AtomicBool) -> io::Result<Vec<PropertyGroup>> {
-    let data = media::probe(path, || cancel.load(Ordering::Relaxed))?;
-    Ok(groups(&data))
+    let prepared = media_provider::properties().read(path, || cancel.load(Ordering::Relaxed))?;
+    Ok(groups(&prepared))
 }
 
 /// A visible failure group that leaves unrelated Properties facts intact.
@@ -65,12 +54,13 @@ pub fn failure(error: &io::Error) -> PropertyGroup {
     }
 }
 
-fn groups(data: &MediaMetadata) -> Vec<PropertyGroup> {
+fn groups(prepared: &PreparedMedia) -> Vec<PropertyGroup> {
+    let data = &prepared.metadata;
     let mut container = group("container");
     if let Some(format) = &data.format {
         field(&mut container, "format", format.clone());
     }
-    if let Some(duration) = data.duration.and_then(media::format_duration) {
+    if let Some(duration) = duration_seconds(&prepared.duration).and_then(media::format_duration) {
         field(&mut container, "duration", duration);
     }
     if let Some(rate) = data.bit_rate {
@@ -117,6 +107,15 @@ fn groups(data: &MediaMetadata) -> Vec<PropertyGroup> {
         .into_iter()
         .filter(PropertyGroup::is_visible)
         .collect()
+}
+
+fn duration_seconds(
+    duration: &crate::data_providers::ResultState<crate::data_providers::Quantity>,
+) -> Option<f64> {
+    match duration {
+        crate::data_providers::ResultState::Ready { value, .. } => Some(value.value()),
+        _ => None,
+    }
 }
 
 fn group(id: &str) -> PropertyGroup {
@@ -169,5 +168,51 @@ fn append_stream(group: &mut PropertyGroup, stream: &Stream) {
     }
     if let Some(language) = &stream.language {
         field(group, "language", language.clone());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::groups;
+    use crate::data_providers::media;
+    use crate::formats::media::parse;
+    use crate::properties::{GroupId, GroupStatus, PropertyValue};
+
+    #[test]
+    fn properties_project_typed_duration_and_keep_stream_details() {
+        let mut streams = vec![serde_json::json!({"codec_type": "audio"}); 31];
+        streams.push(serde_json::json!({
+            "codec_type": "video", "codec_name": "h264", "width": 1280, "height": 720
+        }));
+        streams.push(serde_json::json!({"codec_type": "subtitle"}));
+        let captured = serde_json::json!({
+            "streams": streams,
+            "format": {"format_long_name": "Matroska", "duration": "65"}
+        });
+        let metadata = parse(&serde_json::to_vec(&captured).expect("JSON fixture"))
+            .expect("captured media metadata parses");
+        let prepared = media::provider().prepare(metadata);
+        assert!(matches!(
+            &prepared.duration,
+            crate::data_providers::ResultState::Ready {
+                completeness: crate::data_providers::Completeness::Complete,
+                ..
+            }
+        ));
+        assert!(prepared.metadata.truncated);
+        let groups = groups(&prepared);
+        let container = groups
+            .iter()
+            .find(|group| group.id == GroupId("container".into()))
+            .expect("container group is visible");
+        assert!(container.fields.iter().any(|field| {
+            field.id == "duration" && field.value == PropertyValue::Text("01:05".into())
+        }));
+        assert!(matches!(container.status, GroupStatus::Truncated { .. }));
+        let video = groups
+            .iter()
+            .find(|group| group.id == GroupId("video".into()))
+            .expect("video group is visible");
+        assert!(video.fields.iter().any(|field| field.id == "codec"));
     }
 }

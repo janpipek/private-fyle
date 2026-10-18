@@ -9,12 +9,11 @@ implementation. Keep unfinished follow-ups here; move completed items to
 **Done**. **Later** holds deferred goals, and **Dropped** records decisions
 not to pursue an item.
 
-- [ ] Data-provider migration, slice 8 (undecided): choose whether to proceed
-      and which built-in provider to migrate after the sensor/Git proof review.
-      Media, Parquet and EXIF/RAW are candidates with distinct acquisition and
-      presentation limits; see the
-      [proof review](docs/format-organization/proof-review.md). No migration is
-      authorized by this backlog entry.
+- [ ] Data-provider migration, slice 8 remaining work (undecided): choose
+      whether to migrate Parquet or EXIF/RAW after the completed media migration.
+      Each has distinct acquisition and presentation limits; see the
+      [implementation plan](docs/format-organization/implementation-plan.md).
+      No further migration is authorized by this backlog entry.
 - [ ] Menus and selection, remaining parts: output/history in Tools.
       Implement missing actions as separate features.
 - [ ] Idea: replace the Git status column's `git` subprocess with a Rust
@@ -165,7 +164,8 @@ not to pursue an item.
       Properties. Slice 7's review accepts the contribution vocabulary and
       recommends removing the unused generic observation/reuse model; repository
       verification passed. Feature-specific freshness stays with each consumer.
-      Broader migrations need the owner's slice 8 choice.
+      Media is now the first completed slice 8 migration; Parquet and EXIF/RAW
+      still need an owner choice.
       See the
       [implementation plan](docs/format-organization/implementation-plan.md).
 
@@ -174,6 +174,15 @@ not to pursue an item.
       all-target Clippy, formatting and the full test suite passed. Further
       migrations remain subject to the owner's slice 8 choice. See the
       [proof review](docs/format-organization/proof-review.md).
+
+- [x] Data-provider migration, slice 8 media: bind the existing local audio/video
+      Duration column, Properties and Preview adapters to one validated typed
+      `builtin.media` definition. Keep the ffprobe reader and each consumer's
+      scheduling, cancellation and presentation path; video frame extraction
+      stays separate. Preserve all probe and display limits, blank duration
+      behavior and existing ffprobe hints. See the
+      [implementation plan](docs/format-organization/implementation-plan.md)
+      and [verification log](docs/format-organization/progress.md).
 
 - [x] Data-provider migration, slice 6: share bounded contextual Git snapshots
       between the existing status column and a new local Git Properties group.

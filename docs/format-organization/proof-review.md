@@ -112,5 +112,7 @@ universal `Observation` shape. Cross-consumer reuse should be designed only
 after a concrete pair of requests needs identical bounded work and can supply
 the relevant typed source freshness.
 
-No broader built-in migration is selected here. Slice 8 still needs the
-owner's choice of provider and preserved behavior before implementation.
+At the time of this review, slice 8 still needed the owner's provider choice.
+The owner later authorized Media as its first migration; see the slice 8 entry
+in the [implementation plan](implementation-plan.md) and the
+[verification log](progress.md). Parquet and EXIF/RAW remain undecided.

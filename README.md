@@ -120,7 +120,9 @@ reader caps process output at 1 MiB, error output at 8 KiB, streams at 32,
 and displayed values at 1,024 characters, with a ten-second deadline and
 inspection cancellation. The stream analysis requests a 10 MB probe size
 and five-second analysis window. Video View still extracts a frame, while
-audio View shows format and tag details.
+audio View shows format and tag details. One native `builtin.media` definition
+binds the existing Duration, Properties and Preview adapters; they retain their
+independent request lifecycles and share no cross-consumer cache.
 
 Local entries in a Git working tree also show a Git Properties group with the
 repository root, queried panel directory, repository-relative selected path and
@@ -742,7 +744,7 @@ Where things live (`src/`):
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
 | `entry.rs`, `model.rs`, `location.rs`, `location/`, `location_codec.rs` | Shared `Entry`/`Attrs` and pure sort rules; `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; pure local, remote and archive address semantics; versioned lossless location persistence |
 | `formats.rs`, `formats/` | Semantic EXIF fields, bounded RAW embedded-JPEG selection, Parquet footer validation/decoding, and shared bounded GPX/FIT route/activity readers used by Preview and Properties |
-| `data_providers.rs`, `data_providers/` | Pure contribution definitions and typed result vocabulary; `geo.rs` owns the GPX/FIT Properties/viewer bundle and typed quantities; `git.rs` owns contextual Git contributions, shared bounded snapshots, scope epochs and subscriber/request lifecycles; presentation adapters keep their existing selection, scheduling and rendering policies |
+| `data_providers.rs`, `data_providers/` | Pure contribution definitions and typed result vocabulary; `geo.rs` owns the GPX/FIT Properties/viewer bundle and typed quantities; `media.rs` binds the existing Duration, media Properties and Preview adapters to one typed definition while preserving independent scheduling; `git.rs` owns contextual Git contributions, shared bounded snapshots, scope epochs and subscriber/request lifecycles |
 | `extensions.rs`, `extensions/` | Static manifest/package validation, enabled-package Columns/Properties/View registration, typed protocol/result validation and retained-file brokerage; restricted Lua worker and shared Linux supervisor with bounded queue, cancellation/deadline and child reaping. Reserved helper dispatch precedes config/GUI startup; main owns normal-exit cleanup. |
 | `copy_path.rs` | UI-independent selection path policy: local native paths, provider supplied standard URLs and no archive pseudo-paths |
 | `listing.rs`, `listing/contracts.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; shared request/result values and bounded per-panel remote listing cache |

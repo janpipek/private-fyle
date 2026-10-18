@@ -10,8 +10,8 @@ can be reconstructed without the chat.
 
 - The owner authorized starting the plan after the planning commit `5da8dee`.
 - Completed: slices 1–7, including the sensor Properties/column/viewer proof,
-  contextual Git column/Properties proof, and verified slice 7 cleanup. Next:
-  the owner's slice 8 provider choice.
+  contextual Git column/Properties proof, and verified slice 7 cleanup; slice 8
+  Media is also complete. Remaining provider choices are Parquet and EXIF/RAW.
 - Slice 4a static package validation/loading is committed as `c2913dc`, and the
   protocol/broker/queue foundation as `cf11f3b`. Standalone worker execution and
   Linux supervision are committed as `a2f7021`. Settings/catalog integration
@@ -1144,4 +1144,59 @@ package-format Properties and xattrs remain their separate open TODOs.
   process namespace; the shared target was left untouched. All dependencies
   were available offline.
 - Decision: **accept after unused API cleanup and repository verification**.
-  Slice 7 is complete; slice 8 still awaits the owner's provider choice.
+  Slice 7 is complete. The owner later authorized Media as slice 8's first
+  migration; Parquet and EXIF/RAW remain undecided.
+
+## Slice 8 media migration
+
+### 2026-10-18 — Migrate existing Duration, Properties and Preview adapters
+
+- The owner authorized Media as the first slice 8 migration, preserving behavior
+  and limits. Read the implementation plan, TODO, README, format organization
+  docs and current adapters before editing. Sol's plan kept the native ffprobe
+  reader and existing consumer lifecycles; no new shared scheduler/cache was
+  proposed or introduced.
+- Added one validated `builtin.media` definition with a seconds duration field,
+  the built-in `duration` column binding, a Properties contribution and a
+  `media.streams` viewer descriptor. Three small handles prepare the typed
+  duration projection from the existing native `MediaMetadata` reader. Field
+  lookup follows IDs, with a reordered-definition regression covering column
+  and Properties bindings.
+- Rewired the existing Duration metadata queue, media Properties mapper and
+  Preview adapter through their provider handles. Preserved the native typed
+  metadata, icon-based applicability, local Properties/Duration source gates,
+  Preview's existing materialization policy, audio information, video frame
+  extraction at duration/10, and missing-ffprobe hint. Each consumer retains
+  independent scheduling and cancellation. The built-in `ColumnKind::Duration`
+  remains because provider catalog registration deliberately rejects collisions
+  with built-in IDs; no user-facing ID, sort, display or queue behavior changed.
+- Preserved the ten-second ffprobe deadline, 1 MiB stdout and 8 KiB stderr caps,
+  32 stream limit, 1,024-character displayed value/tag bound, and existing probe
+  size/analysis window. Stream truncation leaves a valid container duration
+  complete. Missing or invalid duration stays blank in the column; Properties
+  and audio/video Preview keep their previous behavior.
+- Focused tests cover one definition and all three descriptor bindings,
+  reordered fields, typed complete duration under truncated stream details,
+  missing/invalid duration, filename icon policy, Properties projection and
+  Preview duration/audio/video behavior. Existing parser/runner tests cover
+  bounded output and stream handling. No optional ffmpeg/ffprobe program is
+  required by the tests.
+- Live scratch-XDG app checks used `/tmp/fyle-slice8-media.97R0NH`: Duration
+  displayed `00:02`; audio Properties showed Container/Audio and `00:02`; audio
+  Preview showed the existing info; video Properties showed Container/Video;
+  video Preview extracted a frame; hiding `ffprobe` from the scratch app's PATH
+  left Duration blank and displayed the existing installation hint in Preview.
+  Config, data and runtime directories were scratch-only. The UI harness was
+  stopped after checking. This did not exercise remote or archive media paths.
+- Final verification on the exact source: `cargo fmt --check` passed;
+  `cargo clippy --all-targets --offline -- -D warnings` passed;
+  `cargo test media:: --offline` passed 10 tests; full `cargo test --offline`
+  passed **710 tests, zero failures/ignored**. Cargo used the warmed isolated
+  `/tmp/fyle-slice7-build/target` to avoid the shared target lock held outside
+  this process namespace. Dependencies were available offline. `git diff
+  --check` and the final commit remain to be completed.
+- Decision: **accept after final-source verification**. Keep Parquet and EXIF/RAW
+  undecided. If future consumers demonstrate identical
+  reusable acquisition, its key must capture freshness, demand/limits and
+  access policy; Media did not justify cross-consumer reuse. No new abstraction
+  was introduced.

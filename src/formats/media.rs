@@ -10,10 +10,11 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
+/// Maximum media streams retained for presentation.
+pub const STREAM_LIMIT: usize = 32;
 const OUTPUT_LIMIT: usize = 1024 * 1024;
 const ERROR_LIMIT: usize = 8192;
 const TEXT_LIMIT: usize = 1024;
-const STREAM_LIMIT: usize = 32;
 const TAG_LIMIT: usize = 16;
 const DEADLINE: Duration = Duration::from_secs(10);
 
