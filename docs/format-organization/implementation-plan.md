@@ -1,7 +1,7 @@
 # Data providers and contributions: implementation plan
 
 Status: started with owner authorization on 2026-10-16, after planning commit
-`5da8dee`. Slices 1–7 and all currently justified slice 8 migrations are
+`5da8dee`. Slices 1–7 and all owner-approved slice 8 migrations are
 complete. The
 owner approved
 display-only extension columns first and the proposed supervised Lua worker
@@ -380,11 +380,11 @@ Never push or open a PR without a request.
 
 ## Completion record
 
-Slices 1–7 and the currently justified slice 8 Media, Parquet and EXIF/RAW
-migrations are complete. The slice 7 review accepts the shared
+Slices 1–7 and all owner-approved slice 8 migrations—Media, Parquet and
+EXIF/RAW—are complete. The slice 7 review accepts the shared
 contribution vocabulary, removes the unused generic observation/reuse API, and
 passes repository verification. See the
 [progress and handoff log](progress.md)
-for ownership, completed steps, checks and the next task. The owner's start request
-authorizes the initial proof scope; later decision checkpoints remain attached
-to their respective slices. Unrelated deferred TODO features stay deferred.
+for ownership, completed steps and checks. The owner authorized finishing the
+full approved migration; no slice 8 work remains open. New format features,
+metadata groups, recognition and unrelated TODO items remain deferred.

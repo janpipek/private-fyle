@@ -11,8 +11,9 @@ can be reconstructed without the chat.
 - The owner authorized starting the plan after the planning commit `5da8dee`.
 - Completed: slices 1–7, including the sensor Properties/column/viewer proof,
   contextual Git column/Properties proof, and verified slice 7 cleanup; slice 8
-  Media and Parquet are also complete. EXIF/RAW is in progress under the owner's
-  authorization to finish all migrations.
+  Media, Parquet and EXIF/RAW are also complete under the owner's authorization
+  to finish the full approved migration. The cross-presentation closeout audit is
+  recorded at the end of this log and in the implementation plan.
 - Slice 4a static package validation/loading is committed as `c2913dc`, and the
   protocol/broker/queue foundation as `cf11f3b`. Standalone worker execution and
   Linux supervision are committed as `a2f7021`. Settings/catalog integration
@@ -34,7 +35,6 @@ can be reconstructed without the chat.
   canvas were approved on 2026-10-17; native code owns interaction.
   The owner approved display-only extension columns first; new
   metadata sorting remains a separate design task.
-- Keep the unrelated, pre-existing untracked `title.png` out of commits.
 
 ## How to join
 
@@ -706,13 +706,15 @@ changes separate from the completed column commit.
 ## Current handoff
 
 The sensor and contextual Git proofs are complete and slice 7 accepted the
-shared vocabulary with the generic reuse model removed. Read
+shared vocabulary with the generic reuse model removed. All owner-approved
+slice 8 migrations and the cross-presentation reader audit are also complete.
+Read
 [renderer-plan.md](renderer-plan.md) and [git-plan.md](git-plan.md) for the
-implemented boundaries, and [docs/extensions.md](../extensions.md) for the
-package authoring API. Further built-in migrations await the owner's slice 8
-choice. Preserve separate
-feature lifecycles and original-source access policies. Metadata sorting,
-package-format Properties and xattrs remain their separate open TODOs.
+implemented boundaries, [implementation-plan.md](implementation-plan.md) and
+the final audit below for current reader ownership, and
+[docs/extensions.md](../extensions.md) for the package authoring API. Preserve
+separate feature lifecycles and original-source access policies. Metadata
+sorting, package-format Properties and xattrs remain separate open TODOs.
 
 ## Completion and next work
 
@@ -725,7 +727,7 @@ package-format Properties and xattrs remain their separate open TODOs.
 | 5. Sensor renderer proof | Complete | Sol approved; 681 tests/fmt/clippy/build, package-only graph edits, source/failure/fallback/copy and active-helper quit verified |
 | 6. Contextual Git | Complete | Sol reviewed; 706 tests/fmt/clippy/build, shared column/Properties scopes, unchanged-file index refresh, archive exclusion and active-child quit verified |
 | 7. Review proof | Complete | Accepted after removing unused generic reuse API; fmt, all-target Clippy, focused and full tests pass; see [review](proof-review.md) |
-| 8. Remaining built-ins | Not started | Awaiting the owner's provider and behavior choice |
+| 8. Remaining built-ins | Complete | Media, Parquet and EXIF/RAW migrated; cross-presentation audit found no further same-demand seam; 711 tests/fmt/clippy and scratch UI checks pass |
 
 ### 2026-10-17 — Approve and start the sensor renderer proof
 
@@ -1240,3 +1242,70 @@ package-format Properties and xattrs remain their separate open TODOs.
   row samples are concrete different demands. Any later reuse key would need to
   name freshness, producer, demand/limits and access policy; this migration
   does not share in-flight work.
+
+### 2026-10-18 — Bind EXIF Properties and columns to shared semantic tags
+
+- Owner authorization covers completing the remaining migrations. Added one
+  validated `builtin.exif` definition with all 13 existing semantic tags,
+  existing Properties fields and the nine persisted `exif.*` column IDs.
+  `properties/exif_reader.rs` and the duplicate panel-side projection were
+  removed; `properties_view.rs` remains a label-only adapter, and
+  `panel/metadata/exif.rs` forwards the existing queue to the provider.
+- `formats/exif.rs` now owns one ordered tag mapping, semantic parsing, the
+  legacy regular-image column reader and Properties' stricter metadata-only
+  reader. Properties keeps its original 8 MiB ordinary-image and 64 MiB RAW
+  prefix limits, 16 EXIF candidates, 1 MiB per embedded TIFF, 4,096 characters
+  per field, regular-file checks, cancellation and partial/truncation results.
+  The existing column path retains regular-image seekable reads, its original
+  image extension gate, bounded 64 MiB RAW prefix and `select_jpeg` fallback.
+  No decoder, image cache or materialization was added to Properties.
+- The old EXIF reader's unique boundaries remain covered: capped reads and
+  truncation, pre-cancellation, ordinary JPEG APP1, direct TIFF, RAW-prefix
+  embedded TIFF without decoding, and Properties' embedded JPEG metadata path.
+  The column adapter tests preserve composition/formatting, extension gating,
+  JPEG and direct-TIFF results, and RAW's selected-JPEG fallback. Two redundant
+  adapter tests were consolidated: the old cancellation and cap tests now share
+  one test, and the provider's production-column test covers the former
+  extension-gate and reader-projection fixtures together. No distinct reader or
+  adapter case was dropped. The full suite now has 711 tests versus 713 before
+  this consolidation.
+- Repository verification on the final EXIF source passed: `cargo fmt --check`,
+  isolated offline `cargo clippy --all-targets -- -D warnings`, and full
+  `cargo test --offline` (**711 passed, zero failed/ignored**). Cargo used the
+  warmed `/tmp/fyle-slice7-build/target` to avoid the shared target lock;
+  dependencies were available offline.
+- Scratch-XDG/Xvfb UI check used `/tmp/fyle-exif-ui` and a generated JPEG with
+  EXIF metadata. The running app's Properties view showed Camera maker `Acme`
+  and Camera model `Snap 1`. The app and Xvfb were stopped afterward. Existing
+  column projection was exercised through the production provider test; the
+  live check covered Properties rendering.
+- Decision: **accept after final-source verification**. Image Preview has no
+  EXIF metadata consumer: image Preview presents the source image, while RAW
+  frame selection/materialization remains shared by the existing RAW preview
+  and thumbnail paths. EXIF metadata has intentionally distinct read limits
+  for Properties and columns; no shared cache or scheduler is justified.
+
+### 2026-10-18 — Close out the approved cross-presentation audit
+
+- Traced every built-in `Previewer`, default Properties reader, visible-row
+  metadata field, thumbnail consumer and archive navigation entry point.
+  Concrete shared seams are Geo (Properties/View), Media
+  (Duration/Properties/Preview), Parquet (footer Properties/Preview), EXIF
+  (Properties/columns), Git (status column/Properties) and the sensor package
+  (Properties/column/View). Native typed models remain; only Git has a proven
+  cross-request snapshot service with scope and epoch ownership.
+- The remaining readers are single-presentation or have distinct demands:
+  PDF; spreadsheet; DOCX/ODT; PPTX/PPTM; CSV/TSV; Markdown; notebook; generic
+  text/binary; SQLite Properties; and image Preview/thumbnails. RAW Preview and
+  thumbnails already share the bounded JPEG selector and `raw_preview` cache.
+  Archive navigation's cached complete index, the first-2,000-item F3 archive
+  summary, archive-directory child summaries and capped archive-member Preview
+  serve different requests. No new abstraction was warranted.
+- Also traced native filesystem snapshots, fresh Properties `lstat` and
+  symlink-target facts, owner lookup, xattr/SELinux columns, recursive folder
+  size, immediate-child directory Preview, name-based icon/Open With selection
+  and Preview's bounded content probe. These use different sources, freshness
+  or work bounds; no same-fact shared acquisition was identified.
+- Closeout adds no file recognition, Properties, sorting or caching behavior.
+  No authorized reader migration remains open. Other TODO items are unrelated
+  product decisions and stay in the backlog.
