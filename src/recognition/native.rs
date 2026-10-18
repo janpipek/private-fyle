@@ -27,6 +27,8 @@ pub(super) fn by_name(name: &str) -> Option<Candidate> {
         "json" => ("application/json", "json"),
         "xml" => ("application/xml", "xml"),
         "xmp" => ("application/rdf+xml", "xmp"),
+        "rpm" => ("application/x-rpm", "rpm"),
+        "deb" | "udeb" => ("application/vnd.debian.binary-package", "deb"),
         "sqlite" | "sqlite3" | "db" => ("application/vnd.sqlite3", "sqlite"),
         "glsl" | "vert" | "frag" | "geom" | "tesc" | "tese" | "comp" => ("text/x-glsl", "glsl"),
         "wgsl" => ("text/wgsl", "wgsl"),
@@ -73,7 +75,16 @@ pub(super) fn zip_subtype(mime: &str) -> bool {
 }
 
 pub(super) fn detect(head: &[u8]) -> Vec<Candidate> {
-    let signature = if head.starts_with(b"SQLite format 3\0") {
+    let signature = if head.starts_with(b"\xed\xab\xee\xdb") {
+        Some(("application/x-rpm", "rpm"))
+    } else if head.starts_with(b"!<arch>\n")
+        && head.get(8..24).is_some_and(|name| {
+            std::str::from_utf8(name)
+                .is_ok_and(|name| name.trim_end().trim_end_matches('/') == "debian-binary")
+        })
+    {
+        Some(("application/vnd.debian.binary-package", "deb"))
+    } else if head.starts_with(b"SQLite format 3\0") {
         Some(("application/vnd.sqlite3", "sqlite"))
     } else if head.starts_with(b"\x89PNG\r\n\x1a\n") {
         Some(("image/png", "png"))

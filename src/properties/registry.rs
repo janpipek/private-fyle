@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::{geo, media, parquet, sqlite};
+use super::{geo, media, package, parquet, sqlite};
 use crate::extensions::properties::{Handle, PreparedSection};
 use crate::properties::{GroupId, GroupStatus, PropertyGroup, Selection};
 
@@ -81,6 +81,7 @@ impl Registry {
         let mut registry = Self::default();
         registry.register(Box::new(parquet::Provider));
         registry.register(Box::new(sqlite::Provider));
+        registry.register(Box::new(package::Provider));
         registry.register(Box::new(media::Provider));
         registry.register(Box::new(geo::Provider::new()));
         registry
@@ -207,6 +208,43 @@ mod tests {
                 link: Default::default(),
             },
         }
+    }
+
+    #[test]
+    fn package_failure_preserves_filesystem_and_nonlocal_sources_are_not_read() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("bad.rpm");
+        std::fs::write(&path, b"broken package").unwrap();
+        let selected = selection(path.clone());
+        let cancel = Arc::new(AtomicBool::new(false));
+        let registry = Registry::with_defaults();
+        let inspection = inspect_with_registry(&selected, &cancel, &registry).unwrap();
+        assert!(matches!(
+            inspection.filesystem,
+            crate::properties::Section::Available(_)
+        ));
+        assert!(
+            inspection
+                .additional_groups
+                .iter()
+                .any(|group| group.id.0 == "package"
+                    && matches!(group.status, GroupStatus::Failed(_)))
+        );
+        let mut archived = selected;
+        archived.location = Location::archive(
+            Location::local(temp.path().join("outer.zip")).unwrap(),
+            "bad.rpm",
+        )
+        .unwrap();
+        assert!(
+            inspect_with_registry(&archived, &cancel, &registry)
+                .unwrap()
+                .additional_groups
+                .is_empty()
+        );
+        let directory = temp.path().join("directory.rpm");
+        std::fs::create_dir(&directory).unwrap();
+        assert!(registry.read(&directory, &cancel).unwrap().is_empty());
     }
 
     struct TestProvider;

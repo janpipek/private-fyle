@@ -19,6 +19,7 @@ grep-searcher = "0.1.17"
 ignore = "0.4.33"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff"] }
 jiff = "0.2.38"
+lzma-rust2 = { version = "0.23.0", default-features = false, features = ["std", "xz"] }
 markdown = "1.0.0"
 markup5ever_rcdom = "0.3.0"
 kamadak-exif = "0.6.1"
@@ -43,6 +44,7 @@ toml = "0.9"
 toml_edit = "0.25.15"
 trash = "5"
 zip = { version = "8.6.0", default-features = false, features = ["deflate-flate2"] }
+zstd = { version = "0.13.3", default-features = false }
 calamine = { version = "0.36.1", default-features = false, features = ["dates"] }
 rusqlite = { version = "0.40.2", default-features = false, features = ["bundled", "hooks", "limits"] }
 

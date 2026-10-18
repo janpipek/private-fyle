@@ -134,15 +134,23 @@ not to pursue an item.
       and later a macOS package.
 - [ ] The column header should be editable, such as + icon to add a column,
       right-click to show a menu etc.
-- [ ] Properties for RPM, AppImage and DEB packages: show package/application
-      metadata through bounded readers. Decide the fields and parsing approach
-      for each format before implementation.
+- [ ] Properties for AppImage packages: show application metadata through a
+      bounded reader. Decide the fields and parsing approach before implementation.
 - [ ] Show extended attributes (xattrs) in Properties, including their names
       and values through bounded local reads. The existing xattrs column shows
       names; reuse its native reader where appropriate and represent binary or
       truncated values explicitly.
 
 ## Done
+
+- [x] RPM/DEB Properties: on owner authorization, add native metadata-only
+      readers for RPM headers and Debian control archives (plain/gzip/XZ/Zstd).
+      Show identity/version/architecture, descriptions, contacts, homepage,
+      declared license where present, installed size, and RPM release/epoch.
+      Bound reads, decoder memory, control fields/entries and displayed text;
+      preserve cancellation and independent failures. Local regular files and
+      symlink targets only; no payload extraction, scripts, installed-package
+      queries or signature verification. AppImage remains open separately.
 
 - [x] Ogg/Vorbis audio tags: fall back from container metadata to the first
       audio stream among the first 32 streams, with common Vorbis comment aliases.

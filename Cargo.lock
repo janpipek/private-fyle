@@ -3074,6 +3074,7 @@ dependencies = [
  "jiff",
  "kamadak-exif",
  "libc",
+ "lzma-rust2",
  "markdown",
  "markup5ever_rcdom",
  "md-5 0.10.6",
@@ -3100,6 +3101,7 @@ dependencies = [
  "trash",
  "winreg 0.55.0",
  "zip",
+ "zstd",
 ]
 
 [[package]]
@@ -5192,6 +5194,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ecbdfe44b1bd960b68170b417450a628c43f7cf56bb3c5317e61cb230ee7f226"
 dependencies = [
  "twox-hash",
+]
+
+[[package]]
+name = "lzma-rust2"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1c46f3fcd2e888afdb01a07efc071cb21300e07c68d32c3e8b01b5c8cb1fcaa"
+dependencies = [
+ "sha2 0.11.1",
 ]
 
 [[package]]

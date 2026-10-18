@@ -115,7 +115,9 @@ pub fn icon_for_detected(
         | "application/vnd.apache.parquet" => FileIcon::Data,
         "text/x-glsl" | "text/wgsl" | "text/x-hlsl" => FileIcon::Code,
         "application/pdf" => FileIcon::Text,
-        "application/zip" => FileIcon::Archive,
+        "application/zip" | "application/x-rpm" | "application/vnd.debian.binary-package" => {
+            FileIcon::Archive
+        }
         _ => fallback,
     }
 }

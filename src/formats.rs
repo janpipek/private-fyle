@@ -6,6 +6,8 @@ pub mod exif;
 pub mod geo;
 /// Bounded local media probe shared by Properties, Preview, and columns.
 pub mod media;
+/// Bounded native RPM/Debian package metadata for Properties.
+pub mod package;
 /// Bounded local Parquet schema and row-group metadata for Properties.
 pub mod parquet;
 /// Bounded parsing and selection of embedded JPEG previews.

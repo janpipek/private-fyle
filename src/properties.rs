@@ -14,6 +14,7 @@ mod filesystem;
 mod geo;
 mod git;
 mod media;
+mod package;
 mod parquet;
 mod registry;
 mod sqlite;

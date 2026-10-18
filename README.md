@@ -115,6 +115,24 @@ while Filesystem continues to describe the link object. Local regular SQLite
 databases show user table names only. SQLite inspection is read-only,
 cancellable and limited to two seconds, 128 table names and 1,024 characters
 per name. Symlinks to regular databases inspect their targets. Local
+regular RPM and DEB packages show a Package group with name, version,
+architecture, summary/description, available maintainer/vendor/packager,
+homepage, section/group, declared license when present, and installed size in
+bytes. RPM release and epoch are separate fields; DEB keeps its complete version
+string. Debian license data is commonly outside the control file and is then
+omitted. Native `formats/package` readers inspect RPM headers or Debian control
+archives (plain, gzip, XZ or Zstd), without package-manager programs, extraction,
+script execution, installed-package queries or signature verification. RPM
+signature/header data is capped at 8 MiB each, 4,096 index entries per header
+and 128 translations per text tag;
+RPM descriptions use the first stored translation. Debian control archives are
+capped at 8 MiB compressed and decompressed, 32 ar members, 128 tar entries and
+128 fields in a 256 KiB control file; XZ/Zstd decoder dictionaries/windows are
+limited to 32 MiB. Text values retain at most 4,096 characters and report
+truncation/replacement. Reads/decompression check cancellation and a two-second
+deadline. Symlinks inspect regular-file targets, failures leave filesystem facts
+visible, and remote/archive Properties remains listing-only. This adds metadata
+inspection rather than a new package-content viewer. Local
 regular audio and video files show Container, Video,
 Audio and Subtitles groups from `ffprobe`; unavailable `ffprobe` and probe
 failures appear in Properties without hiding filesystem facts. The shared
@@ -777,7 +795,7 @@ Where things live (`src/`):
 | `commander.rs`, `commander/` | Main window: the two panels, actions, dialogs, jobs bar, tools orchestration. Split by area into `commander/` (keys, navigation, search, files, jobs, view, archives, remotes, tools, menus, appearance); new logic goes into its own module, only wiring here. |
 | `menus.rs` | `Cmd`: every user-visible command with labels, availability (with an explanation) and toggle state, plus the menu bar and context menu layouts. Menus, palette and F1 help are built from it; `commander::keys::action_for` maps each `Cmd` to its action. |
 | `entry.rs`, `model.rs`, `location.rs`, `location/`, `location_codec.rs` | Shared `Entry`/`Attrs` and pure sort rules; `Folder`: typed location, cached rows, cursor, marks, filter, sort, tree, search results, archive mount and directory size cache; pure local, remote and archive address semantics; versioned lossless location persistence |
-| `formats.rs`, `formats/` | Semantic EXIF fields and bounded metadata parsing, bounded RAW embedded-JPEG selection, Parquet footer validation/decoding, and shared bounded GPX/FIT route/activity readers used by Preview and Properties |
+| `formats.rs`, `formats/` | Semantic EXIF fields and bounded metadata parsing, bounded RAW embedded-JPEG selection, Parquet footer validation/decoding, RPM/Debian package metadata, and shared bounded GPX/FIT route/activity readers used by Preview and Properties |
 | `data_providers.rs`, `data_providers/` | Pure contribution definitions and typed result vocabulary; `geo.rs` owns the GPX/FIT Properties/viewer bundle and typed quantities; `media.rs` binds Duration, Properties and Preview to one typed definition with independent scheduling; `parquet.rs` binds metadata Properties and row-sample Preview to the checked native footer; `exif.rs` binds bounded Properties facts and existing EXIF columns to shared tags; `git.rs` owns contextual Git contributions, shared bounded snapshots, scope epochs and subscriber/request lifecycles |
 | `extensions.rs`, `extensions/` | Static manifest/package validation, enabled-package Columns/Properties/View registration, typed protocol/result validation and retained-file brokerage; restricted Lua worker and shared Linux supervisor with bounded queue, cancellation/deadline and child reaping. Reserved helper dispatch precedes config/GUI startup; main owns normal-exit cleanup. |
 | `copy_path.rs` | UI-independent selection path policy: local native paths, provider supplied standard URLs and no archive pseudo-paths |
@@ -791,7 +809,7 @@ Where things live (`src/`):
 | `remote.rs`, `remote/` | Remote providers: `Provider` trait; compatibility `Location` alias to `location::RemoteLocation`; Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`) and management persistence (`manage.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `LocalCopy` keeps a typed source address separate from the cache path used at native I/O boundaries; `model/remote.rs` holds cached listings |
 | `archive.rs`, `archive/extraction.rs`, `dirsize.rs`, `links.rs` | Archive index; safe extraction; recursive sizes; symlink state |
 | `preview/`, `preview_view.rs`, `notebook_view.rs`, `presentation_view.rs` | `Previewer`s and their `Registry` (including bounded nbformat 4 notebook parsing, PowerPoint parsing and GPX/FIT outline generation); one render arm per `Content`; notebooks and presentations render through variable-height lazy lists; `PreviewSession` owns target identity, reloads, navigation and stale-result acceptance; GUI resources stay in the pane |
-| `properties.rs`, `properties/`, `properties_view.rs` | `properties.rs` owns shared result contracts, section/group policy and cancellable `PropertiesSession`; `properties/registry.rs` orchestrates native providers and enabled typed extension sections; `properties/filesystem.rs` reads local metadata and symlink facts; format modules map shared EXIF, Parquet, media and GPX/FIT readers into groups, while `properties/sqlite.rs` reads database structure; the GPUI controller limits inspection to one active worker with the latest selection queued; selectable text runs support cross-field copying and Ctrl-C takes priority over panel file yank while a text selection exists |
+| `properties.rs`, `properties/`, `properties_view.rs` | `properties.rs` owns shared result contracts, section/group policy and cancellable `PropertiesSession`; `properties/registry.rs` orchestrates native providers and enabled typed extension sections; `properties/filesystem.rs` reads local metadata and symlink facts; format modules map shared EXIF, Parquet, media, GPX/FIT and package readers into groups, while `properties/sqlite.rs` reads database structure; the GPUI controller limits inspection to one active worker with the latest selection queued; selectable text runs support cross-field copying and Ctrl-C takes priority over panel file yank while a text selection exists |
 | `preview_scene.rs`, `preview_scene/`, `preview_scene_view.rs` | Pure strict scene DTOs and bounded validation; native selectable stacks/tables and clipped path painting from validated data only |
 | `editor.rs`, `editor_view.rs` | Text document model (UTF-8, ≤ 8 MiB, atomic save) and separate editor windows |
 | `tools/`, `tools_view.rs` | Tool, Action and Registry model; `defaults.toml`; built-ins; Lua plugins; `exec.rs` runs them |
