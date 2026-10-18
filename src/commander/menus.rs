@@ -144,6 +144,9 @@ impl Commander {
             custom_titlebar: self.custom_titlebar,
             custom_titlebar_saving: self.custom_titlebar_saving,
             header_column: None,
+            header_filter_active: false,
+            has_column_filters: !folder.column_filter().rules().is_empty(),
+            filter_column_unavailable: None,
         }
     }
 

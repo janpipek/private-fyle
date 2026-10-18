@@ -7,6 +7,7 @@ mod apps;
 mod archive;
 mod bookmarks;
 mod breadcrumbs;
+pub mod column_filter;
 mod columns;
 mod commander;
 mod conflict_view;

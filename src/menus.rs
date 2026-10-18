@@ -55,6 +55,9 @@ pub enum Cmd {
     SortDescending,
     SelectColumns,
     RemoveColumn,
+    FilterColumn,
+    ClearColumnFilter,
+    ClearColumnFilters,
     SelectTheme,
     ToggleCustomTitlebar,
     Refresh,
@@ -147,11 +150,17 @@ pub struct State {
     pub custom_titlebar_saving: bool,
     /// Header targeted by a column context menu; absent for global commands.
     pub header_column: Option<crate::columns::ColumnId>,
+    /// The captured header column already has an active filter.
+    pub header_filter_active: bool,
+    /// The active panel has one or more column filters.
+    pub has_column_filters: bool,
+    /// Why the captured column cannot currently be filtered.
+    pub filter_column_unavailable: Option<&'static str>,
 }
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 74] = [
+    pub const ALL: [Cmd; 75] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::OpenInBrowser,
@@ -207,6 +216,7 @@ impl Cmd {
         Cmd::ToggleCustomTitlebar,
         Cmd::SelectColumns,
         Cmd::RemoveColumn,
+        Cmd::ClearColumnFilters,
         Cmd::ToolsMenu,
         Cmd::FindFiles,
         Cmd::CancelJobs,
@@ -274,6 +284,9 @@ impl Cmd {
             Cmd::SortDescending => "Descending",
             Cmd::SelectColumns => "Edit columns…",
             Cmd::RemoveColumn => "Remove column",
+            Cmd::FilterColumn => "Filter column…",
+            Cmd::ClearColumnFilter => "Clear column filter",
+            Cmd::ClearColumnFilters => "Clear column filters",
             Cmd::SelectTheme => "Theme…",
             Cmd::ToggleCustomTitlebar => "Custom Title Bar",
             Cmd::Refresh => "Refresh",
@@ -442,6 +455,24 @@ impl Cmd {
                 Some(Some(crate::columns::ColumnKind::Name)) => Some("Name is required"),
                 Some(_) => None,
             };
+        }
+        if self == Cmd::FilterColumn {
+            return if state.header_column.is_none() {
+                Some("Right-click a column header")
+            } else {
+                state.filter_column_unavailable
+            };
+        }
+        if self == Cmd::ClearColumnFilter {
+            if state.header_column.is_none() {
+                return Some("Right-click a column header");
+            }
+            if !state.header_filter_active {
+                return Some("This column has no filter");
+            }
+        }
+        if self == Cmd::ClearColumnFilters && !state.has_column_filters {
+            return Some("There are no column filters");
         }
         if self == Cmd::ToggleCustomTitlebar {
             if cfg!(target_os = "macos") {
@@ -715,6 +746,40 @@ mod tests {
             assert_eq!(Cmd::RemoveColumn.unavailable(&state), None);
             assert_eq!(Cmd::RemoveColumn.checked(&state), None);
         }
+    }
+
+    #[test]
+    fn column_filter_commands_follow_header_and_rule_availability() {
+        use crate::columns::ColumnKind;
+        let mut state = State::default();
+        assert_eq!(
+            Cmd::FilterColumn.unavailable(&state),
+            Some("Right-click a column header")
+        );
+        assert_eq!(
+            Cmd::ClearColumnFilter.unavailable(&state),
+            Some("Right-click a column header")
+        );
+        assert_eq!(
+            Cmd::ClearColumnFilters.unavailable(&state),
+            Some("There are no column filters")
+        );
+        state.header_column = Some(ColumnKind::Owner.into());
+        state.filter_column_unavailable = Some("This column requires local files");
+        assert_eq!(
+            Cmd::FilterColumn.unavailable(&state),
+            state.filter_column_unavailable
+        );
+        state.filter_column_unavailable = None;
+        assert_eq!(Cmd::FilterColumn.unavailable(&state), None);
+        assert_eq!(
+            Cmd::ClearColumnFilter.unavailable(&state),
+            Some("This column has no filter")
+        );
+        state.header_filter_active = true;
+        state.has_column_filters = true;
+        assert_eq!(Cmd::ClearColumnFilter.unavailable(&state), None);
+        assert_eq!(Cmd::ClearColumnFilters.unavailable(&state), None);
     }
 
     #[test]

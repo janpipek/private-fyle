@@ -193,8 +193,13 @@ pub fn commands() -> Vec<CommandBinding> {
     Cmd::ALL
         .iter()
         .copied()
-        // Header removal carries a column ID, so a key binding cannot invoke it safely.
-        .filter(|cmd| *cmd != Cmd::RemoveColumn)
+        // Header commands carry a column/panel target, so a shortcut cannot invoke them safely.
+        .filter(|cmd| {
+            !matches!(
+                cmd,
+                Cmd::RemoveColumn | Cmd::FilterColumn | Cmd::ClearColumnFilter
+            )
+        })
         .map(|cmd| {
             let action = action_id(cmd);
             let (keys, context) = default_binding(cmd);
@@ -253,6 +258,9 @@ fn action_id(cmd: Cmd) -> &'static str {
         Cmd::SortDescending => "SortDescending",
         Cmd::SelectColumns => "SelectColumns",
         Cmd::RemoveColumn => "RemoveColumn",
+        Cmd::FilterColumn => "FilterColumn",
+        Cmd::ClearColumnFilter => "ClearColumnFilter",
+        Cmd::ClearColumnFilters => "ClearColumnFilters",
         Cmd::SelectTheme => "SelectTheme",
         Cmd::ToggleCustomTitlebar => "ToggleCustomTitlebar",
         Cmd::Refresh => "Refresh",

@@ -40,8 +40,13 @@ impl Folder {
         };
         self.mount = None;
         self.generation += 1;
+        self.listing_revision = self.listing_revision.wrapping_add(1);
+        self.column_scan_revision = self.column_scan_revision.wrapping_add(1);
         self.marked.clear();
         self.filter.clear();
+        self.column_filter.clear();
+        self.column_filter_cursor = None;
+        self.column_filter.begin(1);
         self.cursor = 0;
         self.apply_filter();
     }
@@ -56,6 +61,8 @@ impl Folder {
             depth: 0,
             hit_line: hit.line,
         }));
+        self.listing_revision = self.listing_revision.wrapping_add(1);
+        self.column_filter.extend(self.all.len());
         self.apply_filter();
         self.select_location(selected.as_ref());
     }

@@ -11,10 +11,15 @@ impl Folder {
     /// rather than applied to the new one.
     pub fn swap_with(&mut self, other: &mut Folder) {
         let generation = self.generation.max(other.generation) + 1;
+        let listing_revision = self.listing_revision.max(other.listing_revision) + 1;
+        let column_scan_revision = self.column_scan_revision.max(other.column_scan_revision) + 1;
         let epoch = self.size_epoch.max(other.size_epoch) + 1;
         std::mem::swap(self, other);
         for folder in [self, other] {
             folder.generation = generation;
+            folder.listing_revision = listing_revision;
+            folder.column_scan_revision = column_scan_revision;
+            folder.column_filter.begin(folder.all.len());
             folder.size_epoch = epoch;
         }
     }

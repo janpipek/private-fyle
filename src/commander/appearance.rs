@@ -13,8 +13,8 @@ use gpui_kit::*;
 
 use super::Commander;
 use super::keys::{
-    About, OpenConfig, RemoveColumn, SelectColumns, SelectTheme, ToggleCustomTitlebar, ZoomIn,
-    ZoomOut, ZoomReset,
+    About, ClearColumnFilter, ClearColumnFilters, FilterColumn, OpenConfig, RemoveColumn,
+    SelectColumns, SelectTheme, ToggleCustomTitlebar, ZoomIn, ZoomOut, ZoomReset,
 };
 use crate::columns::ColumnId;
 use crate::editor::Document;
@@ -130,6 +130,60 @@ impl Commander {
             && column.builtin() != Some(crate::columns::ColumnKind::Name)
         {
             self.toggle_column(column, false, cx);
+        }
+    }
+
+    /// Opens a filter editor in the panel that owns the captured header.
+    pub fn filter_column(
+        &mut self,
+        action: &FilterColumn,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(raw) = &action.column else {
+            return;
+        };
+        let Ok(column) = ColumnId::new(raw.clone()) else {
+            return;
+        };
+        if let Some(view) = self.views.get(action.panel) {
+            view.update(cx, |view, cx| view.open_column_filter(column, window, cx));
+        }
+    }
+
+    /// Clears one filter in the panel that owns the captured header.
+    pub fn clear_column_filter(
+        &mut self,
+        action: &ClearColumnFilter,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(raw) = &action.column else {
+            return;
+        };
+        let Ok(column) = ColumnId::new(raw.clone()) else {
+            return;
+        };
+        if let Some(folder) = self.folders.get(action.panel) {
+            folder.update(cx, |folder, cx| {
+                folder.clear_column_filter(&column);
+                cx.notify();
+            });
+        }
+    }
+
+    /// Clears all column-value rules from the active panel.
+    pub fn clear_column_filters(
+        &mut self,
+        _: &ClearColumnFilters,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(folder) = self.folders.get(self.active) {
+            folder.update(cx, |folder, cx| {
+                folder.clear_column_filters();
+                cx.notify();
+            });
         }
     }
 

@@ -371,10 +371,11 @@ impl Commander {
             return;
         }
         self.update_folder(cx, |folder| {
-            if folder.filter().is_empty() {
+            if folder.filter().is_empty() && !folder.column_filter().is_active() {
                 folder.clear_marks();
             } else {
                 folder.set_filter("");
+                folder.clear_column_filters();
             }
         });
     }

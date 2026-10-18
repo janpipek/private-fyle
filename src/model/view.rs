@@ -128,7 +128,9 @@ impl Folder {
                 hidden_depth = Some(row.depth);
                 continue;
             }
-            if needle.is_empty() || row.name.to_lowercase().contains(&needle) {
+            if (needle.is_empty() || row.name.to_lowercase().contains(&needle))
+                && self.column_filter.accepts(&row.location)
+            {
                 self.entries.push(row.clone());
             }
         }
@@ -146,6 +148,8 @@ impl Folder {
 #[cfg(test)]
 mod tests {
 
+    use crate::column_filter::{ColumnRule, MatchMode, RowOutcome, ScanIdentity};
+    use crate::columns::{ColumnId, ColumnKind};
     use crate::entry::Sort;
     use crate::entry::SortKey;
     use crate::location::Location;
@@ -163,6 +167,69 @@ mod tests {
         });
         assert_eq!(names(&folder), ["..", "sub", "b.txt", "a.txt"]);
         assert_eq!(folder.current().unwrap().name, "a.txt");
+    }
+
+    #[test]
+    fn column_filter_and_name_filter_keep_parent_and_restore_cursor() {
+        let dir = fixture();
+        let mut folder = loaded(&dir);
+        folder.set_cursor(2);
+        folder.set_filter(".txt");
+        let name = ColumnId::from(ColumnKind::Name);
+        folder.set_column_filters(vec![ColumnRule {
+            column: name.clone(),
+            mode: MatchMode::Contains("a.txt".into()),
+        }]);
+        assert_eq!(names(&folder), [".."]);
+        let identity: ScanIdentity = folder.column_filter_identity();
+        let rows = folder
+            .all_entries()
+            .iter()
+            .map(|row| {
+                let outcome = if row.is_parent || row.name == "a.txt" {
+                    RowOutcome::Match
+                } else {
+                    RowOutcome::NoMatch
+                };
+                (row.location.clone(), outcome)
+            })
+            .collect();
+        assert!(folder.apply_column_filter_batch(identity, rows));
+        assert_eq!(names(&folder), ["..", "a.txt"]);
+        assert_eq!(folder.current().map(|row| row.name.as_str()), Some("a.txt"));
+    }
+
+    #[test]
+    fn column_filter_is_rowwise_for_directories_and_keeps_parent() {
+        let dir = fixture();
+        fs::write(dir.path().join("sub").join("inner.txt"), "").unwrap();
+        let mut folder = loaded(&dir);
+        folder.set_tree(true);
+        reload(&mut folder);
+        folder.toggle_expanded(&Location::local(dir.path().join("sub")).unwrap());
+        reload(&mut folder);
+        let name = ColumnId::from(ColumnKind::Name);
+        folder.set_column_filters(vec![ColumnRule {
+            column: name.clone(),
+            mode: MatchMode::Contains("inner".into()),
+        }]);
+        let rows = folder
+            .all_entries()
+            .iter()
+            .map(|row| {
+                (
+                    row.location.clone(),
+                    if row.name == "inner.txt" || row.is_parent {
+                        RowOutcome::Match
+                    } else {
+                        RowOutcome::NoMatch
+                    },
+                )
+            })
+            .collect();
+        let identity = folder.column_filter_identity();
+        assert!(folder.apply_column_filter_batch(identity, rows));
+        assert_eq!(names(&folder), ["..", "inner.txt"]);
     }
 
     #[test]

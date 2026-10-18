@@ -11,10 +11,14 @@ use crate::entry::SortKey;
 pub mod catalog;
 /// Display-only projection for prepared provider cells.
 pub mod cell;
+/// Shared display projections for values used by cells and filters.
+pub mod display;
 pub mod provider;
 
 /// Immutable catalog and descriptor types shared by panel consumers.
 pub use catalog::Catalog;
+/// Filter editor behavior declared by each catalog entry.
+pub use catalog::FilterBehavior;
 /// Native provider reader request and callback types.
 pub use provider::{NativeColumnReader, ProviderColumnRequest};
 

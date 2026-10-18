@@ -113,7 +113,7 @@ pub fn read(path: &Path) -> io::Result<Vec<Field>> {
     if crate::formats::raw::supported(path) {
         let mut bytes = Vec::new();
         File::open(path)?.take(RAW_LIMIT).read_to_end(&mut bytes)?;
-        let (fields, _) = parse_raw_or_container(&bytes, None)?;
+        let (fields, _) = parse_raw_or_container(&bytes, None, false)?;
         if !fields.is_empty() {
             return Ok(fields);
         }
@@ -122,15 +122,28 @@ pub fn read(path: &Path) -> io::Result<Vec<Field>> {
         let Ok(jpeg) = crate::formats::raw::select_jpeg(&bytes) else {
             return Ok(Vec::new());
         };
-        return Ok(parse_container(Cursor::new(jpeg), None)?.0);
+        return Ok(parse_container(Cursor::new(jpeg), None, false)?.0);
     }
 
     let file = File::open(path)?;
-    Ok(parse_container(BufReader::new(file), None)?.0)
+    Ok(parse_container(BufReader::new(file), None, false)?.0)
 }
 
 /// Reads bounded EXIF facts for Properties without decoding or materializing images.
 pub fn read_properties(path: &Path, cancel: &AtomicBool) -> io::Result<PropertiesRead> {
+    read_properties_impl(path, cancel, false)
+}
+
+/// Reads bounded EXIF facts and preserves malformed and truncated parse failures.
+pub fn read_properties_checked(path: &Path, cancel: &AtomicBool) -> io::Result<PropertiesRead> {
+    read_properties_impl(path, cancel, true)
+}
+
+fn read_properties_impl(
+    path: &Path,
+    cancel: &AtomicBool,
+    strict: bool,
+) -> io::Result<PropertiesRead> {
     if cancel.load(Ordering::Relaxed) {
         return Err(cancelled());
     }
@@ -151,11 +164,12 @@ pub fn read_properties(path: &Path, cancel: &AtomicBool) -> io::Result<Propertie
         if cancel.load(Ordering::Relaxed) {
             return Err(cancelled());
         }
-        let (fields, value_truncated) = parse_properties_raw(&bytes, cancel)?;
+        let (fields, value_truncated) = parse_properties_raw(&bytes, cancel, strict)?;
         (fields, hit_limit || value_truncated)
     } else {
         let mut reader = BufReader::new(capped);
-        let (fields, value_truncated) = parse_container(&mut reader, Some(MAX_FIELD_CHARS))?;
+        let (fields, value_truncated) =
+            parse_container(&mut reader, Some(MAX_FIELD_CHARS), strict)?;
         let hit_limit = reader.into_inner().hit_limit;
         (fields, hit_limit || value_truncated)
     };
@@ -166,10 +180,21 @@ pub fn read_properties(path: &Path, cancel: &AtomicBool) -> io::Result<Propertie
     })
 }
 
-fn parse_properties_raw(bytes: &[u8], cancel: &AtomicBool) -> io::Result<(Vec<Field>, bool)> {
-    let (fields, truncated) = parse_raw_or_container(bytes, Some(MAX_FIELD_CHARS))?;
-    if !fields.is_empty() || bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*") {
-        return Ok((fields, truncated));
+fn parse_properties_raw(
+    bytes: &[u8],
+    cancel: &AtomicBool,
+    strict: bool,
+) -> io::Result<(Vec<Field>, bool)> {
+    if bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*") {
+        return parse_raw_tiff(bytes, Some(MAX_FIELD_CHARS), strict);
+    }
+
+    let mut candidate_error = None;
+    match parse_container(Cursor::new(bytes), Some(MAX_FIELD_CHARS), strict) {
+        Ok((fields, truncated)) if !fields.is_empty() => return Ok((fields, truncated)),
+        Ok(_) => {}
+        Err(error) if strict => candidate_error = Some(error),
+        Err(error) => return Err(error),
     }
 
     // Some RAW files keep EXIF only inside JPEG APP1 segments. Parse the TIFF
@@ -190,16 +215,25 @@ fn parse_properties_raw(bytes: &[u8], cancel: &AtomicBool) -> io::Result<(Vec<Fi
         let Some(tiff) = bytes.get(start..end) else {
             break;
         };
-        if (tiff.starts_with(b"II*\0") || tiff.starts_with(b"MM\0*"))
-            && let Ok((fields, truncated)) = parse_raw_tiff(tiff, Some(MAX_FIELD_CHARS))
-            && !fields.is_empty()
-        {
-            return Ok((fields, truncated));
+        if tiff.starts_with(b"II*\0") || tiff.starts_with(b"MM\0*") {
+            match parse_raw_tiff(tiff, Some(MAX_FIELD_CHARS), strict) {
+                Ok((fields, truncated)) if !fields.is_empty() => {
+                    return Ok((fields, truncated));
+                }
+                Ok(_) => {}
+                Err(error) if strict => {
+                    candidate_error.get_or_insert(error);
+                }
+                Err(_) => {}
+            };
         }
         cursor = start;
         if cursor >= bytes.len() {
             break;
         }
+    }
+    if let Some(error) = candidate_error {
+        return Err(error);
     }
     Ok((Vec::new(), false))
 }
@@ -207,38 +241,52 @@ fn parse_properties_raw(bytes: &[u8], cancel: &AtomicBool) -> io::Result<(Vec<Fi
 fn parse_raw_or_container(
     bytes: &[u8],
     max_chars: Option<usize>,
+    strict: bool,
 ) -> io::Result<(Vec<Field>, bool)> {
     if bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*") {
-        parse_raw_tiff(bytes, max_chars)
+        parse_raw_tiff(bytes, max_chars, strict)
     } else {
-        parse_container(Cursor::new(bytes), max_chars)
+        parse_container(Cursor::new(bytes), max_chars, strict)
     }
 }
 
-fn parse_raw_tiff(bytes: &[u8], max_chars: Option<usize>) -> io::Result<(Vec<Field>, bool)> {
-    collect_result(exif::Reader::new().read_raw(bytes.to_vec()), max_chars)
+fn parse_raw_tiff(
+    bytes: &[u8],
+    max_chars: Option<usize>,
+    strict: bool,
+) -> io::Result<(Vec<Field>, bool)> {
+    collect_result(
+        exif::Reader::new().read_raw(bytes.to_vec()),
+        max_chars,
+        strict,
+    )
 }
 
 fn parse_container<R: io::BufRead + Seek>(
     mut reader: R,
     max_chars: Option<usize>,
+    strict: bool,
 ) -> io::Result<(Vec<Field>, bool)> {
     collect_result(
         exif::Reader::new().read_from_container(&mut reader),
         max_chars,
+        strict,
     )
 }
 
 fn collect_result(
     parsed: Result<exif::Exif, exif::Error>,
     max_chars: Option<usize>,
+    strict: bool,
 ) -> io::Result<(Vec<Field>, bool)> {
     match parsed {
         Ok(exif) => Ok(collect(&exif, max_chars)),
-        Err(exif::Error::Io(error)) if error.kind() == io::ErrorKind::UnexpectedEof => {
+        Err(exif::Error::Io(error)) if error.kind() == io::ErrorKind::UnexpectedEof && !strict => {
             Ok((Vec::new(), false))
         }
         Err(exif::Error::Io(error)) => Err(error),
+        Err(exif::Error::NotFound(_)) => Ok((Vec::new(), false)),
+        Err(error) if strict => Err(io::Error::new(io::ErrorKind::InvalidData, error)),
         Err(_) => Ok((Vec::new(), false)),
     }
 }
@@ -370,7 +418,7 @@ fn cancelled() -> io::Error {
 mod tests {
     use image::ImageEncoder;
 
-    use super::{Field, Tag, read, read_properties};
+    use super::{Field, Tag, read, read_properties, read_properties_checked};
 
     fn jpeg_with_exif() -> Vec<u8> {
         let mut tiff = b"II*\0\x08\0\0\0".to_vec();
@@ -501,6 +549,32 @@ mod tests {
         std::io::Read::read_to_end(&mut capped, &mut bytes).expect("bounded read");
         assert_eq!(bytes.len(), 4);
         assert!(capped.hit_limit);
+    }
+
+    #[test]
+    fn checked_properties_reader_preserves_malformed_parse_errors() {
+        let temp = tempfile::TempDir::new().expect("temp dir");
+        let path = temp.path().join("malformed.jpg");
+        std::fs::write(&path, b"not an image").expect("write malformed image");
+
+        assert!(
+            read_properties(&path, &Default::default())
+                .expect("legacy reader keeps treating parse errors as absence")
+                .fields
+                .is_empty()
+        );
+        assert_eq!(
+            read_properties_checked(&path, &Default::default())
+                .expect_err("checked reader preserves parse errors")
+                .kind(),
+            std::io::ErrorKind::InvalidData
+        );
+        assert_eq!(
+            read_properties_checked(&temp.path().join("missing.jpg"), &Default::default())
+                .expect_err("missing files remain distinguishable")
+                .kind(),
+            std::io::ErrorKind::NotFound
+        );
     }
 
     #[test]

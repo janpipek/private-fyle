@@ -41,6 +41,7 @@ actions!(
         SelectTheme,
         ToggleCustomTitlebar,
         SelectColumns,
+        ClearColumnFilters,
         SelectAll,
         InvertSelection,
         SelectPattern,
@@ -90,6 +91,26 @@ actions!(
 pub struct RemoveColumn {
     /// Persisted ID captured when the header menu opened.
     pub column: Option<String>,
+}
+
+/// Opens the originating panel's editor for one captured column.
+#[derive(Clone, Debug, Default, PartialEq, Action)]
+#[action(namespace = fyle, no_json)]
+pub struct FilterColumn {
+    /// Persisted ID captured by the header menu.
+    pub column: Option<String>,
+    /// Index of the panel whose header was clicked.
+    pub panel: usize,
+}
+
+/// Clears a single rule in the panel whose header menu was opened.
+#[derive(Clone, Debug, Default, PartialEq, Action)]
+#[action(namespace = fyle, no_json)]
+pub struct ClearColumnFilter {
+    /// Persisted ID captured by the header menu.
+    pub column: Option<String>,
+    /// Index of the panel whose header was clicked.
+    pub panel: usize,
 }
 
 pub const CONTEXT: &str = "Commander";
@@ -338,6 +359,9 @@ pub fn action_for(cmd: Cmd) -> Box<dyn Action> {
         Cmd::ToggleHidden => Box::new(ToggleHidden),
         Cmd::SelectColumns => Box::new(SelectColumns),
         Cmd::RemoveColumn => Box::new(RemoveColumn::default()),
+        Cmd::FilterColumn => Box::new(FilterColumn::default()),
+        Cmd::ClearColumnFilter => Box::new(ClearColumnFilter::default()),
+        Cmd::ClearColumnFilters => Box::new(ClearColumnFilters),
         Cmd::SelectTheme => Box::new(SelectTheme),
         Cmd::ToggleCustomTitlebar => Box::new(ToggleCustomTitlebar),
         Cmd::Refresh => Box::new(Refresh),

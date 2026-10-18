@@ -137,6 +137,12 @@ not to pursue an item.
 
 ## Done
 
+- [x] Filter listed values by column: case-insensitive substring matching or
+      categorical multi-select, combined across rules per panel. Full-listing
+      facet and match scans are cancellable, batched and distinguish blank from
+      pending, failed and unavailable reads. Filters clear on navigation/new
+      search, survive refresh and follow their contents across panel swaps.
+
 - [x] Column header controls: a small + opens Edit columns; right-click a
       header to remove that column or edit the full selection. Name remains
       mandatory. Changes apply to both panels and save in order in the

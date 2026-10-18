@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 use std::sync::OnceLock;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::data_providers::{
     Applicability, ColumnContribution, ContributionHeader, ContributionId, DemandLimits,
@@ -50,6 +50,17 @@ pub struct PreparedExif {
     /// Byte prefix used by the Properties reader.
     pub limit: u64,
     /// Whether source bytes or one displayed value exceeded its cap.
+    pub truncated: bool,
+}
+
+/// Bounded EXIF values prepared for column filtering.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CheckedExifColumns {
+    /// Composed values for the existing EXIF columns.
+    pub values: HashMap<&'static str, String>,
+    /// Ordinary-image or RAW prefix limit applied to this read.
+    pub limit: u64,
+    /// Whether source bytes or a displayed value exceeded a reader limit.
     pub truncated: bool,
 }
 
@@ -243,6 +254,30 @@ impl ExifColumns {
         let fields = exif::read(path)?;
         self.provider.prepare_columns(&fields)
     }
+
+    /// Reads bounded EXIF columns while preserving acquisition and cancellation errors.
+    pub fn read_checked(&self, path: &Path, cancel: &AtomicBool) -> io::Result<CheckedExifColumns> {
+        if cancel.load(Ordering::Relaxed) {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "EXIF read cancelled",
+            ));
+        }
+        if !self.matches_path(path) {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "EXIF columns do not apply to this file",
+            ));
+        }
+        let prepared = self
+            .provider
+            .prepare_properties(exif::read_properties_checked(path, cancel)?)?;
+        Ok(CheckedExifColumns {
+            values: self.provider.prepare_columns(&prepared.fields)?,
+            limit: prepared.limit,
+            truncated: prepared.truncated,
+        })
+    }
 }
 
 fn semantic_id(tag: Tag) -> FieldId {
@@ -332,6 +367,26 @@ mod tests {
         tiff.extend(0u32.to_le_bytes());
         tiff.extend(make);
         tiff.extend(model);
+        let mut app1 = b"Exif\0\0".to_vec();
+        app1.extend(tiff);
+        let mut jpeg = vec![0xff, 0xd8, 0xff, 0xe1];
+        jpeg.extend(((app1.len() + 2) as u16).to_be_bytes());
+        jpeg.extend(app1);
+        jpeg.extend([0xff, 0xd9]);
+        jpeg
+    }
+
+    fn jpeg_with_long_make() -> Vec<u8> {
+        let mut tiff = b"II*\0\x08\0\0\0".to_vec();
+        tiff.extend(1_u16.to_le_bytes());
+        let mut make = vec![b'A'; 5_000];
+        make.push(0);
+        tiff.extend(0x010f_u16.to_le_bytes());
+        tiff.extend(2_u16.to_le_bytes());
+        tiff.extend((make.len() as u32).to_le_bytes());
+        tiff.extend(26_u32.to_le_bytes());
+        tiff.extend(0_u32.to_le_bytes());
+        tiff.extend(make);
         let mut app1 = b"Exif\0\0".to_vec();
         app1.extend(tiff);
         let mut jpeg = vec![0xff, 0xd8, 0xff, 0xe1];
@@ -497,5 +552,77 @@ mod tests {
         assert_eq!(prepared.fields.len(), 2);
         assert_eq!(prepared.fields[0].tag, Tag::Make);
         assert_eq!(prepared.fields[1].tag.id(), "model");
+    }
+
+    #[test]
+    fn checked_columns_distinguish_absence_from_file_and_cancellation_errors() {
+        use std::sync::atomic::AtomicBool;
+
+        use image::ImageEncoder;
+
+        let temp = tempfile::TempDir::new().expect("temp dir");
+        let photo = temp.path().join("without-exif.jpg");
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut jpeg)
+            .write_image(&[128, 128, 128], 1, 1, image::ExtendedColorType::Rgb8)
+            .expect("encode JPEG fixture");
+        std::fs::write(&photo, jpeg).expect("write JPEG fixture");
+
+        let columns = columns();
+        let absent = columns
+            .read_checked(&photo, &AtomicBool::new(false))
+            .expect("valid image without EXIF is a successful result");
+        assert!(absent.values.is_empty());
+        assert!(!absent.truncated);
+
+        let missing = temp.path().join("missing.jpg");
+        assert_eq!(
+            columns
+                .read_checked(&missing, &AtomicBool::new(false))
+                .expect_err("missing file must remain an acquisition error")
+                .kind(),
+            std::io::ErrorKind::NotFound
+        );
+
+        let cancelled = AtomicBool::new(true);
+        assert_eq!(
+            columns
+                .read_checked(&photo, &cancelled)
+                .expect_err("cancellation must remain visible")
+                .kind(),
+            std::io::ErrorKind::Interrupted
+        );
+
+        let malformed = temp.path().join("malformed.jpg");
+        std::fs::write(&malformed, b"not an image").expect("write malformed image");
+        assert_eq!(
+            columns
+                .read_checked(&malformed, &AtomicBool::new(false))
+                .expect_err("malformed image must remain a parse error")
+                .kind(),
+            std::io::ErrorKind::InvalidData
+        );
+
+        let embedded_raw = temp.path().join("embedded.cr3");
+        let mut raw = b"RAW wrapper".to_vec();
+        raw.extend(decodable_jpeg_with_exif());
+        std::fs::write(&embedded_raw, raw).expect("write embedded JPEG RAW fixture");
+        assert_eq!(
+            columns
+                .read_checked(&embedded_raw, &AtomicBool::new(false))
+                .expect("bounded reader finds embedded RAW EXIF")
+                .values
+                .get("camera")
+                .map(String::as_str),
+            Some("Acme Snap 1")
+        );
+
+        let long_value = temp.path().join("long.jpg");
+        std::fs::write(&long_value, jpeg_with_long_make()).expect("write long EXIF fixture");
+        let partial = columns
+            .read_checked(&long_value, &AtomicBool::new(false))
+            .expect("bounded field prefix is available");
+        assert!(partial.truncated);
+        assert!(partial.values["camera"].chars().count() <= 4_096);
     }
 }

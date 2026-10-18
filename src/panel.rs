@@ -4,7 +4,9 @@ use std::cell::Cell;
 use std::collections::HashSet;
 use std::path::Path;
 use std::rc::Rc;
+use std::sync::atomic::AtomicBool;
 
+use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::menu::PopupMenu;
 use gpui_kit::component::table::{DataTable, TableEvent, TableState};
@@ -21,6 +23,10 @@ use crate::location::PanelTarget;
 use crate::model::{DragSnapshot, Folder};
 use std::sync::Arc;
 
+/// Independent column-filter scan acquisition.
+pub mod column_filter;
+/// Live filter editor dialog for one column.
+pub mod column_filter_view;
 /// Breadcrumb, location-bar and header-button rendering.
 pub mod header_view;
 pub mod metadata;
@@ -149,6 +155,20 @@ pub struct FolderView {
     _locations_menu_dismiss: Option<Subscription>,
     git_service: git::Service,
     git_session: git::ColumnSession,
+    catalog: Arc<Catalog>,
+    git_filter_result: Option<Result<Option<Arc<git::Snapshot>>, String>>,
+    git_filter_revision: u64,
+    filter_scan_cancel: Option<Arc<AtomicBool>>,
+    filter_scan_pending: bool,
+    filter_scan_identity: Option<crate::column_filter::ScanIdentity>,
+    filter_scan_facet: Option<ColumnId>,
+    filter_scan_git_revision: u64,
+    filter_scan_request_revision: u64,
+    filter_scan_active_request_revision: u64,
+    filter_scan_rows: usize,
+    filter_facet_column: Option<ColumnId>,
+    filter_scan_done: bool,
+    _filter_scan_task: Task<()>,
     expanded_snapshot: HashSet<crate::location::Location>,
     drop_row: Rc<Cell<Option<usize>>>,
     _git_task: Task<()>,
@@ -161,12 +181,15 @@ impl EventEmitter<TreeExpansionChanged> for FolderView {}
 impl EventEmitter<PanelDrop> for FolderView {}
 
 impl FolderView {
+    // GPUI's view constructor needs both its initial presentation and window context.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         folder: Entity<Folder>,
         columns: Vec<ColumnId>,
         providers: Providers,
         mode: ViewMode,
         icon_size: u32,
+        panel_index: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -179,9 +202,10 @@ impl FolderView {
         let delegate = FileTable::new(
             folder.clone(),
             columns,
-            catalog,
+            catalog.clone(),
             metadata.clone(),
             drop_row.clone(),
+            panel_index,
         );
         let table = cx.new(|cx| {
             TableState::new(delegate, window, cx)
@@ -220,6 +244,7 @@ impl FolderView {
                 }
                 this.sync_cursor(cx);
                 this.refresh_git(cx);
+                this.request_column_filter_scan(cx);
             }),
             cx.observe(&metadata, |this, _, cx| {
                 this.table.update(cx, |table, cx| table.refresh(cx));
@@ -250,6 +275,20 @@ impl FolderView {
             _locations_menu_dismiss: None,
             git_service,
             git_session: git::ColumnSession::default(),
+            catalog,
+            git_filter_result: None,
+            git_filter_revision: 0,
+            filter_scan_cancel: None,
+            filter_scan_pending: false,
+            filter_scan_identity: None,
+            filter_scan_facet: None,
+            filter_scan_git_revision: 0,
+            filter_scan_request_revision: 0,
+            filter_scan_active_request_revision: 0,
+            filter_scan_rows: 0,
+            filter_facet_column: None,
+            filter_scan_done: false,
+            _filter_scan_task: Task::ready(()),
             expanded_snapshot,
             drop_row,
             _git_task: Task::ready(()),
@@ -257,6 +296,7 @@ impl FolderView {
         };
         this.sync_cursor(cx);
         this.refresh_git(cx);
+        this.request_column_filter_scan(cx);
         this
     }
 
@@ -312,81 +352,12 @@ impl FolderView {
             cx.notify();
         });
         self.refresh_git(cx);
-        cx.notify();
-    }
-
-    /// Captures local Git demand and schedules shared bounded work off the UI thread.
-    pub fn refresh_git(&mut self, cx: &mut Context<Self>) {
-        let folder = self.folder.read(cx);
-        let target = self
-            .table
-            .read(cx)
-            .delegate()
-            .columns()
-            .iter()
-            .any(|column| column.as_str() == self.git_service.definition().columns[0].column_id)
-            .then(|| folder.location().cloned())
-            .flatten()
-            .and_then(|location| {
-                let scope = location.as_local_path()?;
-                Some((
-                    location.clone(),
-                    folder.generation(),
-                    self.git_service.key_for_scope(scope),
-                ))
-            });
-        let request = self.git_session.sync(target);
-        if request.is_none() {
-            // A disabled/nonlocal demand must also clear prepared marks.
-            if folder
-                .location()
-                .and_then(|location| location.as_local_path())
-                .is_none()
-                || !self
-                    .table
-                    .read(cx)
-                    .delegate()
-                    .columns()
-                    .iter()
-                    .any(|column| {
-                        column.as_str() == self.git_service.definition().columns[0].column_id
-                    })
-            {
-                self.table.update(cx, |table, cx| {
-                    table.delegate_mut().set_git_snapshot(None);
-                    cx.notify();
-                });
-            }
-            return;
-        }
-        let request = request.expect("a changed local demand returned a request");
-        self.table.update(cx, |table, cx| {
-            table.delegate_mut().set_git_snapshot(None);
+        let visible = self.columns(cx);
+        self.folder.update(cx, |folder, cx| {
+            folder.clear_hidden_column_filter(&visible);
             cx.notify();
         });
-        let lease = self.git_service.subscribe(request.key.clone());
-        self._git_task = cx.spawn(async move |this, cx| {
-            let worker_request = request.clone();
-            let result = cx
-                .background_spawn(async move {
-                    lease.and_then(|lease| lease.wait(&worker_request.cancel))
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                let folder = this.folder.read(cx);
-                if !this.git_session.accepts(&request)
-                    || folder.generation() != request.generation
-                    || folder.location() != Some(&request.location)
-                    || this.git_service.key_for_scope(&request.key.scope) != request.key
-                {
-                    return;
-                }
-                this.table.update(cx, |table, cx| {
-                    table.delegate_mut().set_git_snapshot(result.ok().flatten());
-                    cx.notify();
-                });
-            });
-        });
+        cx.notify();
     }
 
     pub fn focus_handle(&self, cx: &App) -> FocusHandle {
@@ -560,6 +531,7 @@ impl FolderView {
     fn close_filter(&mut self, _: &CloseFilter, window: &mut Window, cx: &mut Context<Self>) {
         self.folder.update(cx, |folder, cx| {
             folder.set_filter("");
+            folder.clear_column_filters();
             cx.notify();
         });
         self.close_filter_bar(window, cx);
@@ -621,6 +593,86 @@ impl Render for FolderView {
                 folder.marked_total().label()
             );
         }
+        let filter_rules = folder.column_filter().rules();
+        let filter_progress = folder.column_filter().progress().clone();
+        let parent_rows = folder
+            .all_entries()
+            .iter()
+            .filter(|row| row.is_parent)
+            .count();
+        let checked = filter_progress.completed.saturating_sub(parent_rows);
+        let check_total = filter_progress.total.saturating_sub(parent_rows);
+        let shown_matches = folder.dir_count() + folder.file_count();
+        let scan_done = self.filter_scan_done;
+        let filter_summary = (!filter_rules.is_empty()).then(|| {
+            let folder_for_clear = self.folder.clone();
+            let chips = filter_rules.into_iter().map(|rule| {
+                let value = match &rule.mode {
+                    crate::column_filter::MatchMode::Contains(text) => format!("contains ‘{text}’"),
+                    crate::column_filter::MatchMode::AnyOf(values) => values
+                        .iter()
+                        .map(|value| value.label())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                };
+                let title = self.catalog.display_descriptor(&rule.column).title;
+                let clear_folder = folder_for_clear.clone();
+                let clear_column = rule.column.clone();
+                h_flex()
+                    .items_center()
+                    .gap_1()
+                    .rounded(cx.theme().radius)
+                    .bg(cx.theme().secondary)
+                    .px_1()
+                    .child(div().text_xs().child(format!("{title}: {value}")))
+                    .child(
+                        Button::new(SharedString::from(format!(
+                            "clear-filter-{}",
+                            rule.column.as_str()
+                        )))
+                        .label("×")
+                        .ghost()
+                        .compact()
+                        .small()
+                        .on_click(move |_, _, cx| {
+                            clear_folder.update(cx, |folder, cx| {
+                                folder.clear_column_filter(&clear_column);
+                                cx.notify();
+                            });
+                        }),
+                    )
+            });
+            let clear_folder = folder_for_clear.clone();
+            h_flex()
+                .items_center()
+                .flex_wrap()
+                .gap_1()
+                .px_1()
+                .children(chips)
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child(format!(
+                            "{} {checked}/{check_total} · {shown_matches} shown · {} failed · {} unavailable",
+                            if scan_done { "Checked" } else { "Checking" },
+                            filter_progress.failed,
+                            filter_progress.unavailable,
+                        )),
+                )
+                .child(
+                    Button::new("clear-all-column-filters")
+                        .label("Clear all")
+                        .ghost()
+                        .small()
+                        .on_click(move |_, _, cx| {
+                            clear_folder.update(cx, |folder, cx| {
+                                folder.clear_column_filters();
+                                cx.notify();
+                            });
+                        }),
+                )
+        });
         let internal_drop_view = cx.weak_entity();
         let external_drop_view = cx.weak_entity();
         let internal_drop_row = self.drop_row.clone();
@@ -629,6 +681,7 @@ impl Render for FolderView {
             .size_full()
             .gap_1()
             .child(header)
+            .children(filter_summary)
             .child(
                 div().flex_1().min_h_0().child(ControlWheelCapture::new(
                     div().size_full().child(match self.mode {

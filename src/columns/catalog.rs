@@ -13,6 +13,17 @@ use crate::location::Location;
 use super::provider::{NativeColumnReader, ProviderColumnRequest};
 use super::{ColumnId, ColumnKind};
 
+/// How a column can be filtered from the values it displays.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FilterBehavior {
+    /// Case-insensitive substring matching is available.
+    Contains,
+    /// Exact category matching and substring matching are available.
+    Categories,
+    /// Filtering cannot acquire values for this column.
+    Disabled(String),
+}
+
 /// Whether a saved column can currently produce cells.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Availability {
@@ -41,6 +52,8 @@ pub struct ColumnDescriptor {
     pub sort_key: Option<crate::entry::SortKey>,
     /// Whether the current catalog can produce values.
     pub availability: Availability,
+    /// Supported filter editor for this column.
+    pub filter_behavior: FilterBehavior,
 }
 
 struct ProviderColumn {
@@ -127,6 +140,7 @@ impl Catalog {
                 builtin: None,
                 sort_key: None,
                 availability: Availability::Unavailable("Provider unavailable".into()),
+                filter_behavior: FilterBehavior::Disabled("Provider unavailable".into()),
             })
     }
 
@@ -191,6 +205,7 @@ impl Catalog {
                 builtin: None,
                 sort_key: None,
                 availability: Availability::Available,
+                filter_behavior: FilterBehavior::Contains,
             };
             pending.push((
                 id,
@@ -309,6 +324,17 @@ fn builtin_descriptor(kind: ColumnKind) -> ColumnDescriptor {
         builtin: Some(kind),
         sort_key: kind.sort_key(),
         availability: Availability::Available,
+        filter_behavior: match kind {
+            ColumnKind::Ext
+            | ColumnKind::GitStatus
+            | ColumnKind::Owner
+            | ColumnKind::Permissions
+            | ColumnKind::Selinux
+            | ColumnKind::Exif(
+                crate::columns::ExifField::Camera | crate::columns::ExifField::Lens,
+            ) => FilterBehavior::Categories,
+            _ => FilterBehavior::Contains,
+        },
     }
 }
 

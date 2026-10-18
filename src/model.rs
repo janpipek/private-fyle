@@ -8,6 +8,7 @@ use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
 mod archives;
+mod column_filter;
 mod history;
 mod marks;
 pub use marks::{DragSnapshot, PointerSelection};
@@ -22,6 +23,7 @@ mod view;
 use archives::Mount;
 use history::Visit;
 
+use crate::column_filter::ColumnFilterState;
 use crate::dirsize::DirSize;
 use crate::entry::{Entry, Sort, compare_entries};
 use crate::fs_ops;
@@ -68,6 +70,9 @@ pub struct Folder {
     entries: Vec<Row>,
     /// Everything listed, before filtering.
     all: Vec<Row>,
+    /// Rules and compact row decisions for column-value filters.
+    column_filter: ColumnFilterState,
+    column_filter_cursor: Option<Location>,
     /// Case-insensitive substring the shown names must contain.
     filter: String,
     /// Set while browsing inside an archive; `path` is then the archive
@@ -89,6 +94,10 @@ pub struct Folder {
     size_epoch: u64,
     /// Bumped whenever the listing is (re)read, so views can drop caches.
     generation: u64,
+    /// Changes when the listing or a listing-backed value changes.
+    listing_revision: u64,
+    /// Column-scan revision excludes streamed search appends, which are handled as a suffix.
+    column_scan_revision: u64,
     /// Directories visited before / after (Back, Forward), with the entry
     /// the cursor was on, most recent last.
     back: Vec<Visit>,
@@ -108,6 +117,8 @@ impl Folder {
             remote_origin: None,
             entries: Vec::new(),
             all: Vec::new(),
+            column_filter: ColumnFilterState::default(),
+            column_filter_cursor: None,
             filter: String::new(),
             mount: None,
             cursor: 0,
@@ -120,6 +131,8 @@ impl Folder {
             sizes: HashMap::new(),
             size_epoch: 0,
             generation: 0,
+            listing_revision: 0,
+            column_scan_revision: 0,
             back: Vec::new(),
             forward: Vec::new(),
         })
@@ -300,6 +313,8 @@ impl Folder {
         if !same_target {
             self.marked.clear();
             self.filter.clear();
+            self.column_filter.clear();
+            self.column_filter_cursor = None;
             self.clear_sizes();
         }
         if !snapshot.search_results {
@@ -329,6 +344,9 @@ impl Folder {
         self.apply_sizes_to_rows();
         sort_row_tree(&mut self.all, 0, self.sort);
         self.generation = self.generation.wrapping_add(1);
+        self.listing_revision = self.listing_revision.wrapping_add(1);
+        self.column_scan_revision = self.column_scan_revision.wrapping_add(1);
+        self.column_filter.begin(self.all.len());
         self.marked
             .retain(|location| self.all.iter().any(|row| &row.location == location));
         self.apply_filter();
@@ -479,6 +497,7 @@ impl Folder {
 
     /// Returns whether the cursor moved.
     pub fn set_cursor(&mut self, ix: usize) -> bool {
+        self.column_filter_cursor = None;
         let ix = ix.min(self.entries.len().saturating_sub(1));
         let changed = ix != self.cursor;
         self.cursor = ix;

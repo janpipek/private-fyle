@@ -330,6 +330,13 @@ header borders to resize. The small **+** at the right of each table header
 opens **Edit columns…**; right-click a header for **Remove column** or
 **Edit columns…**. Name is required and cannot be removed. Column choices
 apply to both panels and are saved in order in the background.
+Right-click a header and choose **Filter column…** to match its displayed values:
+text columns use a case-insensitive substring, while categorical columns offer
+multi-select values. Rules combine across columns, and each panel shows active
+filter chips with per-column removal and a Clear all action. Facets are collected
+from the whole listed folder in cancellable background batches; unsupported and
+failed metadata reads stay distinct from blank values. Filters clear on navigation
+and a new search, and survive refreshes and panel swaps.
 Unknown file sizes show as `—`. Edit columns… (also in the command palette)
 picks the columns from a grouped catalog: file, owner and permissions, Git status,
 media (optional duration for local audio and video files), extended attributes,
@@ -821,7 +828,8 @@ Where things live (`src/`):
 | `extensions.rs`, `extensions/` | Static manifest/package validation, enabled-package Columns/Properties/View registration, typed protocol/result validation and retained-file brokerage; restricted Lua worker and shared Linux supervisor with bounded queue, cancellation/deadline and child reaping. Reserved helper dispatch precedes config/GUI startup; main owns normal-exit cleanup. |
 | `copy_path.rs` | UI-independent selection path policy: local native paths, provider supplied standard URLs and no archive pseudo-paths |
 | `listing.rs`, `listing/contracts.rs` | Cancellable background listing service for local directories, Places, archives, search refresh and remote providers; shared request/result values and bounded per-panel remote listing cache |
-| `panel.rs`, `panel/header_view.rs`, `panel/table_view.rs`, `panel/metadata.rs`, `panel/metadata/` | `FolderView` owns input/menu lifecycle, focus and list/icon coordination; `header_view.rs` renders breadcrumbs, location editing and header buttons; `table_view.rs` owns `FileTable` rendering and forwarding to `Folder`; `metadata/model.rs` owns bounded request/cache policy; `metadata/reader.rs` reads optional local values; `metadata.rs` schedules GPUI workers shared by list and icon views; `metadata/exif.rs` adapts provider-owned EXIF columns to the metadata queue |
+| `panel.rs`, `panel/header_view.rs`, `panel/table_view.rs`, `panel/metadata.rs`, `panel/metadata/`, `panel/column_filter.rs`, `panel/column_filter_view.rs` | `FolderView` owns input/menu lifecycle, focus and list/icon coordination; `header_view.rs` renders breadcrumbs, location editing and header buttons; `table_view.rs` owns `FileTable` rendering and forwarding to `Folder`; `column_filter.rs` runs one cancellable full-listing filter/facet scan per panel; `column_filter_view.rs` edits text or categorical rules; `metadata/model.rs` owns bounded render-cache request policy; `metadata/reader.rs` reads optional local values; `metadata.rs` schedules GPUI workers shared by list and icon views; `metadata/exif.rs` adapts provider-owned EXIF columns to the metadata queue |
+| `column_filter.rs`, `model/column_filter.rs`, `columns/display.rs` | Pure AND/OR matching, distinct value outcomes, bounded category aggregation and scan identity; Folder owns filter rules and row projection; shared listing-column text formatting keeps size, extension, permissions and time matches aligned with table cells |
 | `thumbnails.rs`, `thumb_queue.rs`, `raw_preview.rs` | Icon view thumbnails: the freedesktop cache (URI and MD5 names, validity by `Thumb::MTime`, atomic writes, failure records), RAW preview cache identity and atomic JPEG materialization, and the load scheduler with its LRU, all UI-independent and tested |
 | `grid.rs`, `icon_view.rs`, `glyphs.rs`, `context_menu.rs` | Icon view: `ViewMode`, icon sizes, `Layout` (columns for a width) and cursor moves (UI-independent, tested); the lazy `IconGrid` view; the `FileIcon` → glyph table and the right-click menu shared with the list |
 | `workspace.rs`, `inspector_view.rs` | Workspace layout and active panel roles; the inspector tab controller retains View/Properties selection while the inspector is closed or dock layout changes. |

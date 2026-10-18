@@ -21,9 +21,9 @@ mod web;
 mod workspace_view;
 
 pub use self::keys::{
-    CopyLocation, EditLocation, GoTo, Open, Quit, RemoveColumn, SelectColumns, SortByExt,
-    SortByModified, SortByName, SortBySize, SortDescending, ToggleBookmark, bind_keys,
-    bind_user_keys, validate_user_keys,
+    ClearColumnFilter, CopyLocation, EditLocation, FilterColumn, GoTo, Open, Quit, RemoveColumn,
+    SelectColumns, SortByExt, SortByModified, SortByName, SortBySize, SortDescending,
+    ToggleBookmark, bind_keys, bind_user_keys, validate_user_keys,
 };
 
 use std::cell::Cell;
@@ -256,6 +256,7 @@ impl Commander {
                     },
                     mode,
                     panels.icon_size,
+                    ix,
                     window,
                     cx,
                 )
@@ -655,6 +656,9 @@ impl Render for Commander {
             .on_action(cx.listener(Self::open_terminal))
             .on_action(cx.listener(Self::select_columns))
             .on_action(cx.listener(Self::remove_column))
+            .on_action(cx.listener(Self::filter_column))
+            .on_action(cx.listener(Self::clear_column_filter))
+            .on_action(cx.listener(Self::clear_column_filters))
             .on_action(cx.listener(Self::edit_shortcuts))
             .on_action(cx.listener(Self::manage_remotes))
             .on_action(cx.listener(Self::select_all))

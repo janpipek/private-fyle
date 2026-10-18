@@ -13,10 +13,10 @@ use gpui_kit::component::{ActiveTheme as _, Icon, IconName, h_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use crate::columns::catalog::Availability;
 use crate::columns::{Catalog, ColumnId, ColumnKind};
 use crate::context_menu::{self, ContextMenuBuilder};
 use crate::entry::Sort;
-use crate::fs_ops;
 use crate::git_status;
 use crate::glyphs::glyph;
 use crate::icons;
@@ -35,6 +35,7 @@ pub struct FileTable {
     focus: Option<FocusHandle>,
     context_row: Rc<Cell<Option<usize>>>,
     drop_row: Rc<Cell<Option<usize>>>,
+    panel_index: usize,
 }
 
 impl FileTable {
@@ -45,6 +46,7 @@ impl FileTable {
         catalog: Arc<Catalog>,
         metadata: Entity<metadata::MetadataState>,
         drop_row: Rc<Cell<Option<usize>>>,
+        panel_index: usize,
     ) -> Self {
         Self {
             folder,
@@ -56,6 +58,7 @@ impl FileTable {
             focus: None,
             context_row: Rc::new(Cell::new(None)),
             drop_row,
+            panel_index,
         }
     }
 
@@ -124,21 +127,66 @@ impl TableDelegate for FileTable {
         let column = self.columns[col_ix].clone();
         let focus = self.focus.clone();
         let menu_focus = focus.clone();
+        let context_row = self.context_row.clone();
+        let panel_index = self.panel_index;
+        let folder = self.folder.read(cx);
+        let column_filter_active = folder
+            .column_filter()
+            .rules()
+            .iter()
+            .any(|rule| rule.column == column);
+        let has_column_filters = !folder.column_filter().rules().is_empty();
+        let local_source = folder
+            .location()
+            .and_then(|location| location.as_local_path())
+            .is_some();
+        let descriptor = self.catalog.display_descriptor(&column);
+        let local_only = matches!(
+            column.builtin(),
+            Some(
+                ColumnKind::Duration
+                    | ColumnKind::GitStatus
+                    | ColumnKind::Owner
+                    | ColumnKind::Xattrs
+                    | ColumnKind::Selinux
+                    | ColumnKind::Exif(_)
+            )
+        );
+        let filter_reason = if matches!(descriptor.availability, Availability::Unavailable(_)) {
+            Some("This column's provider is unavailable")
+        } else if matches!(
+            descriptor.filter_behavior,
+            crate::columns::FilterBehavior::Disabled(_)
+        ) {
+            Some("This column has no filter reader")
+        } else if local_only && !local_source {
+            Some("This column requires local files")
+        } else {
+            None
+        };
         let state = crate::menus::State {
             header_column: Some(column.clone()),
+            header_filter_active: column_filter_active,
+            has_column_filters,
+            filter_column_unavailable: filter_reason,
             ..Default::default()
         };
+        let filter = crate::menus::Cmd::FilterColumn;
+        let clear_filter = crate::menus::Cmd::ClearColumnFilter;
         let remove = crate::menus::Cmd::RemoveColumn;
-        let unavailable = remove.unavailable(&state);
+        let filter_unavailable = filter.unavailable(&state);
+        let clear_unavailable = clear_filter.unavailable(&state);
+        let remove_unavailable = remove.unavailable(&state);
         div()
             .id(("column-menu", col_ix))
             .size_full()
             .child(self.column(col_ix, cx).name.clone())
             .capture_any_mouse_down(move |event, window, cx| {
-                if event.button == MouseButton::Right
-                    && let Some(focus) = &focus
-                {
-                    focus.focus(window, cx);
+                if event.button == MouseButton::Right {
+                    context_row.take();
+                    if let Some(focus) = &focus {
+                        focus.focus(window, cx);
+                    }
                 }
             })
             .context_menu(move |menu, _, _| {
@@ -146,12 +194,36 @@ impl TableDelegate for FileTable {
                     Some(focus) => menu.action_context(focus.clone()),
                     None => menu,
                 };
-                let label = unavailable
+                let with_reason =
+                    |command: crate::menus::Cmd, unavailable: Option<&'static str>| {
+                        unavailable
+                            .map(|reason| format!("{} — {reason}", command.label()))
+                            .unwrap_or_else(|| command.label().to_owned())
+                    };
+                let filter_label = with_reason(filter, filter_unavailable);
+                let clear_label = with_reason(clear_filter, clear_unavailable);
+                let label = remove_unavailable
                     .map(|reason| format!("{} — {reason}", remove.label()))
                     .unwrap_or_else(|| remove.label().to_owned());
                 menu.item(
+                    PopupMenuItem::new(filter_label)
+                        .disabled(filter_unavailable.is_some())
+                        .action(Box::new(crate::commander::FilterColumn {
+                            column: Some(column.as_str().to_owned()),
+                            panel: panel_index,
+                        })),
+                )
+                .item(
+                    PopupMenuItem::new(clear_label)
+                        .disabled(clear_unavailable.is_some())
+                        .action(Box::new(crate::commander::ClearColumnFilter {
+                            column: Some(column.as_str().to_owned()),
+                            panel: panel_index,
+                        })),
+                )
+                .item(
                     PopupMenuItem::new(label)
-                        .disabled(unavailable.is_some())
+                        .disabled(remove_unavailable.is_some())
                         .action(Box::new(crate::commander::RemoveColumn {
                             column: Some(column.as_str().to_owned()),
                         })),
@@ -541,38 +613,38 @@ impl TableDelegate for FileTable {
             }
             ColumnKind::Ext => div()
                 .text_color(color)
-                .child(entry.ext().to_string())
+                .child(crate::columns::display::listing_text(kind, entry, None).unwrap_or_default())
                 .into_any_element(),
             ColumnKind::Size => div()
                 .w_full()
                 .text_right()
                 .text_color(color)
-                .child(if entry.is_dir {
-                    folder
-                        .dir_size(&entry.path)
-                        .map_or_else(|| "<DIR>".to_string(), |size| size.label())
-                } else {
-                    entry.size.map_or_else(|| "—".into(), fs_ops::format_size)
-                })
+                .child(
+                    crate::columns::display::listing_text(
+                        kind,
+                        entry,
+                        folder
+                            .dir_size(&entry.path)
+                            .map(|size| size.label())
+                            .as_deref(),
+                    )
+                    .unwrap_or_default(),
+                )
                 .into_any_element(),
             ColumnKind::Modified => div()
                 .text_color(theme.muted_foreground)
-                .when_some(entry.modified, |d, t| d.child(fs_ops::format_time(t)))
+                .child(crate::columns::display::listing_text(kind, entry, None).unwrap_or_default())
                 .into_any_element(),
             ColumnKind::Permissions => div()
                 .font_family(theme.mono_font_family.clone())
                 .text_xs()
                 .text_color(theme.muted_foreground)
-                .when(!entry.is_parent, |d| {
-                    d.child(entry.attrs.permissions(entry.is_dir))
-                })
+                .child(crate::columns::display::listing_text(kind, entry, None).unwrap_or_default())
                 .into_any_element(),
             ColumnKind::Owner => div().into_any_element(),
             ColumnKind::Created => div()
                 .text_color(theme.muted_foreground)
-                .when_some(entry.attrs.created.filter(|_| !entry.is_parent), |d, t| {
-                    d.child(fs_ops::format_time(t))
-                })
+                .child(crate::columns::display::listing_text(kind, entry, None).unwrap_or_default())
                 .into_any_element(),
             ColumnKind::GitStatus => {
                 let mark = self

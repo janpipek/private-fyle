@@ -8,6 +8,213 @@ use std::sync::atomic::Ordering;
 use super::exif;
 use super::model::{Field, Request, Values};
 
+/// Reads one optional local metadata column for an independent filter scan.
+/// Unlike the render cache this is called directly over the captured listing,
+/// so files outside the visible-row cache are not skipped.
+pub fn read_filter_column(
+    id: &crate::columns::ColumnId,
+    row: &crate::model::Row,
+    cancel: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    catalog: &crate::columns::Catalog,
+) -> crate::column_filter::ValueOutcome {
+    use crate::column_filter::{ValueCompleteness, ValueOutcome};
+    use crate::columns::ColumnKind;
+    use crate::data_providers::{Completeness, ResultState};
+
+    let unavailable = |message: &str| ValueOutcome::Unavailable(message.to_owned());
+    let failed = |error: std::io::Error| ValueOutcome::Failed(error.to_string());
+    if cancel.load(Ordering::Relaxed) {
+        return ValueOutcome::Pending;
+    }
+    let Some(path) = row.location.as_local_path() else {
+        return unavailable("metadata columns require a local source");
+    };
+    let path = path.to_path_buf();
+    let local = |text: String| {
+        if text.is_empty() {
+            ValueOutcome::Blank
+        } else {
+            ValueOutcome::Ready {
+                text,
+                completeness: ValueCompleteness::Complete,
+            }
+        }
+    };
+    let Some(kind) = id.builtin() else {
+        let request = crate::columns::ProviderColumnRequest {
+            location: row.location.clone(),
+            name: row.entry.name.clone(),
+            is_dir: row.entry.is_dir,
+            demand: catalog
+                .provider_demand(id)
+                .unwrap_or(crate::data_providers::DemandLimits {
+                    max_bytes: 0,
+                    max_items: 0,
+                }),
+            cancel: cancel.clone(),
+        };
+        return match catalog.read_provider_cell(id, &request) {
+            ResultState::Ready {
+                value,
+                completeness,
+            } => {
+                let state = ResultState::Ready {
+                    value,
+                    completeness: completeness.clone(),
+                };
+                let display = crate::columns::cell::project(&state);
+                if display.text.is_empty() {
+                    ValueOutcome::Blank
+                } else {
+                    let completeness = match completeness {
+                        Completeness::Complete => ValueCompleteness::Complete,
+                        Completeness::Truncated(reason) => ValueCompleteness::Partial(reason),
+                        Completeness::LowerBound => ValueCompleteness::LowerBound,
+                    };
+                    ValueOutcome::Ready {
+                        text: display.text,
+                        completeness,
+                    }
+                }
+            }
+            ResultState::Absent => ValueOutcome::Blank,
+            ResultState::Pending => ValueOutcome::Pending,
+            ResultState::Failed(reason) => ValueOutcome::Failed(reason),
+            ResultState::Unavailable(reason) => ValueOutcome::Unavailable(reason),
+        };
+    };
+    match kind {
+        ColumnKind::Duration => match media_provider::duration_column()
+            .read(&path, || cancel.load(Ordering::Relaxed))
+        {
+            Err(error) => failed(error),
+            Ok(prepared) => match prepared.duration {
+                ResultState::Ready {
+                    value,
+                    completeness,
+                } => {
+                    let Some(text) = media::format_duration(value.value()) else {
+                        return ValueOutcome::Blank;
+                    };
+                    ValueOutcome::Ready {
+                        text,
+                        completeness: match completeness {
+                            Completeness::Complete => ValueCompleteness::Complete,
+                            Completeness::Truncated(reason) => ValueCompleteness::Partial(reason),
+                            Completeness::LowerBound => ValueCompleteness::LowerBound,
+                        },
+                    }
+                }
+                ResultState::Absent => ValueOutcome::Blank,
+                ResultState::Pending => ValueOutcome::Pending,
+                ResultState::Failed(reason) => ValueOutcome::Failed(reason),
+                ResultState::Unavailable(reason) => ValueOutcome::Unavailable(reason),
+            },
+        },
+        ColumnKind::Owner => local(fs_ops::owner_name(row.entry.attrs.uid)),
+        ColumnKind::Xattrs => {
+            match crate::xattr::list(&path, &mut || {
+                if cancel.load(Ordering::Relaxed) {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::Interrupted,
+                        "column scan cancelled",
+                    ))
+                } else {
+                    Ok(())
+                }
+            }) {
+                Ok(bytes) => {
+                    let mut names: Vec<_> = bytes
+                        .split(|b| *b == 0)
+                        .filter(|part| !part.is_empty())
+                        .map(|part| String::from_utf8_lossy(part).into_owned())
+                        .collect();
+                    names.sort();
+                    local(names.join(", "))
+                }
+                Err(error) if crate::xattr::unsupported(&error) => {
+                    unavailable("extended attributes are unsupported for this source")
+                }
+                Err(error) => failed(error),
+            }
+        }
+        ColumnKind::Selinux => {
+            match crate::xattr::get(&path, b"security.selinux", 64 * 1024, &mut || {
+                if cancel.load(Ordering::Relaxed) {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::Interrupted,
+                        "column scan cancelled",
+                    ))
+                } else {
+                    Ok(())
+                }
+            }) {
+                Ok(crate::xattr::ReadValue::Complete(bytes)) => local(
+                    String::from_utf8_lossy(&bytes)
+                        .trim_end_matches('\0')
+                        .to_owned(),
+                ),
+                Ok(crate::xattr::ReadValue::Omitted(_)) => {
+                    ValueOutcome::Failed("SELinux context exceeds 64 KiB".into())
+                }
+                Err(error) if crate::xattr::unsupported(&error) => {
+                    unavailable("SELinux labels are unsupported for this source")
+                }
+                Err(error) if selinux_value_absent(&error) => ValueOutcome::Blank,
+                Err(error) => failed(error),
+            }
+        }
+        ColumnKind::Exif(field) => match exif::exif_fields_checked(&path, cancel) {
+            Ok(values) => project_exif_value(&values, field.key()),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => ValueOutcome::Pending,
+            Err(error) if error.kind() == std::io::ErrorKind::Unsupported => {
+                unavailable("EXIF is unavailable for this file type")
+            }
+            Err(error) => failed(error),
+        },
+        ColumnKind::Permissions => local(row.entry.attrs.permissions(row.entry.is_dir)),
+        _ => unavailable("this column is provided by the listing"),
+    }
+}
+
+fn project_exif_value(
+    values: &crate::data_providers::exif::CheckedExifColumns,
+    key: &str,
+) -> crate::column_filter::ValueOutcome {
+    use crate::column_filter::{ValueCompleteness, ValueOutcome};
+    let text = values.values.get(key).cloned().unwrap_or_default();
+    if text.is_empty() {
+        if values.truncated {
+            ValueOutcome::Failed(format!(
+                "EXIF result was truncated at {} bytes; blank is unknown",
+                values.limit
+            ))
+        } else {
+            ValueOutcome::Blank
+        }
+    } else {
+        ValueOutcome::Ready {
+            text,
+            completeness: if values.truncated {
+                ValueCompleteness::Partial(format!("EXIF values bounded at {} bytes", values.limit))
+            } else {
+                ValueCompleteness::Complete
+            },
+        }
+    }
+}
+
+fn selinux_value_absent(error: &std::io::Error) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        error.raw_os_error() == Some(libc::ENODATA)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        error.kind() == std::io::ErrorKind::NotFound
+    }
+}
+
 /// Reads only requested fields; missing optional metadata keeps its existing empty value.
 pub fn read_metadata(request: &Request, catalog: &crate::columns::Catalog) -> Values {
     let path = request.path();
@@ -85,10 +292,11 @@ pub fn read_metadata(request: &Request, catalog: &crate::columns::Catalog) -> Va
 
 #[cfg(test)]
 mod tests {
-    use super::read_metadata;
+    use super::{project_exif_value, read_filter_column, read_metadata};
+    use crate::column_filter::ValueOutcome;
     use crate::columns::Catalog;
-    use crate::columns::ColumnId;
     use crate::columns::provider::NativeColumnReader;
+    use crate::columns::{ColumnId, ColumnKind};
     use crate::data_providers::{
         ColumnContribution, ContributionHeader, ContributionId, DemandLimits, FieldDefinition,
         FieldId, FieldKind, ProviderDefinition, ProviderId, RegistrationOrigin, ResultState, Unit,
@@ -99,8 +307,73 @@ mod tests {
     use crate::panel::metadata::model::{CapturedRow, Field, MetadataQueue};
     use std::collections::HashMap;
     use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
     use std::sync::atomic::Ordering;
     use tempfile::TempDir;
+
+    #[test]
+    fn truncated_exif_without_requested_field_is_not_known_blank() {
+        let values = crate::data_providers::exif::CheckedExifColumns {
+            values: HashMap::new(),
+            limit: 1024,
+            truncated: true,
+        };
+        assert!(matches!(
+            project_exif_value(&values, "camera"),
+            ValueOutcome::Failed(_)
+        ));
+        let complete = crate::data_providers::exif::CheckedExifColumns {
+            truncated: false,
+            ..values
+        };
+        assert_eq!(project_exif_value(&complete, "camera"), ValueOutcome::Blank);
+    }
+
+    #[test]
+    fn absent_selinux_value_is_blank_but_missing_file_is_not() {
+        let temp = TempDir::new().expect("temporary directory");
+        let path = temp.path().join("plain.txt");
+        std::fs::write(&path, "text").expect("test file");
+        let row = crate::model::Row {
+            entry: crate::entry::Entry {
+                name: "plain.txt".into(),
+                path: path.clone(),
+                is_dir: false,
+                is_parent: false,
+                size: Some(4),
+                modified: None,
+                attrs: Default::default(),
+                link: LinkState::NotLink,
+            },
+            location: Location::local(path.clone()).expect("local location"),
+            depth: 0,
+            hit_line: None,
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        let result = read_filter_column(
+            &ColumnId::from(ColumnKind::Selinux),
+            &row,
+            &cancel,
+            &Catalog::with_defaults(),
+        );
+        match result {
+            ValueOutcome::Blank | ValueOutcome::Unavailable(_) => {}
+            other => panic!("unexpected SELinux outcome: {other:?}"),
+        }
+        let missing = temp.path().join("missing");
+        let mut missing_row = row;
+        missing_row.entry.path = missing.clone();
+        missing_row.location = Location::local(missing).expect("missing path is still local");
+        assert!(matches!(
+            read_filter_column(
+                &ColumnId::from(ColumnKind::Selinux),
+                &missing_row,
+                &cancel,
+                &Catalog::with_defaults()
+            ),
+            ValueOutcome::Failed(_)
+        ));
+    }
 
     #[test]
     fn recognition_flows_through_queue_and_obsolete_results_are_rejected() {

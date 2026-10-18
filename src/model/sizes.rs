@@ -86,6 +86,7 @@ impl Folder {
     pub fn clear_sizes(&mut self) {
         self.sizes.clear();
         self.size_epoch += 1;
+        self.invalidate_size_filter_rows();
     }
 
     /// Changes whenever computed sizes are forgotten (refresh, navigation).
@@ -119,12 +120,18 @@ impl Folder {
                 row.entry.size = Some(size.bytes);
             }
         }
+        self.invalidate_size_filter_rows();
     }
 
     /// Marks directories whose scan is still running as cancelled.
     pub fn cancel_running_sizes(&mut self) {
+        let mut changed = false;
         for size in self.sizes.values_mut().filter(|s| s.is_running()) {
             size.state = crate::dirsize::ScanState::Cancelled;
+            changed = true;
+        }
+        if changed {
+            self.invalidate_size_filter_rows();
         }
     }
 
