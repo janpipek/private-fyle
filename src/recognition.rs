@@ -90,10 +90,35 @@ pub fn detect(
     candidates.extend(named);
     if let Some(head) = head {
         let mut content = detector.detect(&head[..head.len().min(HEAD_LIMIT)]);
+        if let Some(db) = db {
+            for candidate in &mut content {
+                candidate.mime = db.canonical(&candidate.mime).to_string();
+            }
+        }
         if content.iter().any(|c| c.mime == "application/zip")
             && candidates.iter().any(|c| native::zip_subtype(&c.mime))
         {
             content.retain(|c| c.mime != "application/zip");
+        }
+        if let Some(subtype) = candidates
+            .iter()
+            .find(|c| native::compression_subtype(&c.mime))
+        {
+            let matching_container = match subtype.mime.as_str() {
+                "application/x-xz-compressed-tar" => "application/x-xz",
+                "application/x-bzip-compressed-tar" | "application/x-bzip2-compressed-tar" => {
+                    "application/x-bzip2"
+                }
+                "application/x-zstd-compressed-tar" => "application/zstd",
+                _ => "",
+            };
+            content.retain(|candidate| candidate.mime != matching_container);
+        }
+        if candidates
+            .iter()
+            .any(|candidate| native::raw_tiff_subtype(&candidate.mime))
+        {
+            content.retain(|candidate| candidate.mime != "image/tiff");
         }
         candidates.extend(content);
     }
@@ -110,16 +135,24 @@ pub fn detect(
 
 /// Reads only a regular file's bounded prefix; callers must run this off the UI thread.
 pub fn read_head(path: &Path) -> io::Result<Vec<u8>> {
-    if !std::fs::metadata(path)?.is_file() {
+    #[cfg(target_os = "linux")]
+    let file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        File::options()
+            .custom_flags(libc::O_NONBLOCK)
+            .read(true)
+            .open(path)?
+    };
+    #[cfg(not(target_os = "linux"))]
+    let file = File::open(path)?;
+    if !file.metadata()?.is_file() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "not a regular file",
         ));
     }
     let mut head = Vec::new();
-    File::open(path)?
-        .take(HEAD_LIMIT as u64)
-        .read_to_end(&mut head)?;
+    file.take(HEAD_LIMIT as u64).read_to_end(&mut head)?;
     Ok(head)
 }
 
@@ -180,5 +213,118 @@ mod tests {
         assert_eq!(super::read_head(&path).unwrap().len(), HEAD_LIMIT);
         assert!(super::read_head(dir.path()).is_err());
         assert!(super::read_head(&dir.path().join("missing")).is_err());
+    }
+
+    #[test]
+    fn content_aliases_canonicalize_before_deduplication_and_zip_suppression() {
+        struct AliasDetector;
+        impl Detector for AliasDetector {
+            fn detect(&self, _head: &[u8]) -> Vec<Candidate> {
+                vec![Candidate::new(
+                    "application/x-alias",
+                    Evidence::Signature,
+                    None,
+                )]
+            }
+        }
+        let mut db = crate::mime::MimeDb::default();
+        db.add_aliases("application/x-alias image/png\n");
+        let candidates = detect(
+            "photo.png",
+            false,
+            Some(b"anything"),
+            Some(&db),
+            &AliasDetector,
+        );
+        assert_eq!(
+            candidates
+                .iter()
+                .filter(|candidate| candidate.mime == "image/png")
+                .count(),
+            1
+        );
+        assert_eq!(candidates[0].evidence, Evidence::Signature);
+        assert!(
+            !candidates
+                .iter()
+                .any(|candidate| candidate.mime == "application/x-alias")
+        );
+        let zip_candidates = detect(
+            "report.docx",
+            false,
+            Some(b"PK\x03\x04"),
+            None,
+            &NativeDetector,
+        );
+        assert!(
+            !zip_candidates
+                .iter()
+                .any(|candidate| candidate.mime == "application/zip")
+        );
+        assert!(zip_candidates.iter().any(|candidate| candidate.mime
+            == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"));
+    }
+
+    #[test]
+    fn matching_compressed_tar_name_keeps_specificity_but_mismatch_keeps_signature() {
+        let matching = detect(
+            "backup.tar.xz",
+            false,
+            Some(b"\xfd7zXZ\0"),
+            None,
+            &NativeDetector,
+        );
+        assert_eq!(matching[0].mime, "application/x-xz-compressed-tar");
+        assert!(
+            !matching
+                .iter()
+                .any(|candidate| candidate.mime == "application/x-xz")
+        );
+        let mismatched = detect(
+            "backup.tar.xz",
+            false,
+            Some(b"\x28\xb5\x2f\xfd"),
+            None,
+            &NativeDetector,
+        );
+        assert_eq!(mismatched[0].mime, "application/zstd");
+        assert!(
+            mismatched
+                .iter()
+                .any(|candidate| candidate.mime == "application/x-xz-compressed-tar")
+        );
+        let mut db = crate::mime::MimeDb::default();
+        db.add_aliases("application/x-bzip-compressed-tar application/x-bzip2-compressed-tar\n");
+        let bz2 = detect(
+            "backup.tar.bz2",
+            false,
+            Some(b"BZh9"),
+            Some(&db),
+            &NativeDetector,
+        );
+        assert_eq!(bz2[0].mime, "application/x-bzip2-compressed-tar");
+        assert!(
+            !bz2.iter()
+                .any(|candidate| candidate.mime == "application/x-bzip2")
+        );
+    }
+
+    #[test]
+    fn tiff_prefix_preserves_only_known_raw_filename_subtypes() {
+        let raw = detect("photo.nef", false, Some(b"II*\0"), None, &NativeDetector);
+        assert_eq!(raw[0].mime, "image/x-nikon-nef");
+        assert!(!raw.iter().any(|candidate| candidate.mime == "image/tiff"));
+        let db = crate::mime::MimeDb::default();
+        let raw = detect(
+            "photo.nef",
+            false,
+            Some(b"II*\0"),
+            Some(&db),
+            &NativeDetector,
+        );
+        assert_eq!(raw[0].mime, "image/x-nikon-nef");
+        assert!(!raw.iter().any(|candidate| candidate.mime == "image/tiff"));
+        let tiff = detect("photo.txt", false, Some(b"II*\0"), None, &NativeDetector);
+        assert_eq!(tiff[0].mime, "image/tiff");
     }
 }

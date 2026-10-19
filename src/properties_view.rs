@@ -254,6 +254,8 @@ fn render_group(group: &PropertyGroup, cx: &App, selection: &mut PropertiesText)
             "Git".into()
         } else if group.id.0 == "sqlite" {
             "SQLite".into()
+        } else if group.id.0 == "recognition" {
+            "File type clues".into()
         } else {
             humanize(&group.id.0)
         }

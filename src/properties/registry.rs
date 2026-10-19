@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::{geo, media, package, parquet, sqlite, xattrs};
+use super::{geo, media, package, parquet, recognition, sqlite, xattrs};
 use crate::extensions::properties::{Handle, PreparedSection};
 use crate::properties::{GroupId, GroupStatus, PropertyGroup, Selection};
 
@@ -84,6 +84,7 @@ impl Registry {
         registry.register(Box::new(package::Provider));
         registry.register(Box::new(media::Provider));
         registry.register(Box::new(geo::Provider::new()));
+        registry.register(Box::new(recognition::Provider));
         registry.register(Box::new(xattrs::Provider));
         registry
     }

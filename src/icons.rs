@@ -115,9 +115,14 @@ pub fn icon_for_detected(
         | "application/vnd.apache.parquet" => FileIcon::Data,
         "text/x-glsl" | "text/wgsl" | "text/x-hlsl" => FileIcon::Code,
         "application/pdf" => FileIcon::Text,
-        "application/zip" | "application/x-rpm" | "application/vnd.debian.binary-package" => {
-            FileIcon::Archive
-        }
+        "application/zip"
+        | "application/x-rpm"
+        | "application/vnd.debian.binary-package"
+        | "application/x-7z-compressed"
+        | "application/vnd.rar"
+        | "application/x-xz"
+        | "application/x-bzip2"
+        | "application/zstd" => FileIcon::Archive,
         _ => fallback,
     }
 }
@@ -195,6 +200,25 @@ mod tests {
             super::icon_for_detected("shader.wgsl", false, false, false, None),
             FileIcon::Code
         );
+    }
+
+    #[test]
+    fn extensionless_compressed_signatures_use_archive_icons() {
+        use crate::recognition::{NativeDetector, detect};
+        for (bytes, mime) in [
+            (&b"7z\xbc\xaf'\x1c"[..], "application/x-7z-compressed"),
+            (b"\xfd7zXZ\0", "application/x-xz"),
+        ] {
+            let candidate = detect("unknown", false, Some(bytes), None, &NativeDetector)
+                .into_iter()
+                .next()
+                .expect("signature candidate");
+            assert_eq!(candidate.mime, mime);
+            assert_eq!(
+                icon_for_detected("unknown", false, false, false, Some(&candidate)),
+                FileIcon::Archive
+            );
+        }
     }
 
     #[test]

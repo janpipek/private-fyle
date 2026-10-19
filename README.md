@@ -281,7 +281,16 @@ File recognition is shared by Open With, panel icons and Preview through the
 UI-independent `recognition` model and its swappable content `Detector` interface.
 The native detector examines at most 8 KiB: known binary signatures (including
 SQLite), complete XML roots (including XMP), JSON, simple YAML mappings and
-GLSL/WGSL content clues. Candidates retain evidence and deterministic likelihood
+GLSL/WGSL content clues. It also recognizes guarded BMP, TIFF, 7z, RAR, xz,
+bzip2, zstd and RIFF AVI prefixes. These signatures are bounded clues, not
+format validation; generic containers carry no preview subtype. The Properties
+perspective exposes ranked MIME candidates with evidence labels for local
+regular files, retaining filename clues and reporting a bounded-prefix read
+failure explicitly. Known TIFF-based RAW filename types and matching compressed
+tar subtypes keep their more specific names; mismatched content signatures remain
+ranked above the filename clue. Properties uses native filename hints, while
+Open With also canonicalizes names through the system MIME database, so its
+candidate vocabulary may differ. Candidates retain evidence and deterministic likelihood
 order: signatures, filename hints, text heuristics, then generic text/binary.
 Ambiguous text is inferred conservatively; heuristic matches are not validation.
 Generic ZIP signatures preserve named Office/OpenDocument subtypes. Preview keeps
@@ -846,7 +855,7 @@ Where things live (`src/`):
 | `search.rs`, `places.rs`, `breadcrumbs.rs`, `remote_labels.rs`, `rename.rs`, `openers.rs`, `terminal.rs`, `palette.rs`, `themes.rs`, `icons.rs`, `settings.rs`, `zoom.rs` | Further UI-independent models, each with tests |
 | `navigation.rs` | Per-panel request tokens, pending destinations and cancellation/completion decisions; no GUI tasks or listing I/O |
 | `settings/persistence.rs` | Config-path discovery, loading with defaults and path-qualified errors, example-file creation and comment-preserving setting saves |
-| `recognition.rs`, `recognition/` | Shared bounded filename/content recognition, ranked MIME candidates and native detector; caller-owned reads and freshness |
+| `recognition.rs`, `recognition/` | Shared bounded filename/content recognition, ranked MIME candidates and native detector; `properties/recognition.rs` exposes candidates and evidence for local regular files; caller-owned reads and freshness |
 | `apps.rs`, `windows_apps.rs`, `mime.rs`, `desktop.rs`, `mimeapps.rs`, `xdg.rs`, `ini.rs` | Open With model: `apps::Catalog` (Linux and Windows discovery) and `merge` with the openers; Windows registry associations; MIME type from shared-mime-info `globs2`/`subclasses`/`aliases`; `.desktop` parsing and `Exec` expansion; `mimeapps.list`; XDG directories |
 | `*_view.rs`, `menu_bar.rs`, `link_badge.rs`, `theme_picker.rs` | Thin views |
 | `commander/remotes_view.rs` | Remote management dialog, rendering a selectable remote list and edit form |

@@ -4,6 +4,18 @@ use super::{Candidate, Evidence};
 
 pub(super) fn by_name(name: &str) -> Option<Candidate> {
     let lower = name.to_lowercase();
+    let compound = if lower.ends_with(".tar.xz") {
+        Some(("application/x-xz-compressed-tar", "xz"))
+    } else if lower.ends_with(".tar.bz2") {
+        Some(("application/x-bzip2-compressed-tar", "bz2"))
+    } else if lower.ends_with(".tar.zst") || lower.ends_with(".tar.zstd") {
+        Some(("application/x-zstd-compressed-tar", "zst"))
+    } else {
+        None
+    };
+    if let Some((mime, extension)) = compound {
+        return Some(Candidate::new(mime, Evidence::Name, Some(extension)));
+    }
     let ext = match name {
         "Justfile" | "justfile" => "just",
         "CMakeLists.txt" => "cmake",
@@ -42,6 +54,14 @@ pub(super) fn by_name(name: &str) -> Option<Candidate> {
         "webp" => ("image/webp", "webp"),
         "bmp" => ("image/bmp", "bmp"),
         "tif" | "tiff" => ("image/tiff", "tiff"),
+        "cr2" => ("image/x-canon-cr2", "cr2"),
+        "dng" => ("image/x-adobe-dng", "dng"),
+        "nef" => ("image/x-nikon-nef", "nef"),
+        "nrw" => ("image/x-nikon-nrw", "nrw"),
+        "arw" => ("image/x-sony-arw", "arw"),
+        "sr2" => ("image/x-sony-sr2", "sr2"),
+        "srf" => ("image/x-sony-srf", "srf"),
+        "pef" => ("image/x-pentax-pef", "pef"),
         "svg" => ("image/svg+xml", "svg"),
         "pdf" => ("application/pdf", "pdf"),
         "mp3" => ("audio/mpeg", "mp3"),
@@ -63,6 +83,12 @@ pub(super) fn by_name(name: &str) -> Option<Candidate> {
         "odt" => ("application/vnd.oasis.opendocument.text", "odt"),
         "ods" => ("application/vnd.oasis.opendocument.spreadsheet", "ods"),
         "parquet" => ("application/vnd.apache.parquet", "parquet"),
+        "7z" => ("application/x-7z-compressed", "7z"),
+        "rar" => ("application/vnd.rar", "rar"),
+        "xz" => ("application/x-xz", "xz"),
+        "bz2" => ("application/x-bzip2", "bz2"),
+        "zst" | "zstd" => ("application/zstd", "zst"),
+        "avi" => ("video/x-msvideo", "avi"),
         _ => return None,
     };
     Some(Candidate::new(mime, Evidence::Name, Some(ext)))
@@ -72,6 +98,27 @@ pub(super) fn zip_subtype(mime: &str) -> bool {
     mime.starts_with("application/vnd.openxmlformats-officedocument.")
         || mime.starts_with("application/vnd.oasis.opendocument.")
         || mime.contains("macroEnabled")
+}
+
+pub(super) fn compression_subtype(mime: &str) -> bool {
+    mime == "application/x-xz-compressed-tar"
+        || mime == "application/x-bzip2-compressed-tar"
+        || mime == "application/x-bzip-compressed-tar"
+        || mime == "application/x-zstd-compressed-tar"
+}
+
+pub(super) fn raw_tiff_subtype(mime: &str) -> bool {
+    matches!(
+        mime,
+        "image/x-canon-cr2"
+            | "image/x-adobe-dng"
+            | "image/x-nikon-nef"
+            | "image/x-nikon-nrw"
+            | "image/x-sony-arw"
+            | "image/x-sony-sr2"
+            | "image/x-sony-srf"
+            | "image/x-pentax-pef"
+    )
 }
 
 pub(super) fn detect(head: &[u8]) -> Vec<Candidate> {
@@ -96,6 +143,24 @@ pub(super) fn detect(head: &[u8]) -> Vec<Candidate> {
         Some(("image/webp", "webp"))
     } else if head.starts_with(b"RIFF") && head.get(8..12) == Some(b"WAVE") {
         Some(("audio/x-wav", "wav"))
+    } else if head.starts_with(b"RIFF") && head.get(8..12) == Some(b"AVI ") {
+        Some(("video/x-msvideo", "avi"))
+    } else if head.starts_with(b"BM") && head.len() >= 14 && head.get(6..10) == Some(&[0; 4]) {
+        Some(("image/bmp", "bmp"))
+    } else if head.starts_with(b"II*\0") || head.starts_with(b"MM\0*") {
+        Some(("image/tiff", "tiff"))
+    } else if head.starts_with(b"7z\xbc\xaf'\x1c") {
+        Some(("application/x-7z-compressed", "7z"))
+    } else if head.starts_with(b"Rar!\x1a\x07\0") || head.starts_with(b"Rar!\x1a\x07\x01\0") {
+        Some(("application/vnd.rar", "rar"))
+    } else if head.starts_with(b"\xfd7zXZ\0") {
+        Some(("application/x-xz", "xz"))
+    } else if head.starts_with(b"BZh")
+        && head.get(3).is_some_and(|byte| (b'1'..=b'9').contains(byte))
+    {
+        Some(("application/x-bzip2", "bz2"))
+    } else if head.starts_with(b"\x28\xb5\x2f\xfd") {
+        Some(("application/zstd", "zst"))
     } else if head.starts_with(b"%PDF-") {
         Some(("application/pdf", "pdf"))
     } else if head.starts_with(b"fLaC") {
@@ -110,7 +175,20 @@ pub(super) fn detect(head: &[u8]) -> Vec<Candidate> {
         None
     };
     if let Some((mime, ext)) = signature {
-        return vec![Candidate::new(mime, Evidence::Signature, Some(ext))];
+        let ext = if matches!(
+            mime,
+            "application/x-7z-compressed"
+                | "application/vnd.rar"
+                | "application/x-xz"
+                | "application/x-bzip2"
+                | "application/zstd"
+                | "video/x-msvideo"
+        ) {
+            None
+        } else {
+            Some(ext)
+        };
+        return vec![Candidate::new(mime, Evidence::Signature, ext)];
     }
     if head.contains(&0) {
         return Vec::new();
@@ -252,5 +330,61 @@ mod tests {
                 "{bytes}"
             );
         }
+    }
+
+    #[test]
+    fn recognizes_bounded_container_and_image_prefixes_without_preview_extensions() {
+        for (bytes, mime) in [
+            (&b"BM\0\0\0\0\0\0\0\0\0\0\0\0"[..], "image/bmp"),
+            (b"II*\0", "image/tiff"),
+            (b"MM\0*", "image/tiff"),
+            (b"7z\xbc\xaf'\x1c", "application/x-7z-compressed"),
+            (b"Rar!\x1a\x07\0", "application/vnd.rar"),
+            (b"Rar!\x1a\x07\x01\0", "application/vnd.rar"),
+            (b"\xfd7zXZ\0", "application/x-xz"),
+            (b"BZh9", "application/x-bzip2"),
+            (b"\x28\xb5\x2f\xfd", "application/zstd"),
+            (b"RIFF\0\0\0\0AVI ", "video/x-msvideo"),
+        ] {
+            let candidate = super::detect(bytes)
+                .into_iter()
+                .next()
+                .expect("signature candidate");
+            assert_eq!(candidate.mime, mime, "{bytes:?}");
+            if mime.starts_with("application/x-")
+                || mime == "application/vnd.rar"
+                || mime == "video/x-msvideo"
+            {
+                assert_eq!(candidate.extension, None);
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_truncated_magics_and_false_bmp_bzip_riff_subtypes() {
+        for bytes in [
+            b"BM".as_slice(),
+            b"II*",
+            b"7z\xbc\xaf'",
+            b"Rar!\x1a\x07",
+            b"\xfd7zXZ",
+            b"BZh0",
+            b"BZhX",
+            b"RIFF\0\0\0\0NOPE",
+        ] {
+            assert!(
+                super::detect(bytes)
+                    .iter()
+                    .all(|candidate| candidate.evidence != crate::recognition::Evidence::Signature),
+                "{bytes:?}"
+            );
+        }
+        let mut bmp = b"BM\0\0\0\0\0\0\0\0\0\0\0\0".to_vec();
+        bmp[6] = 1;
+        assert!(
+            super::detect(&bmp)
+                .iter()
+                .all(|candidate| candidate.evidence != crate::recognition::Evidence::Signature)
+        );
     }
 }

@@ -178,7 +178,10 @@ not to pursue an item.
       Preserve named ZIP subtypes, existing preview reader limits and background
       scheduling/freshness. Remote/archive listing stays name-only; existing
       materialized Preview copies may refine their type. A likelihood-ordered
-      "View as…" selector remains a separate idea above.
+      "View as…" selector remains a separate idea above. Added guarded BMP/TIFF,
+      7z/RAR, xz/bzip2/zstd and RIFF AVI clues, MIME alias canonicalization, and
+      a Properties group showing ranked MIME/evidence clues for local regular
+      files; signature prefixes are not format validation.
 
 - [x] Audio/ID3 Properties: extend the existing bounded ffprobe tag reader
       with album artist, composer, disc, comment and copyright alongside title,

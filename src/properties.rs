@@ -16,6 +16,7 @@ mod git;
 mod media;
 mod package;
 mod parquet;
+mod recognition;
 mod registry;
 mod sqlite;
 mod xattrs;
