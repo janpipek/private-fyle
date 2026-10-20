@@ -5,7 +5,7 @@ Status: the listed migration slices (1, 2a, 2b, 3a, 4a, 4b, 6a, 6b,
 guidance for future features, not work authorized by this plan alone.
 
 This document records the architecture decision, the completed migration and
-boundaries for future work. [README.md](../README.md#architecture) describes
+boundaries for future work. [Architecture](architecture.md) describes
 the current architecture; [TODO.md](../TODO.md) is the source of truth for
 open work and owner decisions. Read the relevant ownership section here when
 changing one of those boundaries.

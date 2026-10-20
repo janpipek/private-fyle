@@ -30,7 +30,7 @@ cargo run --release -- ~/Downloads ~/Documents
 
 The two paths are optional. Without them, fyle opens the current directory on
 the left and your home directory on the right. Linux build dependencies and
-package commands are listed in the [project README](https://github.com/janpipek/private-fyle/blob/main/README.md#build-dependencies).
+package commands are listed in the [development guide](https://github.com/janpipek/private-fyle/blob/main/docs/development.md#build-dependencies).
 
 Once installed, start in specific folders by passing them as arguments:
 

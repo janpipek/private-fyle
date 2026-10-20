@@ -6,7 +6,7 @@ the work before editing:
 | Work | Read |
 | --- | --- |
 | Choosing a feature or resolving its scope | [`TODO.md`](TODO.md): open work, decisions, parked work and completed work |
-| Changing user behavior, settings or module ownership | [`README.md`](README.md): current behavior and architecture map |
+| Changing user behavior, settings or module ownership | [`docs/behavior.md`](docs/behavior.md) and [`docs/architecture.md`](docs/architecture.md): current behavior and module map |
 | Changing tools, tool discovery or plugins | [`docs/tools.md`](docs/tools.md): planning and execution contracts |
 | Continuing the architecture migration | [`docs/architecture-plan.md`](docs/architecture-plan.md): decision, completed slices and remaining conditional work |
 | Changing navigation request handling | [`docs/navigation-lifecycle-plan.md`](docs/navigation-lifecycle-plan.md): implemented boundary and regression cases |
@@ -29,7 +29,8 @@ GPL-3.0-or-later. Linux first; Windows is paused, macOS comes later.
   push and never open a PR unless asked.
 - Others may edit the tree at the same time. Stage only your own changes.
 - When you finish a TODO item, move it to "Done" in `TODO.md` and update
-  `README.md` with the resulting user behavior and architecture.
+  the user guide and relevant behavior/architecture reference with the resulting
+  user behavior and architecture.
 
 ## Code rules
 
