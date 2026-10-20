@@ -8,6 +8,8 @@ permissions: {}
 
 jobs:
   build:
+    # Keep the Rust CI job available while builds are disabled.
+    if: ${{ false }}
     permissions:
       contents: read
     strategy:
