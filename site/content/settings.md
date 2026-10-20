@@ -243,48 +243,69 @@ appears and also sets the process working directory:
 command = ["kitty", "--directory", "{dir}"]
 ```
 
-When the command is empty (the default), Fyle tries `$TERMINAL`; otherwise it
-checks these known terminals in preference order:
+Choose one command below and use it as the `command` value in your existing
+`[terminal]` section. Install the chosen terminal first and make sure its
+executable is on Fyle's `PATH`, or use an absolute executable path.
 
-1. `x-terminal-emulator`
-2. Ptyxis
-3. GNOME Terminal
-4. Konsole
-5. Xfce Terminal
-6. Kitty
-7. Alacritty
-8. WezTerm
-9. Foot
-10. Ghostty
-11. xterm
+### Linux terminals
 
-If none is available, set `[terminal] command`.
+| Terminal | Setting under `[terminal]` |
+| --- | --- |
+| Ghostty | `command = ["ghostty", "--working-directory={dir}"]` |
+| GNOME Terminal | `command = ["gnome-terminal", "--working-directory={dir}"]` |
+| Konsole | `command = ["konsole", "--workdir", "{dir}"]` |
+| Kitty | `command = ["kitty", "--directory", "{dir}"]` |
+| Alacritty | `command = ["alacritty", "--working-directory", "{dir}"]` |
+| WezTerm | `command = ["wezterm", "start", "--cwd", "{dir}"]` |
+| Foot | `command = ["foot", "--working-directory={dir}"]` |
+| Ptyxis | `command = ["ptyxis", "--new-window", "--working-directory={dir}"]` |
+| Xfce Terminal | `command = ["xfce4-terminal", "--working-directory={dir}"]` |
+| xterm | `command = ["xterm"]` |
 
-### Use Ghostty
+Fyle already sets the process working directory, so xterm needs no directory
+argument. The other examples pass it explicitly using each terminal's option;
+see, for example, the [Kitty command-line reference](https://sw.kovidgoyal.net/kitty/invocation/)
+and [WezTerm launch guide](https://wezterm.org/config/launch.html).
 
-To use Ghostty for {{< key "F9" >}} on Linux, put this in Fyle's
-`config.toml`. Replace the existing `[terminal]` section if you have one:
+### Windows terminals
+
+On Windows, edit `%APPDATA%\fyle\config.toml` and choose one of these:
+
+| Terminal | Setting under `[terminal]` |
+| --- | --- |
+| Windows Terminal, default profile | `command = ["wt.exe", "-d", "{dir}"]` |
+| Windows Terminal with PowerShell 7 | `command = ["wt.exe", "-d", "{dir}", "pwsh.exe"]` |
+| Windows Terminal with Command Prompt | `command = ["wt.exe", "-d", "{dir}", "cmd.exe"]` |
+| WezTerm | `command = ["wezterm-gui.exe", "start", "--cwd", "{dir}"]` |
+| Alacritty | `command = ["alacritty.exe", "--working-directory", "{dir}"]` |
+
+The PowerShell 7 example requires `pwsh.exe` to be installed. Windows
+Terminal's `-d` sets the starting directory; a following executable chooses
+the shell. See its [command-line documentation](https://learn.microsoft.com/en-us/windows/terminal/command-line-arguments).
+The WezTerm example uses the [GUI launcher](https://wezterm.org/cli/general.html)
+to avoid opening an extra console window.
+
+For an absolute Windows executable path, TOML single quotes keep backslashes
+literal:
 
 ```toml
 [terminal]
-command = ["ghostty", "--gtk-single-instance=false", "--working-directory={dir}"]
+command = ['C:\Program Files\WezTerm\wezterm-gui.exe', 'start', '--cwd', '{dir}']
 ```
 
-- Install Ghostty and make sure `ghostty` is on Fyle's `PATH`. If needed,
-  replace the first array item with its absolute executable path.
-- Restart Fyle after editing the config, navigate to a local folder, then
-  press {{< key "F9" >}} to open Ghostty there.
-- Fyle replaces `{dir}` with the active panel's folder. Keep the whole
-  `--working-directory={dir}` string as one argument, including for paths
-  containing spaces; no shell quoting is needed inside it.
-- `--gtk-single-instance=false` starts a separate Ghostty process so this
-  invocation uses the requested directory instead of inheriting an existing
-  instance's configuration.
+### Apply the choice
 
-These are Ghostty command-line options; the example belongs in Fyle's config,
-not Ghostty's. See Ghostty's [working-directory option](https://ghostty.org/docs/config/reference#working-directory)
-and [single-instance behavior](https://ghostty.org/docs/config/reference#gtk-single-instance)
-for the directory and process rules.
+1. Replace the existing terminal command; keep only one `[terminal]` section.
+2. Restart Fyle after editing `config.toml`.
+3. Navigate to a local folder and press {{< key "F9" >}}.
+
+Keep `{dir}` inside its array item, even when the folder contains spaces.
+Fyle passes arguments directly, so extra shell quotes are unnecessary.
+
+With `command = []` (the default), Fyle tries `$TERMINAL`, then its known
+terminal list. The automatic list uses Linux terminal names; configure the
+command explicitly for Windows Terminal. An explicit command takes priority
+over automatic detection.
 
 ## File openers
 
