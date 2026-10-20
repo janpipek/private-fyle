@@ -1,0 +1,11 @@
+baseURL = 'https://janpipek.github.io/private-fyle/'
+locale = 'en-US'
+title = 'private-fyle guide'
+disableKinds = ['taxonomy', 'term', 'RSS']
+
+[markup.goldmark.renderer]
+unsafe = true
+
+[params]
+description = 'A practical guide to fyle, the two-panel file manager from private-fyle.'
+repository = 'https://github.com/janpipek/private-fyle'

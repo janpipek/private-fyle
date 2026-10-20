@@ -5,6 +5,10 @@ built with [GPUI Kit](https://gpui-kit.com) (GPUI + gpui-component's `DataTable`
 Linux is the active target. Existing Windows support is retained, but further
 Windows work is paused; macOS comes later (see [`TODO.md`](TODO.md)).
 
+The [user guide](site/README.md) covers everyday tasks, shortcuts, settings,
+remote storage and previews. It is a Hugo site in `site/`; `docs/` remains the
+engineering documentation.
+
 ```sh
 cargo run --release -- [LEFT_DIR] [RIGHT_DIR]
 ```

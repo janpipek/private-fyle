@@ -1,0 +1,20 @@
+{{ define "main" }}
+<div class="home-page">
+  <section class="hero">
+    <div class="eyebrow"><span class="eyebrow-line"></span> The private-fyle user guide</div>
+    <h1>Files in motion.<br><em>Both sides in view.</em></h1>
+    <p class="hero-lead">The private-fyle project builds fyle, a keyboard friendly two-panel file manager for Linux. Browse, compare, inspect, and move files without losing sight of where they are going.</p>
+    <div class="hero-actions"><a class="button button-primary" href="{{ "getting-started/" | relURL }}">Get started <span aria-hidden="true">→</span></a><a class="button button-quiet" href="{{ "shortcuts/" | relURL }}">Keyboard reference <span aria-hidden="true">↗</span></a></div>
+  </section>
+  <figure class="hero-shot"><img src="{{ "images/fyle-panels.png" | relURL }}" alt="fyle showing two file panels, a menu bar, location bars, and a status line" width="1200" height="600"><figcaption><span class="caption-dot"></span> The two-panel workspace · Linux desktop</figcaption></figure>
+  <section class="start-here" aria-labelledby="start-title"><div class="section-header"><div><div class="eyebrow">Find your way</div><h2 id="start-title">Start with a task.</h2></div><p>Open a topic and use the sidebar to keep your place.</p></div>
+    <div class="card-grid">
+      <a class="topic-card" href="{{ "getting-started/" | relURL }}"><span class="card-number">01 / BASICS</span><h3>Set up your workspace</h3><p>Launch fyle and learn how its two panels work together.</p><span class="card-arrow" aria-hidden="true">↗</span></a>
+      <a class="topic-card" href="{{ "file-operations/" | relURL }}"><span class="card-number">02 / FILES</span><h3>Move with confidence</h3><p>Copy, move, rename, delete, and work with archives.</p><span class="card-arrow" aria-hidden="true">↗</span></a>
+      <a class="topic-card" href="{{ "preview/" | relURL }}"><span class="card-number">03 / INSPECT</span><h3>Look before you open</h3><p>Preview a file or read its properties alongside your folders.</p><span class="card-arrow" aria-hidden="true">↗</span></a>
+      <a class="topic-card" href="{{ "remotes/" | relURL }}"><span class="card-number">04 / REMOTES</span><h3>Reach another location</h3><p>Connect to a configured remote and transfer files.</p><span class="card-arrow" aria-hidden="true">↗</span></a>
+    </div>
+  </section>
+  <section class="home-note"><div class="note-rule"></div><div><span class="eyebrow">Built for the task</span><p>Need the complete command list? Press <kbd>F1</kbd> in fyle, or open the <a href="{{ "shortcuts/" | relURL }}">keyboard reference</a>.</p></div></section>
+</div>
+{{ end }}

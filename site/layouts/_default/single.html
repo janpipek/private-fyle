@@ -1,0 +1,12 @@
+{{ define "main" }}
+<article class="doc-page">
+  <div class="doc-meta"><span class="doc-meta-line"></span> User guide / {{ printf "%02d" .Weight }}</div>
+  <h1>{{ .Title }}</h1>
+  {{ with .Params.summary }}<p class="doc-summary">{{ . }}</p>{{ end }}
+  <div class="doc-body">{{ .Content }}</div>
+  <nav class="page-pagination" aria-label="Page navigation">
+    {{ with .NextInSection }}<a class="previous" href="{{ .RelPermalink }}"><span>← Previous</span><strong>{{ .Title }}</strong></a>{{ end }}
+    {{ with .PrevInSection }}<a class="next" href="{{ .RelPermalink }}"><span>Next →</span><strong>{{ .Title }}</strong></a>{{ end }}
+  </nav>
+</article>
+{{ end }}

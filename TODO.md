@@ -137,6 +137,12 @@ not to pursue an item.
 
 ## Done
 
+- [x] Publishable Hugo user guide source in `site/`: getting started,
+      navigation, file operations, workspace controls, inspection, search and
+      editing, tools, remote storage, settings and keyboard reference. Includes
+      real app screenshots, responsive navigation and local build instructions;
+      deployment is left manual.
+
 - [x] Filter listed values by column: case-insensitive substring matching or
       categorical multi-select, combined across rules per panel. Full-listing
       facet and match scans are cancellable, batched and distinguish blank from

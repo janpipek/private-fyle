@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="{{ .Site.Language.Lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111a2b">
+  <meta name="description" content="{{ with .Description }}{{ . }}{{ else }}{{ .Site.Params.description }}{{ end }}">
+  <title>{{ if .IsHome }}private-fyle — user guide{{ else }}{{ .Title }} · private-fyle guide{{ end }}</title>
+  <link rel="icon" href="{{ "favicon.svg" | relURL }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ "css/site.css" | relURL }}">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="{{ .Site.Home.RelPermalink }}" aria-label="private-fyle guide home"><span class="brand-mark" aria-hidden="true">f<span class="brand-slash">/</span></span><span>private-fyle<span class="brand-sub"> / guide</span></span></a>
+      <nav class="top-links" aria-label="External links">
+        <span class="platform">Linux first</span>
+        <a href="{{ .Site.Params.repository }}" rel="noopener noreferrer">Source <span aria-hidden="true">↗</span></a>
+      </nav>
+      <button class="menu-toggle" type="button" aria-controls="sidebar" aria-expanded="false">Menu <span aria-hidden="true">☰</span></button>
+    </div>
+  </header>
+  <div class="site-shell">
+    <aside id="sidebar" class="sidebar" aria-label="Guide navigation">
+      <div class="sidebar-inner">
+        <div class="sidebar-label">User guide</div>
+        <nav aria-label="Guide pages">
+          <a class="nav-link {{ if .IsHome }}active{{ end }}" href="{{ .Site.Home.RelPermalink }}" {{ if .IsHome }}aria-current="page"{{ end }}><span class="nav-index">00</span> Overview</a>
+          {{ range .Site.RegularPages.ByWeight }}
+          <a class="nav-link {{ if eq $.RelPermalink .RelPermalink }}active{{ end }}" href="{{ .RelPermalink }}" {{ if eq $.RelPermalink .RelPermalink }}aria-current="page"{{ end }}><span class="nav-index">{{ printf "%02d" .Weight }}</span> {{ .Title }}</a>
+          {{ end }}
+        </nav>
+        <div class="sidebar-bottom">
+          <p>Keep a source and a destination in view. Work from the keyboard or the menus.</p>
+          <a href="{{ .Site.Params.repository }}/issues">Report an issue <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+    </aside>
+    <main id="main" class="main-content">{{ block "main" . }}{{ end }}</main>
+  </div>
+  <footer class="site-footer"><span>private-fyle · GPL-3.0-or-later</span><span>Documentation for the current Linux build of fyle</span></footer>
+  <script src="{{ "js/site.js" | relURL }}" defer></script>
+</body>
+</html>
