@@ -260,6 +260,32 @@ checks these known terminals in preference order:
 
 If none is available, set `[terminal] command`.
 
+### Use Ghostty
+
+To use Ghostty for {{< key "F9" >}} on Linux, put this in Fyle's
+`config.toml`. Replace the existing `[terminal]` section if you have one:
+
+```toml
+[terminal]
+command = ["ghostty", "--gtk-single-instance=false", "--working-directory={dir}"]
+```
+
+- Install Ghostty and make sure `ghostty` is on Fyle's `PATH`. If needed,
+  replace the first array item with its absolute executable path.
+- Restart Fyle after editing the config, navigate to a local folder, then
+  press {{< key "F9" >}} to open Ghostty there.
+- Fyle replaces `{dir}` with the active panel's folder. Keep the whole
+  `--working-directory={dir}` string as one argument, including for paths
+  containing spaces; no shell quoting is needed inside it.
+- `--gtk-single-instance=false` starts a separate Ghostty process so this
+  invocation uses the requested directory instead of inheriting an existing
+  instance's configuration.
+
+These are Ghostty command-line options; the example belongs in Fyle's config,
+not Ghostty's. See Ghostty's [working-directory option](https://ghostty.org/docs/config/reference#working-directory)
+and [single-instance behavior](https://ghostty.org/docs/config/reference#gtk-single-instance)
+for the directory and process rules.
+
 ## File openers
 
 Add one `[[opener]]` block per rule. {{< key "Enter" >}} opens with the first matching rule
