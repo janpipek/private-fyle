@@ -9,6 +9,11 @@ implementation. Keep unfinished follow-ups here; move completed items to
 **Done**. **Later** holds deferred goals, and **Dropped** records decisions
 not to pursue an item.
 
+- [ ] Reduce Rust CI disk usage before re-enabling the build job: disable
+      incremental compilation and dev/test debug symbols in CI, remove the
+      separate `cargo build` step because `cargo test` compiles the app, and
+      consider removing unused runner SDKs if more space is needed. Verify
+      peak disk usage with Clippy and tests enabled.
 - [ ] Menus and selection, remaining parts: output/history in Tools.
       Implement missing actions as separate features.
 - [ ] Idea: replace the Git status column's `git` subprocess with a Rust
