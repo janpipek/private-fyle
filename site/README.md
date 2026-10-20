@@ -10,10 +10,14 @@ theme, JavaScript package manager, or network access is needed after Hugo is
 installed. From the repository root:
 
 ```sh
-hugo server --source site
+just docs
 ```
 
 Open `http://localhost:1313/private-fyle/` while the server runs.
+The task listens on all interfaces so a container can expose port 1313.
+Pass extra Hugo options after the task name, for example
+`just docs --baseURL http://192.168.1.34:1313/private-fyle/` when viewing
+from another machine (replace the address with your host's address).
 
 For a production build:
 

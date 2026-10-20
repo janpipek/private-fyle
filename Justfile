@@ -6,6 +6,11 @@ default:
 run:
     cargo run
 
+# Preview the user guide (requires Hugo); pass extra Hugo server options
+[positional-arguments]
+docs *args:
+    hugo server --source site --bind 0.0.0.0 "$@"
+
 # Build the development sandbox container image
 sandbox-build:
     uv run tools/sandbox.py build

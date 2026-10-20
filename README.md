@@ -7,7 +7,7 @@ Windows work is paused; macOS comes later (see [`TODO.md`](TODO.md)).
 
 The [user guide](site/README.md) covers everyday tasks, shortcuts, settings,
 remote storage and previews. It is a Hugo site in `site/`; `docs/` remains the
-engineering documentation.
+engineering documentation. Run `just docs` to preview the guide (requires Hugo).
 
 ```sh
 cargo run --release -- [LEFT_DIR] [RIGHT_DIR]
