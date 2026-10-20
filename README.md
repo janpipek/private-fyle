@@ -8,6 +8,8 @@ Browse local folders, archives and remote storage; copy and move with
 background jobs; search, preview and edit files; customize views, shortcuts
 and context-aware tools.
 
+![Fyle two-panel file manager](site/static/images/fyle-panels.png)
+
 ```sh
 cargo run --release -- [LEFT_DIR] [RIGHT_DIR]
 ```
