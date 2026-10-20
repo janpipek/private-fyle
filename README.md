@@ -15,9 +15,9 @@ cargo run --release -- [LEFT_DIR] [RIGHT_DIR]
 Paths are optional: left defaults to the current directory, right to home.
 F1 lists commands; Ctrl-P opens the command palette.
 
-- [User guide](site/content/_index.md): [getting started](site/content/getting-started.md),
-  [shortcuts](site/content/shortcuts.md), [settings](site/content/settings.md),
-  [remote storage](site/content/remotes.md) and [tools](site/content/tools.md).
+- [User guide](https://janpipek.github.io/private-fyle/): [getting started](https://janpipek.github.io/private-fyle/getting-started/),
+  [shortcuts](https://janpipek.github.io/private-fyle/shortcuts/), [settings](https://janpipek.github.io/private-fyle/settings/),
+  [remote storage](https://janpipek.github.io/private-fyle/remotes/) and [tools](https://janpipek.github.io/private-fyle/tools/).
 - [Google Drive setup](HOWTO.md).
 - [Build, packages and development sandbox](docs/development.md).
 - [Architecture and module map](docs/architecture.md),
