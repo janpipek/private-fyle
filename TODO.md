@@ -140,7 +140,9 @@ not to pursue an item.
 - [x] Publishable Hugo user guide source in `site/`: getting started,
       navigation, file operations, workspace controls, inspection, search and
       editing, tools, remote storage, settings and keyboard reference. Includes
-      real app screenshots, responsive navigation and local build instructions;
+      real app screenshots alongside UI instructions, detailed settings and
+      shortcut customization examples, keycap styling, responsive navigation
+      and local build instructions;
       deployment is left manual.
 
 - [x] Filter listed values by column: case-insensitive substring matching or

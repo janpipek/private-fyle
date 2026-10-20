@@ -32,7 +32,7 @@ no deployment workflow in this repository. To publish manually, upload the
 contents of the output directory to the hosting branch or service that serves
 that path. For another host, change `baseURL` before building.
 
-The two images in `static/images/` were captured from the running fyle app,
+The images in `static/images/` were captured from the running fyle app,
 using temporary example folders and isolated `XDG_CONFIG_HOME` and
 `XDG_DATA_HOME` directories. `fyle-panels.png` shows the default two-panel
 layout. `fyle-preview.png` shows the two-panels-with-inspector layout with a
@@ -40,3 +40,20 @@ Markdown file selected. To capture a new image, build fyle, start it under
 Xvfb with scratch XDG directories, size the window with `xdotool`, and use
 ImageMagick's `import -window <window-id>`. Do not use your regular fyle
 configuration or file history when taking site screenshots.
+
+Place screenshots next to the interaction they illustrate using the `shot`
+shortcode. Each image links to its full-size version and needs descriptive
+alternative text and a caption:
+
+```text
+{{< shot src="images/fyle-columns.png" alt="Columns chooser with optional metadata columns" caption="Choose the columns to display." >}}
+```
+
+Use the `key` shortcode for shortcuts in prose and tables. Pass each key of a
+combination as a separate argument; keep literal keybinding strings in config
+examples unchanged:
+
+```text
+{{< key "Ctrl" "Shift" "H" >}}
+{{< key "Ctrl" "K" >}} then {{< key "Ctrl" "T" >}}
+```

@@ -8,7 +8,8 @@ Windows work is paused; macOS comes later (see [`TODO.md`](TODO.md)).
 The [user guide](site/README.md) covers everyday tasks, shortcuts, settings,
 remote storage and previews. It is a Hugo site in `site/`; `docs/` remains the
 engineering documentation. The guide includes declarative tool examples and
-a detailed Lua Tools API and execution guide. Run `just docs` to preview it
+a detailed Lua Tools API and execution guide, illustrated UI workflows,
+and settings and shortcut customization examples. Run `just docs` to preview it
 (requires Hugo).
 
 ```sh

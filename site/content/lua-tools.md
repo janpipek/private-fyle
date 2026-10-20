@@ -49,7 +49,7 @@ return {
 ```
 
 Select one or more `.md` or `.txt` files and choose the tool from Tools or
-press **F2**. Every selected path is passed as a separate argument. The
+press {{< key "F2" >}}. Every selected path is passed as a separate argument. The
 command is confirmed before it runs, and its combined output appears in a
 dialog. The parameter form lets you choose the usual checksum output or GNU
 tagged output. This example requires GNU `sha256sum`. No shell parses the paths.

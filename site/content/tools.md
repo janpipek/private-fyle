@@ -3,12 +3,14 @@ title: "Tools"
 weight: 70
 ---
 
-Press **F2** to find actions that apply to the current selection or folder.
+Press {{< key "F2" >}} to find actions that apply to the current selection or folder.
 The Tools menu groups the same offers by purpose. A disabled offer explains
 which external program is missing. Some tools ask for parameters or let you
 pick a target; before running commands, Fyle shows the exact command lines for
 confirmation. Long work runs in the background, and results appear in the
 status line or an output dialog.
+
+{{< shot src="images/fyle-tools-picker.png" alt="Tools picker showing available ImageMagick actions and a disabled Zip action labeled needs zip" caption="The picker offers tools for the selection and explains which programs disabled tools need." >}}
 
 Users can add or override declarative tools in `<config>/fyle/tools.toml` and
 write Lua tool plugins in `<config>/fyle/plugins/`. Tools can run commands,
@@ -35,7 +37,7 @@ run = ["{sha256sum}", "{paths}"]
 output = "log"
 ```
 
-Restart Fyle, mark `.md` or `.txt` files, then press **F2** and choose
+Restart Fyle, mark `.md` or `.txt` files, then press {{< key "F2" >}} and choose
 **Print SHA-256 checksums**. This requires the `sha256sum` program, commonly
 provided by GNU coreutils on Linux; if it is missing the tool is disabled.
 With no marks, the tool acts on the file under the cursor. Every target must
@@ -52,5 +54,5 @@ The [Lua tools guide]({{< relref "lua-tools.md" >}}) explains the plugin
 format, context, action forms and execution model, with a matching Lua example.
 
 Tools, terminal access and search are unavailable in remote folders and
-archives. **F9** opens an external terminal in the active local folder; Fyle
+archives. {{< key "F9" >}} opens an external terminal in the active local folder; Fyle
 does not provide an embedded terminal.

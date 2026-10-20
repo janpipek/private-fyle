@@ -1,4 +1,4 @@
 <figure>
-  <img src="{{ .Get "src" | relURL }}" alt="{{ .Get "alt" }}" loading="lazy">
+  <a href="{{ .Get "src" | relURL }}" title="Open full-size screenshot"><img src="{{ .Get "src" | relURL }}" alt="{{ .Get "alt" }}" loading="lazy"></a>
   {{ with .Get "caption" }}<figcaption>{{ . }}</figcaption>{{ end }}
 </figure>
