@@ -4,10 +4,15 @@ weight: 50
 ---
 
 Press {{< key "F3" >}} to show or hide the View inspector. It follows the active panel's
-cursor without replacing the other folder panel. Supported previews include
-images, text and Markdown, PDF, audio and video, documents, presentations,
-notebooks, tables, archives and directories. Readers apply format-specific
-limits. PDF viewing needs Poppler; audio and video features need FFmpeg tools.
+cursor without replacing the other folder panel. Supported previews include:
+
+- Images, text and Markdown.
+- PDF, documents, presentations and notebooks.
+- Audio and video.
+- Tables, archives and directories.
+
+Readers apply format-specific limits. PDF viewing needs Poppler; audio and
+video features need FFmpeg tools.
 
 {{< shot src="images/fyle-preview.png" alt="Fyle showing two folders and a Markdown file in the View inspector" caption="A Markdown file in the View inspector, beside both folder panels." >}}
 

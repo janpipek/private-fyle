@@ -36,11 +36,16 @@ such as `show_hidden`, `theme`, `font_size`, and `bookmarks` before the first
 table header. `[[opener]]` and `[[keymap]]` start top-level arrays of tables;
 they can appear after ordinary tables.
 
-Fyle rejects unknown keys, invalid enum values such as an unsupported layout,
-incorrect value types, and invalid TOML. If parsing
-fails, it reports the config path and error in the status line and uses the
-full defaults for that run. It does not partially apply valid settings from a
-file with an error. Correct the reported problem and restart.
+Fyle rejects a config file if it contains any of these problems:
+
+- An unknown or misspelled key.
+- An unsupported enum value, such as an unknown workspace layout.
+- A value with the wrong type.
+- Invalid TOML syntax.
+
+On failure, Fyle reports the config path and error in the status line and uses
+the full defaults for that run. It does not partially apply valid settings
+from a file with an error. Correct the reported problem and restart.
 
 ## Full example
 
@@ -101,9 +106,13 @@ context = "global"
 
 ## Appearance and window
 
-`theme` accepts `"system"` (follow the OS light or dark setting), `"light"`,
-`"dark"`, a bundled theme name, or a custom theme name. Theme names are
-case-insensitive. For example:
+`theme` accepts the following values. Theme names are case-insensitive.
+
+- `"system"` follows the OS light or dark setting.
+- `"light"` or `"dark"` selects a fixed appearance.
+- A bundled theme name or a custom theme name selects that named theme.
+
+For example:
 
 ```toml
 theme = "Catppuccin Mocha"
@@ -154,11 +163,11 @@ layout = "one_panel_inspector"
 
 Tree mode is a list view, so an `icons` panel does not start in tree mode.
 `left_view` and `right_view` accept `"list"` or `"icons"`. `icon_size` snaps
-to the nearest available size: 48, 64, 96, 128, or 160 pixels. {{< key "Alt" "=" >}} and
-{{< key "Alt" "-" >}} step through these sizes and save the choice. `sort` accepts `"name"`,
-`"ext"`, `"size"`, or `"modified"`; `sort_descending` chooses the direction.
-The startup sort applies to the panels, but sorting from the View menu changes
-the active panel for the current session.
+to 48, 64, 96, 128, or 160 pixels; {{< key "Alt" "=" >}} and {{< key "Alt" "-" >}} step through those sizes and save the selection. `sort` accepts `"name"`, `"ext"`, `"size"`, or `"modified"`.
+
+`sort_descending` chooses the direction. The startup sort applies to the
+panels, but sorting from the View menu changes the active panel for the
+current session.
 
 `columns` is one ordered list shared by the panels. The Name column is always
 first. For example:
@@ -168,22 +177,32 @@ first. For example:
 columns = ["name", "ext", "size", "modified", "permissions", "owner"]
 ```
 
-Column IDs include file columns `name`, `ext`, `size`, `modified`, and
-`created`; Unix columns `permissions` and `owner`; `duration` for local audio
-and video; `git.status`; `xattrs` and `selinux`; and EXIF IDs such as
-`exif.taken`, `exif.camera`, `exif.lens`, `exif.exposure`, `exif.aperture`,
-`exif.iso`, `exif.focal_length`, `exif.dimensions`, and `exif.gps`. The
-Columns command in the palette edits and saves this list. Unknown IDs are
+Column IDs are grouped by the data they show:
+
+- File: `name`, `ext`, `size`, `modified`, `created`.
+- Unix: `permissions`, `owner`.
+- Local audio and video: `duration`.
+- Git: `git.status`.
+- Attributes: `xattrs`, `selinux`.
+- EXIF: `exif.taken`, `exif.camera`, `exif.lens`, `exif.exposure`,
+  `exif.aperture`, `exif.iso`, `exif.focal_length`, `exif.dimensions`,
+  `exif.gps`.
+
+The Columns command in the palette edits and saves this list. Unknown IDs are
 retained and shown as unavailable until a provider registers them.
 
 {{< shot src="images/fyle-columns.png" alt="Columns chooser showing optional file details and metadata columns" caption="The Columns command edits the shared column selection and saves it to config.toml." >}}
 
-The workspace layout can be `"two_panels"`, `"two_panels_inspector"`, or
-`"one_panel_inspector"`. In the one-panel layout, the other panel remains the
-destination for copy and move commands. Layout changes from the View menu are
-saved. The active panel's list/icon view and the shared icon size are also
-saved as you change them. Tree mode and sort settings are startup values, not
-saved UI preferences.
+`[workspace] layout` accepts these values:
+
+- `"two_panels"` shows both folder panels.
+- `"two_panels_inspector"` shows both panels and the inspector.
+- `"one_panel_inspector"` shows the active panel and the inspector.
+
+In the one-panel layout, the other panel remains the destination for copy and
+move commands. Layout changes from the View menu are saved. The active panel's
+list/icon view and the shared icon size are also saved as you change them.
+Tree mode and sort settings are startup values, not saved UI preferences.
 
 ## Bookmarks
 
@@ -225,9 +244,21 @@ command = ["kitty", "--directory", "{dir}"]
 ```
 
 When the command is empty (the default), Fyle tries `$TERMINAL`; otherwise it
-checks known terminals in preference order, including `x-terminal-emulator`,
-Ptyxis, GNOME Terminal, Konsole, Xfce Terminal, Kitty, Alacritty, WezTerm,
-Foot, Ghostty, and xterm. If none is available, set `[terminal] command`.
+checks these known terminals in preference order:
+
+1. `x-terminal-emulator`
+2. Ptyxis
+3. GNOME Terminal
+4. Konsole
+5. Xfce Terminal
+6. Kitty
+7. Alacritty
+8. WezTerm
+9. Foot
+10. Ghostty
+11. xterm
+
+If none is available, set `[terminal] command`.
 
 ## File openers
 
@@ -236,8 +267,14 @@ in file order, or the system default if none matches. {{< key "Shift" "Enter" >}
 matching rules. A rule matches if any configured `exts`, `kinds`, or `names`
 entry matches; leaving all three empty makes it match every file. Extensions
 are case-insensitive and are written without a leading dot. Names match the
-full filename. `kinds` use file-kind names such as `image`, `code`, `text`,
-`audio`, `video`, and `archive`.
+full filename. File-kind values include:
+
+- `image`
+- `code`
+- `text`
+- `audio`
+- `video`
+- `archive`
 
 ```toml
 [[opener]]
@@ -261,13 +298,17 @@ system's registered applications where available.
 ## Keyboard shortcuts
 
 Open Help > Edit Keyboard Shortcuts to inspect commands and their current
-shortcuts. Choose Edit next to a command, enter its shortcut and context
-(`panel`, `global`, or `editor`), and apply the change. Choose Save in the
-shortcut window to write the validated changes to `config.toml` and apply
-them immediately. The editor checks shortcut syntax and reports conflicts in
-overlapping contexts. Disable removes a command's shortcuts; Reset restores
-that command's defaults, and Reset all restores the default keymap. This is
-the recommended way to customize shortcuts.
+shortcuts. To change one:
+
+1. Choose Edit next to the command.
+2. Enter its shortcut and context, then apply the change.
+3. Choose Save in the shortcut window to write the validated changes to
+   `config.toml` and apply them immediately.
+
+The editor checks shortcut syntax and reports conflicts in overlapping
+contexts. Disable removes a command's shortcuts; Reset restores that
+command's defaults, and Reset all restores the default keymap. This is the
+recommended way to customize shortcuts.
 
 {{< shot src="images/fyle-shortcuts-editor.png" alt="Keyboard shortcuts editor with Edit, Disable, Reset, Reset all and Save buttons" caption="Edit shortcuts in the interface, then Save to apply them and keep them for future sessions." >}}
 
@@ -275,10 +316,14 @@ the recommended way to customize shortcuts.
 
 For manual overrides, add `[[keymap]]` entries. Actions use the command names
 listed in the commented config template, such as `Copy`, `ToggleHidden`, or
-`CommandPalette`; `"none"` unbinds a key. Context is `"panel"` (the default,
-applies in both list and icon views), `"global"` (the main window), or
-`"editor"` (the {{< key "F4" >}} editor). Key names follow GPUI's format; a chord is written
-as space-separated strokes, such as `"ctrl-k ctrl-c"`.
+`CommandPalette`; `"none"` unbinds a key. Context choices are:
+
+- `"panel"` (the default), for both list and icon views.
+- `"global"`, for the main window.
+- `"editor"`, for the {{< key "F4" >}} editor.
+
+Key names follow GPUI's format; a chord is written as space-separated strokes,
+such as `"ctrl-k ctrl-c"`.
 
 ```toml
 [[keymap]]
@@ -344,10 +389,20 @@ configuration and execution rules.
 
 ## Saving settings
 
-Fyle saves choices made in the interface back to `config.toml` while keeping
-comments and unrelated keys. Theme, font size/zoom, custom titlebar, columns,
-workspace layout, panel list/icon view, icon size, keyboard shortcuts, and
-bookmarks are saved. The titlebar choice applies on the next restart. Startup
-directories, hidden-file state, tree mode, sort, window dimensions, editor,
-terminal, openers, and enabled packages are read from your config and are not
-written by changing the corresponding UI state.
+Fyle saves these interface choices back to `config.toml` while keeping
+comments and unrelated keys:
+
+- Theme and font size/zoom.
+- Custom titlebar preference (takes effect after restarting).
+- Visible columns and workspace layout.
+- Each panel's list/icon view and the shared icon size.
+- Keyboard shortcut overrides and bookmarks.
+
+These settings are read from the config and are not written by changing the
+corresponding UI state:
+
+- Startup directories and hidden-file state.
+- Tree mode and sort order.
+- Window dimensions.
+- Editor and terminal commands.
+- File openers and enabled reader packages.

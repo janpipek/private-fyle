@@ -5,13 +5,20 @@ weight: 100
 
 {{< key "F1" >}} shows all available commands inside Fyle; {{< key "Ctrl" "P" >}} opens the searchable command
 palette. The shortcuts throughout this guide are the defaults. **Keybindings
-are customizable:** open **Help > Edit Keyboard Shortcuts**, find a command,
-and click **Edit**. Type a shortcut such as `ctrl-shift-h`, choose its context,
-click **Apply**, then **Save** in the main shortcut editor. Saved changes apply
-immediately and are written to `config.toml`.
+are customizable:**
 
-**Reset** restores a command's default bindings; **Disable** removes its
-shortcuts; **Reset all** restores the default keymap. Save these changes too.
+1. Open **Help > Edit Keyboard Shortcuts** and find a command.
+2. Click **Edit**, type a shortcut such as `ctrl-shift-h`, and choose its context.
+3. Click **Apply**, then **Save** in the main shortcut editor.
+
+Saved changes apply immediately and are written to `config.toml`. You can also
+change bindings with these controls:
+
+- **Reset** restores a command's default bindings.
+- **Disable** removes its shortcuts.
+- **Reset all** restores the default keymap.
+
+Save these changes too.
 The editor checks for conflicts between shortcuts in overlapping contexts.
 You can also edit `[[keymap]]` entries by hand; see
 [customizing keyboard shortcuts]({{< relref "settings.md" >}}#keyboard-shortcuts)

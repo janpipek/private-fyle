@@ -3,11 +3,15 @@ title: "Getting started"
 weight: 10
 ---
 
-The private-fyle project builds the app named **fyle**. Fyle opens two folder panels. The left panel starts in the current directory;
-the right starts in your home directory unless you provide paths or change the
-settings. Press {{< key "Tab" >}} to switch panels, use the arrow keys to move, and press
-{{< key "Enter" >}} to open a folder or file. Press {{< key "F1" >}} for the live command list or
-{{< key "Ctrl" "P" >}} to search all commands.
+The private-fyle project builds the app named **fyle**. Fyle opens two folder
+panels. The left panel starts in the current directory; the right starts in
+your home directory unless you provide paths or change the settings.
+
+- {{< key "Tab" >}} switches panels.
+- The arrow keys move the cursor.
+- {{< key "Enter" >}} opens a folder or file.
+- {{< key "F1" >}} shows the live command list.
+- {{< key "Ctrl" "P" >}} searches all commands.
 
 The usual workflow is to select entries in one panel, then copy with {{< key "F5" >}} or
 move with {{< key "F6" >}} to the folder shown in the other panel. Fyle asks how to handle

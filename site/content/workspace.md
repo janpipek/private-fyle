@@ -3,8 +3,12 @@ title: "Workspace, columns and filters"
 weight: 40
 ---
 
-The workspace can show two folder panels, two panels with an inspector, or one
-panel with an inspector. Choose a layout from the View menu or command palette.
+Choose a workspace layout from the View menu or command palette:
+
+- Two folder panels.
+- Two folder panels with an inspector.
+- One folder panel with an inspector.
+
 The inspector has View and Properties tabs. {{< key "F3" >}} opens View; using it again
 while View is selected closes the inspector. {{< key "Alt" "Enter" >}} opens Properties.
 
@@ -12,9 +16,14 @@ Each panel can use list or icon view. The two views show the same entries and
 keep the cursor when switching. In icon view, arrows move by cell or row; use
 {{< key "Alt" "=" >}} to increase icon size and {{< key "Alt" "-" >}} to decrease it.
 
-Sort by clicking a column's sort control. Drag header borders to resize. Use the
-**+** at the end of a header to edit columns; right-click a header to remove it
-or open the column editor. Name is required. Column choices are shared by both
+Use the column headers to adjust the listing:
+
+- Click a column's sort control to sort.
+- Drag header borders to resize columns.
+- Click **+** at the end of a header to edit columns.
+- Right-click a header to remove it or open the column editor.
+
+Name is required. Column choices are shared by both
 panels and saved in order. Available columns include file details, permissions
 and owner, Git status, media duration, extended attributes and EXIF fields.
 Some values are available only for local files.

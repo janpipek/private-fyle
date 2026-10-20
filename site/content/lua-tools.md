@@ -57,9 +57,13 @@ tagged output. This example requires GNU `sha256sum`. No shell parses the paths.
 ## Definition
 
 Each plugin returns an array, even when it contains one tool. A tool requires
-nonempty `id`, `group` and `label` strings, plus a `plan` function. The `id`
-is the stable key used for overrides. `requires` and `params` are optional.
-`applies(ctx)` is also optional; when omitted the tool applies everywhere.
+these fields:
+
+- Nonempty `id`, `group`, and `label` strings.
+- A `plan` function.
+
+The `id` is the stable key used for overrides. `requires`, `params`, and
+`applies(ctx)` are optional; without `applies`, the tool applies everywhere.
 
 | Field | Meaning |
 | --- | --- |
@@ -77,12 +81,13 @@ paths in `ctx.programs`, keyed by each requirement's first name. If planning
 raises an error, Fyle shows it in the status line.
 
 For a choice parameter, the first choice is the default. A text parameter
-uses `default`, or an empty string when it is absent; its label falls back
-to its key. For example, `{ key = "message", label = "Message", default = "Hello" }`
-asks for text available as `values.message`. Parameters are strings, so
-validate numbers or other structured input in `plan` and call `error("reason")`
-when it cannot be used. Parameter definitions are read when the plugin loads;
-they are not dynamically regenerated for each selection.
+uses `default`, or an empty string when it is absent; its label falls back to
+its key. For example, `{ key = "message", label = "Message", default = "Hello" }`
+asks for text available as `values.message`.
+
+Parameters are strings. Validate numbers or other structured input in `plan`
+and call `error("reason")` when a value cannot be used. Parameter definitions
+are read when the plugin loads; they are not regenerated for each selection.
 
 ## Context
 
@@ -138,12 +143,17 @@ that command confirmation.
 
 ## How plugins run
 
-At Commander startup, Fyle builds the registry in this order: built-in Rust
-tools, built-in TOML tools, the user's `tools.toml`, then Lua plugins. Registering
-an existing id replaces its earlier definition, so Lua can override either
-built-in or user TOML tools. The last duplicate id loaded wins. A TOML parse
-failure or a Lua file that cannot be read, evaluated or validated is reported
-at startup; a failed Lua file contributes none of its tools.
+At Commander startup, Fyle builds the registry in this order:
+
+1. Built-in Rust tools.
+2. Built-in TOML tools.
+3. The user's `tools.toml`.
+4. Lua plugins, loaded in filename order.
+
+Registering an existing id replaces its earlier definition, so Lua can
+override built-in or user TOML tools. The last duplicate id loaded wins. A
+TOML parse failure or a Lua file that cannot be read, evaluated, or validated
+is reported at startup; a failed Lua file contributes none of its tools.
 
 Each `.lua` file is evaluated once with `mlua` when the registry loads. Its
 returned tool tables and functions are retained in that file's Lua state.
@@ -166,21 +176,33 @@ plugin.
 
 The host keeps planning separate from execution: `src/tools/lua.rs` adapts
 each Lua definition to the Rust `Tool` interface and converts returned tables
-into `Action` values. `src/tools.rs` owns registration, applicability and
+into `Action` values. `src/tools.rs` owns registration, applicability, and
 program resolution. `src/commander/tools.rs` presents parameters, choices,
-confirmation and results; `src/tools/exec.rs` starts processes with Rust's
-`Command`, without a shell. An empty `run`, unknown output mode, malformed
-action or Lua error is reported rather than executed. Return one action form
-per table; unknown extra fields are not a supported extension mechanism.
+confirmation, and results; `src/tools/exec.rs` starts processes with Rust's
+`Command`, without a shell.
+
+Fyle reports these invalid results instead of executing them:
+
+- An empty `run` array.
+- An unknown output mode.
+- A malformed action table.
+- A Lua error.
+
+Return one action form per table. Unknown extra fields are not a supported
+extension mechanism.
 
 Keep `applies` quick and free of side effects, and make `plan` return data
-instead of running commands itself. Captured command output is collected
-until the process exits; there is no live stream or bounded-output guarantee.
-Detached commands run with standard input, output and error disconnected;
-Fyle reports that they started without waiting for their eventual result.
-An external tool's output files are governed by that tool's own overwrite
-rules, rather than Fyle's file-transfer conflict dialog.
+instead of running commands itself. Execution has these limits:
 
-Lua tools are separate from reader packages: tools offer actions, while reader
-packages contribute columns, Properties sections or View renderers. For the
+- Captured command output is collected until the process exits; there is no
+  live stream or bounded-output guarantee.
+- Detached commands have standard input, output, and error disconnected.
+  Fyle reports that they started without waiting for their eventual result.
+- Tool commands have no cancellation mechanism. A long-running foreground
+  command must finish before Fyle handles its result.
+- An external tool's output files follow that tool's overwrite rules, not
+  Fyle's file-transfer conflict dialog.
+
+Lua tools are separate from reader packages. Tools offer actions; reader
+packages contribute columns, Properties sections, or View renderers. For the
 overall tool model and declarative definitions, see [Tools]({{< relref "tools.md" >}}).

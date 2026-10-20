@@ -15,15 +15,18 @@ connections are managed from Locations or Tools > Manage Remotes and stored in
 provides them when connecting. Proton Drive uses the `proton-drive` CLI and
 requires you to authenticate with it first.
 
-Remote listings and supported operations run in the background. {{< key "F5" >}} copies
-between a local folder and a remote folder in either direction. {{< key "F6" >}} moves
-within the same remote when that provider supports it. Same-remote move support
-depends on the provider. Local-to-remote and remote-to-local moves, and copies
-between two remotes, are unavailable. Use copy and then remove separately when
-needed.
+Remote listings and supported operations run in the background:
 
-{{< key "F7" >}} creates a remote folder, {{< key "Shift" "F6" >}} renames one item, and {{< key "F8" >}} removes
-an item. Removal may send it to the service's trash or delete it permanently;
+- {{< key "F5" >}} copies between a local folder and a remote folder in either direction.
+- {{< key "F6" >}} moves within the same remote when that provider supports it.
+- {{< key "F7" >}} creates a remote folder.
+- {{< key "Shift" "F6" >}} renames one item.
+- {{< key "F8" >}} removes an item.
+
+Local-to-remote and remote-to-local moves, and copies between two remotes, are
+unavailable. Use copy and then remove separately when needed.
+
+Removal may send an item to the service's trash or delete it permanently;
 read the confirmation before proceeding. Provider capabilities differ.
 
 Opening a remote file downloads a local cached copy. Editing it does not upload
@@ -31,8 +34,13 @@ changes back. {{< key "F3" >}} quick view is available for files with a known si
 MiB. Open in Browser is available for supported Proton Drive and rclone Drive
 locations.
 
-Remote folders do not support Fyle search, Open With, the editor, Tools,
-terminal, clipboard file operations, thumbnails, calculated sizes or tree
-mode. Remote-to-remote copying is unavailable. Properties shows listing facts
+Remote folders do not support:
+
+- Search, Open With or the built-in editor.
+- Tools or opening a terminal.
+- Clipboard file operations or remote-to-remote copying.
+- Thumbnails, calculated folder sizes or tree mode.
+
+Properties shows listing facts
 only; it does not download remote data for inspection. {{< key "Ctrl" "R" >}} refreshes the
 active remote listing.
