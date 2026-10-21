@@ -5,6 +5,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use super::connections::{self, Protocol, RemoteConfig};
+pub mod credentials;
+pub use credentials::{CredentialAction, save_with_credential};
 
 /// Editable inputs supported by the remote manager.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,6 +72,8 @@ pub struct Draft {
     pub root: String,
     /// Command that prints the password when connecting.
     pub password_command: String,
+    /// Opaque keyring identifier retained from the selected remote.
+    pub credential_id: Option<String>,
     /// Base URL for WebDAV.
     pub url: String,
     /// Bucket name for S3.
@@ -104,6 +108,7 @@ impl Draft {
                 .as_ref()
                 .map(|parts| quote_words(parts))
                 .unwrap_or_default(),
+            credential_id: config.credential_id.clone(),
             url: config.url.clone().unwrap_or_default(),
             bucket: config.bucket.clone().unwrap_or_default(),
             region: config.region.clone().unwrap_or_default(),
@@ -174,6 +179,9 @@ impl Draft {
             if !field.trim().is_empty() {
                 table[key] = value(field);
             }
+        }
+        if let Some(id) = &self.credential_id {
+            table["credential_id"] = value(id);
         }
         if !self.port.trim().is_empty()
             && let Ok(port) = self.port.trim().parse::<i64>()
@@ -344,6 +352,11 @@ fn update_table(table: &mut toml_edit::Table, config: &RemoteConfig) {
         table,
         "password_command",
         password_command.as_deref().map(toml_edit::Value::from),
+    );
+    set_value(
+        table,
+        "credential_id",
+        config.credential_id.as_deref().map(toml_edit::Value::from),
     );
     set_value(
         table,

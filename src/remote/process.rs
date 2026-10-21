@@ -19,7 +19,7 @@ pub struct Program {
     pub program: OsString,
     /// Service name that starts error messages (e.g. "Proton Drive").
     pub service: &'static str,
-    /// Shown when the program is not installed.
+    /// Guidance when the executable or its script interpreter cannot be found.
     pub install_hint: &'static str,
     /// Appended to errors from a failed run (e.g. how to sign in again);
     /// may be empty.
@@ -51,7 +51,15 @@ impl Program {
             .spawn()
             .map_err(|error| {
                 if error.kind() == io::ErrorKind::NotFound {
-                    io::Error::new(error.kind(), self.install_hint)
+                    io::Error::new(
+                        error.kind(),
+                        format!(
+                            "{}: cannot start {} (executable or script interpreter not found); check fyle's PATH or use an absolute executable path. {}",
+                            self.service,
+                            self.program.to_string_lossy(),
+                            self.install_hint,
+                        ),
+                    )
                 } else {
                     error
                 }
@@ -214,10 +222,19 @@ mod tests {
     #[test]
     fn missing_program_is_not_found_with_hint() {
         let error = program("no-such-program-xyz")
-            .run(&[], &AtomicBool::new(false), None)
+            .run(
+                &[OsStr::new("secret-argument")],
+                &AtomicBool::new(false),
+                None,
+            )
             .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::NotFound);
-        assert_eq!(error.to_string(), "install it");
+        let message = error.to_string();
+        assert!(message.contains("no-such-program-xyz"));
+        assert!(message.contains("PATH"));
+        assert!(message.contains("absolute"));
+        assert!(message.contains("install it"));
+        assert!(!message.contains("secret-argument"));
     }
 
     #[test]

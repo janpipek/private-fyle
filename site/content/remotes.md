@@ -11,9 +11,12 @@ servers. SMB is not supported.
 Rclone remotes use your existing rclone configuration. For Google Drive,
 follow the [Google Drive setup guide](https://github.com/janpipek/private-fyle/blob/main/HOWTO.md). Saved SFTP/FTP/WebDAV/S3 server
 connections are managed from Locations or Tools > Manage Remotes and stored in
-`remotes.toml`. Passwords are not stored there; an optional password command
-provides them when connecting. Proton Drive uses the `proton-drive` CLI and
-requires you to authenticate with it first.
+`remotes.toml`. On Linux, you can save a server password from the dialog; it is
+kept in the desktop's system keyring, while `remotes.toml` stores only an opaque
+reference. Linux uses the Secret Service interface, provided by GNOME Keyring
+or a compatible service such as KWallet. Saved passwords are not available on
+macOS or Windows yet. Proton Drive uses the `proton-drive` CLI and requires you
+to authenticate with it first.
 
 ## Add a server
 
@@ -39,6 +42,52 @@ password_command = "pass show fyle/nas"
 ```
 
 `root` defaults to `/`; it is the server folder shown as `nas:/`.
+
+### Save a password in the system keyring
+
+In **Manage Remotes**, enter a password in the password field and save the
+remote. The dialog reports whether a password is saved. When you edit a remote,
+the password field is blank; leave it blank to keep the saved password, enter a
+new one to replace it, or choose **Forget saved password**. Forgetting is
+pending until you click **Save**; the button changes to **Undo forget** while
+the removal is pending. **Cancel changes** leaves the existing password saved.
+Passwords are stored per remote account in the Linux Secret Service keyring,
+outside `remotes.toml`. The keyring may ask you to unlock it. If the service is
+absent, locked or unavailable, fyle reports the problem without showing the
+password; you can still test a connection with a password typed just for that
+test. Keyring operations time out after 60 seconds.
+
+The system keyring stores app and account secrets separately from ordinary
+configuration files and controls access through the desktop session. Linux
+currently uses the common Secret Service interface: GNOME Keyring provides it,
+and KWallet can provide it through its Secret Service support. macOS Keychain
+stores passwords and other account secrets in keychains. The login keychain
+usually unlocks when you sign in if its password matches your macOS account;
+if it differs, macOS asks for the keychain password. macOS can also ask whether
+an app may access a saved item, with options such as allowing access once or
+always. Windows Credential Manager keeps saved application and network
+credentials in encrypted storage under the signed-in user's profile, so
+Windows apps can retrieve them for later connections. Read [Apple's guide to
+login keychain passwords](https://support.apple.com/en-gb/guide/keychain-access/kyca2429/mac),
+[Apple's app access guide](https://support.apple.com/en-gb/guide/mac-help/kychn002/26/mac/26)
+and [Microsoft's credential processes overview](https://learn.microsoft.com/en-us/windows-server/security/windows-authentication/credentials-processes-in-windows-authentication).
+Fyle does not use Keychain or Credential Manager yet. The design leaves room
+for native adapters; it does not promise that saved credentials can be moved
+between operating systems.
+
+After a successful replacement, forgetting or remote removal, fyle deletes the
+old keyring item. If that cleanup fails, the dialog says the configuration was
+saved but the old keyring password could not be deleted; the old item may
+remain in the system keyring even though fyle no longer references it.
+
+For a remote, use either a saved password or a **Password command**. They are
+alternatives; clear the password command before saving a password. A password
+typed for **Test connection** overrides the configured source for that
+endpoint and account, but Test does not save it. You can use it for repeated
+tests against that same target; changing the protocol, endpoint or account
+clears the typed value, so enter it again for the new target. Choosing **Save**
+with the field filled stores that password in the keyring. Switching a remote to S3 marks its saved
+password for removal when you save; S3 uses AWS credentials instead.
 
 ### SFTP: keys and first connection
 
@@ -92,7 +141,19 @@ password_command = "pass show fyle/nas"
 Use a password-manager entry containing only the password. For example, a
 `pass` entry containing additional notes would send those notes as part of the
 password. Install the chosen program separately and make sure it is available
-on the `PATH` used to launch fyle.
+on the `PATH` used to launch fyle. Native saved passwords use the Linux system
+keyring directly and do not require Python's `keyring` package.
+
+If you installed the Python `keyring` command with `uv tool install`, find its
+executable directory with `uv tool dir --bin`, then use the absolute path to
+the executable in the Password command field (you can check the resolved path
+with `command -v keyring` after adding that directory to `PATH`). The command
+runner does not expand `~` or `$HOME`, and does not run a shell, so a path such
+as `~/.local/bin/keyring` will not work.
+
+For example, if `uv tool dir --bin` prints `/home/jan/.local/bin`, enter
+`/home/jan/.local/bin/keyring get service username` as the command. With that
+directory on `PATH`, `command -v keyring` prints the absolute executable path.
 
 Single or double quotes group arguments containing spaces:
 

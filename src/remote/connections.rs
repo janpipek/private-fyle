@@ -1,7 +1,7 @@
 //! The user's `remotes.toml`: connections to SFTP, FTP/FTPS, WebDAV and S3
 //! servers, parsed into validated [`RemoteConfig`]s without touching the
-//! network. Passwords are never stored here; a `password_command` fetches
-//! them when connecting.
+//! network. Passwords are never stored here; `password_command` or
+//! `credential_id` selects an external source for them.
 //!
 //! ```toml
 //! [[remote]]
@@ -12,6 +12,7 @@
 //! user = "jan"                       # optional
 //! root = "/srv/data"                 # optional folder that nas:/ maps to
 //! password_command = "pass show nas" # optional
+//! credential_id = "opaque UUID"    # optional, keyring lookup only
 //! ```
 //!
 //! WebDAV uses `url` instead of `host`; S3 uses `bucket` with optional
@@ -62,6 +63,8 @@ pub struct RemoteConfig {
     pub root: String,
     /// Program and arguments that print the password on stdout.
     pub password_command: Option<Vec<String>>,
+    /// Opaque identifier for a password stored in the system keyring.
+    pub credential_id: Option<String>,
     /// WebDAV base URL.
     pub url: Option<String>,
     pub bucket: Option<String>,
@@ -88,6 +91,7 @@ struct Raw {
     user: Option<String>,
     root: Option<String>,
     password_command: Option<String>,
+    credential_id: Option<String>,
     url: Option<String>,
     bucket: Option<String>,
     region: Option<String>,
@@ -138,6 +142,17 @@ pub fn parse(text: &str) -> io::Result<(Vec<RemoteConfig>, Vec<io::Error>)> {
             Ok(config) if remotes.iter().any(|r| r.name == config.name) => errors.push(invalid(
                 &format!("remote {}: name is used twice", config.name),
             )),
+            Ok(config)
+                if config.credential_id.is_some()
+                    && remotes
+                        .iter()
+                        .any(|r| r.credential_id == config.credential_id) =>
+            {
+                errors.push(invalid(&format!(
+                    "remote {}: credential_id is used more than once",
+                    config.name
+                )))
+            }
             Ok(config) => remotes.push(config),
             Err(error) => errors.push(error),
         }
@@ -178,6 +193,19 @@ fn validate(raw: Raw) -> io::Result<RemoteConfig> {
         .as_deref()
         .map(|text| split_command(text).map_err(fail))
         .transpose()?;
+    let credential_id = raw
+        .credential_id
+        .map(|id| {
+            uuid::Uuid::parse_str(&id)
+                .map(|uuid| uuid.to_string())
+                .map_err(|_| fail("credential_id must be an opaque UUID"))
+        })
+        .transpose()?;
+    if password_command.is_some() && credential_id.is_some() {
+        return Err(fail(
+            "use either password_command or credential_id, not both",
+        ));
+    }
     Ok(RemoteConfig {
         name: raw.name,
         protocol: raw.protocol,
@@ -186,12 +214,35 @@ fn validate(raw: Raw) -> io::Result<RemoteConfig> {
         user: raw.user,
         root,
         password_command,
+        credential_id,
         url: raw.url,
         bucket: raw.bucket,
         region: raw.region,
         profile: raw.profile,
         endpoint: raw.endpoint,
     })
+}
+
+impl RemoteConfig {
+    /// Reports whether two configurations address the same endpoint and
+    /// account, so saved credentials are not silently reused after edits.
+    pub fn credential_identity_eq(&self, other: &Self) -> bool {
+        if self.protocol != other.protocol || self.user != other.user {
+            return false;
+        }
+        match self.protocol {
+            Protocol::Sftp | Protocol::Ftp | Protocol::Ftps => {
+                self.host == other.host && self.port == other.port
+            }
+            Protocol::Webdav => self.url == other.url,
+            Protocol::S3 => {
+                self.bucket == other.bucket
+                    && self.region == other.region
+                    && self.profile == other.profile
+                    && self.endpoint == other.endpoint
+            }
+        }
+    }
 }
 
 /// Makes `root` an absolute path without `.`, `..` or empty parts.
@@ -293,6 +344,39 @@ profile = "work"
         );
         assert_eq!(remotes[1].root, "/");
         assert_eq!(remotes[2].bucket.as_deref(), Some("photos"));
+    }
+
+    #[test]
+    fn credential_ids_are_exclusive_and_identity_ignores_name_and_root() {
+        let id = uuid::Uuid::new_v4();
+        let source = format!(
+            "[[remote]]\nname='nas'\nprotocol='sftp'\nhost='server'\ncredential_id='{id}'\n"
+        );
+        let (first, errors) = parse(&source).unwrap();
+        assert!(errors.is_empty());
+        let renamed = source
+            .replace("name='nas'", "name='archive'")
+            .replace("credential_id", "root")
+            .replace(&format!("'{id}'"), "'/different'");
+        let (second, errors) = parse(&renamed).unwrap();
+        assert!(errors.is_empty());
+        assert!(first[0].credential_identity_eq(&second[0]));
+
+        let duplicate = format!(
+            "{source}\n{}",
+            source.replace("name='nas'", "name='archive'")
+        );
+        let (configs, errors) = parse(&duplicate).unwrap();
+        assert_eq!(configs.len(), 1);
+        assert_eq!(errors.len(), 1);
+
+        let conflict = source.replace(
+            "credential_id=",
+            "password_command='pass show nas'\ncredential_id=",
+        );
+        let (configs, errors) = parse(&conflict).unwrap();
+        assert!(configs.is_empty());
+        assert_eq!(errors.len(), 1);
     }
 
     #[test]

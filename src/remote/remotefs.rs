@@ -24,6 +24,7 @@ use remotefs::fs::{ReadOptions, WriteOptions};
 use remotefs::{File, RemoteError, RemoteErrorType, RemoteFs};
 
 use super::connections::{Protocol, RemoteConfig};
+use super::credentials::{CredentialStore, SystemCredentialStore};
 #[cfg(feature = "sftp")]
 use super::hostkey;
 use super::process::Program;
@@ -40,6 +41,7 @@ type Client = Box<dyn RemoteFs>;
 /// One server from `remotes.toml`, shown as `<name>:/...`.
 pub struct RemoteFsProvider {
     config: RemoteConfig,
+    password_override: Option<String>,
     label: String,
     client: Mutex<Option<Client>>,
 }
@@ -50,6 +52,17 @@ impl RemoteFsProvider {
         Self {
             label: format!("{} ({})", config.protocol.label(), config.name),
             config,
+            password_override: None,
+            client: Mutex::new(None),
+        }
+    }
+
+    /// Prepares a connection test with an explicit password override.
+    pub fn with_password(config: RemoteConfig, password: Option<String>) -> Self {
+        Self {
+            label: format!("{} ({})", config.protocol.label(), config.name),
+            config,
+            password_override: password,
             client: Mutex::new(None),
         }
     }
@@ -155,7 +168,7 @@ impl RemoteFsProvider {
     }
 
     fn connect(&self, control: &Control) -> io::Result<Client> {
-        let password = password(&self.config, control)?;
+        let password = password(&self.config, self.password_override.as_deref(), control)?;
         let mut client = build_client(&self.config, password)?;
         // The SFTP host key check reports why it refused through the guard.
         #[cfg(feature = "sftp")]
@@ -320,20 +333,64 @@ pub fn remote_error(label: &str, error: RemoteError) -> io::Error {
 
 /// Runs `password_command` (without a shell) and returns its output without
 /// the trailing newline.
-fn password(config: &RemoteConfig, control: &Control) -> io::Result<Option<String>> {
+fn password(
+    config: &RemoteConfig,
+    override_password: Option<&str>,
+    control: &Control,
+) -> io::Result<Option<String>> {
+    password_with_store(config, override_password, control, &SystemCredentialStore)
+}
+
+fn password_with_store(
+    config: &RemoteConfig,
+    override_password: Option<&str>,
+    control: &Control,
+    store: &dyn CredentialStore,
+) -> io::Result<Option<String>> {
+    if let Some(password) = override_password {
+        return Ok(Some(password.to_owned()));
+    }
     let Some(words) = &config.password_command else {
-        return Ok(None);
+        let Some(id) = &config.credential_id else {
+            return Ok(None);
+        };
+        if control.cancelled() {
+            return Err(Control::cancelled_error());
+        }
+        let saved = store
+            .get_cancellable(id, control.cancel)
+            .map_err(|error| io::Error::new(error.kind(), format!("{}: {error}", config.name)))?;
+        if control.cancelled() {
+            return Err(Control::cancelled_error());
+        }
+        return saved.map(Some).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "{}: saved password is missing from the keyring; re-enter it or forget the saved password",
+                    config.name
+                ),
+            )
+        });
     };
     let program = Program {
         program: words[0].clone().into(),
         service: "password_command",
-        install_hint: "the password_command program is not installed",
+        install_hint: "use an executable available to fyle, or configure its absolute path",
         failure_hint: "",
     };
     let args: Vec<&OsStr> = words[1..].iter().map(OsStr::new).collect();
     let output = program
         .run(&args, control.cancel, Some(PASSWORD_TIMEOUT))
-        .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", config.name)))?;
+        .map_err(|e| {
+            io::Error::new(
+                e.kind(),
+                format!(
+                    "{}: password_command could not provide a password",
+                    config.name
+                ),
+            )
+        })?;
     let text = String::from_utf8_lossy(&output);
     let text = text.trim_end_matches(['\n', '\r']);
     if text.is_empty() {
@@ -760,9 +817,10 @@ impl RemoteFsProvider {
 mod tests {
     use super::{
         CHUNK, Progress, RemoteFsProvider, copy_chunks, is_connection_error, item_from,
-        remote_error, remote_path,
+        password_with_store, remote_error, remote_path,
     };
     use crate::remote::connections::parse;
+    use crate::remote::credentials::CredentialStore;
     use crate::remote::{Control, Location, Provider, Removal};
     use remotefs::fs::{FileType, Metadata};
     use remotefs::{File, RemoteError, RemoteErrorType};
@@ -778,6 +836,49 @@ mod tests {
         .unwrap();
         assert!(errors.is_empty());
         RemoteFsProvider::new(remotes.remove(0))
+    }
+
+    struct MissingStore;
+
+    impl CredentialStore for MissingStore {
+        fn get(&self, _id: &str) -> io::Result<Option<String>> {
+            Ok(None)
+        }
+
+        fn has(&self, _id: &str) -> io::Result<bool> {
+            Ok(false)
+        }
+
+        fn set(&self, _id: &str, _password: &str) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn delete(&self, _id: &str) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn missing_configured_password_is_actionable_and_test_override_wins() {
+        let id = uuid::Uuid::new_v4();
+        let text = format!(
+            "[[remote]]\nname='nas'\nprotocol='sftp'\nhost='server'\ncredential_id='{id}'\n"
+        );
+        let (configs, errors) = parse(&text).unwrap();
+        assert!(errors.is_empty());
+        let cancelled = AtomicBool::new(false);
+        let control = Control::new(&cancelled);
+        let error = password_with_store(&configs[0], None, &control, &MissingStore).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        assert!(error.to_string().contains("re-enter it or forget"));
+        assert!(!error.to_string().contains(&id.to_string()));
+
+        assert_eq!(
+            password_with_store(&configs[0], Some("temporary"), &control, &MissingStore)
+                .unwrap()
+                .as_deref(),
+            Some("temporary")
+        );
     }
 
     #[test]

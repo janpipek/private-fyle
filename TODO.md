@@ -584,6 +584,13 @@ not to pursue an item.
       the address bar and breadcrumbs, cancellable background listing with a
       32-folder cache per panel, transfers, remove, new folder, rename and open
       through the providers (`commander/remotes.rs`, `remote/jobs.rs`).
+- [x] Save configured remote passwords in the Linux Secret Service keyring,
+      keeping only an opaque ID in `remotes.toml`; Manage Remotes can retain,
+      replace or forget a saved password. Keep `password_command` as the
+      alternative. Use the native oo7 API without requiring Python keyring or
+      another executable on `PATH`. Document the credential-store seam for
+      future macOS Keychain and Windows Credential Manager adapters; neither
+      adapter nor cross-platform credential portability is promised.
 - [x] Remove the permanent bottom shortcut strip; keep status messages and
       running jobs, with commands available through menus, F1 and the palette.
 - [x] Fix address-bar button crashes: resolve tooltip shortcuts from the

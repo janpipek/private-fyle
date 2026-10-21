@@ -11,8 +11,7 @@ impl RemoteManager {
     /// Tests the current draft and offers trust confirmation for an unknown SSH key.
     pub fn test(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.cancel_test();
-        self.busy = true;
-        self.message = Some("Testing connection…".into());
+        let password = self.fields[12].read(cx).value().to_string();
         let config = match self.draft(cx).validate() {
             Ok(config) => config,
             Err(error) => {
@@ -22,6 +21,35 @@ impl RemoteManager {
                 return;
             }
         };
+        if !password.is_empty()
+            && !self
+                .password_identity
+                .as_ref()
+                .is_some_and(|typed_for| typed_for.credential_identity_eq(&config))
+        {
+            self.message = Some(
+                "Retype the password for this endpoint and account before testing.".to_owned(),
+            );
+            cx.notify();
+            return;
+        }
+        if password.is_empty()
+            && !self.forget_password
+            && self
+                .selected
+                .and_then(|index| self.configs.get(index))
+                .is_some_and(|saved| {
+                    saved.credential_id.is_some() && !saved.credential_identity_eq(&config)
+                })
+        {
+            self.message = Some(
+                "Endpoint or account changed. Enter a new password or forget the saved password before testing.".to_owned(),
+            );
+            cx.notify();
+            return;
+        }
+        self.busy = true;
+        self.message = Some("Testing connection…".into());
         let entity = cx.entity().downgrade();
         self.test_generation = self.test_generation.wrapping_add(1);
         let generation = self.test_generation;
@@ -31,7 +59,10 @@ impl RemoteManager {
         self.test_task = cx.spawn_in(window, async move |_, cx| {
             let result = cx
                 .background_spawn(async move {
-                    let provider = crate::remote::remotefs::RemoteFsProvider::new(config.clone());
+                    let provider = crate::remote::remotefs::RemoteFsProvider::with_password(
+                        config.clone(),
+                        (!password.is_empty()).then_some(password),
+                    );
                     let root = Location::root(&config.name)?;
                     provider
                         .list(&root, &Control::new(&cancel))

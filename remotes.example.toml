@@ -9,12 +9,18 @@
 #        webdav | s3), host, port, user, root (server folder that <name>:/
 #        shows, default "/"), password_command (see below).
 #        webdav: url instead of host.  s3: bucket, region, profile, endpoint.
+#        credential_id is managed by fyle when a system-keyring password is saved.
 #
-# Passwords are never stored here. password_command is split into words
-# (single or double quotes group a word; no shell, no pipes) and run when
-# connecting; its complete output, without trailing CR/LF, is the password.
-# Use entries containing only the password (no notes). No terminal input,
-# variable or ~ expansion; use an executable script for custom logic.
+# Passwords are never stored here. On Linux, Manage Remotes can save a server
+# password in the desktop system keyring; remotes.toml stores only an opaque
+# credential_id reference. Saved passwords currently use Secret Service
+# (GNOME Keyring or compatible KWallet); macOS Keychain and Windows Credential
+# Manager adapters are not implemented. Saved passwords and password_command
+# are alternatives. password_command is split into words (single or double
+# quotes group a word; no shell, no pipes) and run when connecting; its complete
+# output, without trailing CR/LF, is the password. Use entries containing only
+# the password (no notes). No terminal input, variable or ~ expansion; use an
+# absolute executable path or script for custom logic.
 # First-time SFTP keys require fingerprint confirmation in fyle; changed
 # keys are refused. See site/content/remotes.md for setup instructions.
 # SFTP tries ssh-agent and the IdentityFile entries of ~/.ssh/config first,

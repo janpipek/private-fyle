@@ -598,10 +598,46 @@ password_command = "pass show nas"   # optional
 
 S3 uses `bucket`, `region`, `profile` and `endpoint` instead of `host`; its
 credentials come from the AWS environment or profile. SFTP uses ssh-agent and
-the `IdentityFile` entries of `~/.ssh/config`. Passwords are never stored:
-`password_command` is split into words (quotes group a word; no shell, pipes
-or expansion), run when connecting, and its output is the password. Bad
-entries are reported without hiding the good ones. SFTP verifies host keys against
+the `IdentityFile` entries of `~/.ssh/config`.
+
+On Linux, Manage Remotes can save a server password in the desktop system
+keyring. A keyring keeps account and application secrets outside ordinary
+configuration files and mediates access through the desktop session. Fyle uses
+the Secret Service interface, which GNOME Keyring provides and KWallet can
+provide through its Secret Service support. `remotes.toml` stores an opaque
+credential ID, not the secret. The ID is associated with the protocol and
+account endpoint; changing the display name or root path retains it. Other
+operating systems do not have a saved-password adapter yet. macOS Keychain
+stores passwords and other account secrets; the login keychain usually unlocks
+when the user signs in if its password matches the macOS account, and macOS may
+ask whether an app can access an item. Windows Credential Manager keeps saved
+application and network credentials in encrypted storage under the signed-in
+user's profile, where apps can retrieve them for later connections. These
+native stores could back future adapters; this design does not promise
+cross-platform credential portability.
+
+In the dialog, a blank password field keeps the saved password, entering a
+password replaces it, and **Forget saved password** marks the removal pending.
+The button changes to **Undo forget**; click **Save** to remove the secret.
+**Cancel changes** leaves the existing password saved. Saved passwords and
+`password_command` are alternatives; clear the command before saving a stored
+password. A password typed for **Test connection** overrides the configured
+source for that endpoint and account, but Test does not save it. It can be used
+for repeated tests against the same target; changing protocol, endpoint or
+account clears it, and Test refuses a value bound to a different identity.
+Choosing Save with the field filled stores the password. Switching a remote to S3
+marks its saved password for removal when Save is pressed; S3 uses AWS
+credentials instead. Store lookup or write
+failures, including an absent or locked service, are reported without exposing
+the secret. A test with a typed password can still run when the keyring is
+unavailable. Keyring operations time out after 60 seconds. If replacement,
+forgetting or remote removal saves the configuration but fails to delete the
+old keyring item, the dialog warns that the old secret may remain in the system
+keyring even though fyle no longer references it.
+
+Alternatively, `password_command` is split into words (quotes group a word; no
+shell, pipes or expansion), run when connecting, and its output is the password.
+Bad entries are reported without hiding the good ones. SFTP verifies host keys against
 `~/.ssh/known_hosts`. Opening a remote or testing its connection offers explicit
 confirmation for an unknown key, showing the resolved host, port, algorithm and
 SHA256 fingerprint. Accept saves that exact key in the background and retries;

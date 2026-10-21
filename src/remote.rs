@@ -2,6 +2,7 @@
 //! the registry of configured remotes, independent of panel rendering.
 
 pub mod connections;
+pub mod credentials;
 #[cfg(feature = "sftp")]
 pub mod hostkey;
 pub mod jobs;

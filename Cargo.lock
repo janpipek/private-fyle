@@ -3057,12 +3057,14 @@ dependencies = [
 name = "fyle"
 version = "0.1.2"
 dependencies = [
+ "async-io",
  "base64 0.22.1",
  "calamine",
  "dirs 5.0.1",
  "dunce",
  "fitparser",
  "flate2",
+ "futures-lite",
  "globset",
  "gpui-kit",
  "grep-matcher",
@@ -3079,6 +3081,7 @@ dependencies = [
  "markup5ever_rcdom",
  "md-5 0.10.6",
  "mlua",
+ "oo7",
  "open",
  "parquet",
  "png 0.18.1",
@@ -3099,6 +3102,7 @@ dependencies = [
  "toml 0.9.12+spec-1.1.0",
  "toml_edit 0.25.17+spec-1.1.0",
  "trash",
+ "uuid",
  "winreg 0.55.0",
  "zip",
  "zstd",
