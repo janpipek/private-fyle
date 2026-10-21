@@ -4,7 +4,7 @@
 # crates in mock or Copr, is still to do (TODO.md).
 
 Name:           fyle
-Version:        0.1.1
+Version:        0.1.2
 Release:        1%{?dist}
 Summary:        Two-panel file manager
 
@@ -47,6 +47,9 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/io.github.janpipek.fy
 %{_datadir}/applications/io.github.janpipek.fyle.desktop
 
 %changelog
+* Wed Oct 21 2026 Jan Pipek <janpipek@users.noreply.github.com> - 0.1.2-1
+- Confirm unknown SFTP host keys and document remote connection setup
+
 * Wed Oct 14 2026 Jan Pipek <janpipek@users.noreply.github.com> - 0.1.1-1
 - Preview GPX and FIT tracks, with trip properties
 - Preview PowerPoint slide text
