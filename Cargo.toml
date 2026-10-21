@@ -34,6 +34,7 @@ remotefs-ftp = { version = "1", features = ["rustls-ring"], optional = true }
 remotefs-ssh = { version = "1", default-features = false, features = ["russh", "find"], optional = true }
 remotefs-webdav = { version = "1", features = ["tokio"], optional = true }
 russh = { version = "0.63", optional = true }
+russh-sftp = { version = "=2.4.0", features = ["lossless-strings"], optional = true }
 roxmltree = "0.21.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
@@ -55,7 +56,7 @@ rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"
 # configured but disabled protocol fails clearly at connect time.
 [features]
 default = ["sftp", "ftp"]
-sftp = ["dep:remotefs-ssh", "dep:russh", "dep:ssh2-config", "dep:tokio"]
+sftp = ["dep:remotefs-ssh", "dep:russh", "dep:russh-sftp", "dep:ssh2-config", "dep:tokio"]
 ftp = ["dep:remotefs-ftp"]
 webdav = ["dep:remotefs-webdav", "dep:tokio"]
 s3 = ["dep:remotefs-aws-s3", "dep:tokio"]
@@ -91,3 +92,7 @@ todo = "warn"
 
 [dev-dependencies]
 tempfile = "3.27.0"
+
+# Keep SFTP source filename bytes intact through remotefs-ssh's String API.
+[patch.crates-io]
+russh-sftp = { path = "vendor/russh-sftp" }

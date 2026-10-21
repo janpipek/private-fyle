@@ -584,6 +584,10 @@ not to pursue an item.
       the address bar and breadcrumbs, cancellable background listing with a
       32-folder cache per panel, transfers, remove, new folder, rename and open
       through the providers (`commander/remotes.rs`, `remote/jobs.rs`).
+- [x] Preserve arbitrary SFTP filename bytes across listing and file
+      operations. Escape invalid UTF-8 bytes losslessly as uppercase `~xHH`
+      and literal tildes as `~x7E`, so legacy encoded directories copy without
+      a charset choice or guessed conversion; typed paths use panel spelling.
 - [x] Save configured remote passwords in the Linux Secret Service keyring,
       keeping only an opaque ID in `remotes.toml`; Manage Remotes can retain,
       replace or forget a saved password. Keep `password_command` as the

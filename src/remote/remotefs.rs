@@ -13,22 +13,32 @@
 
 use std::ffi::OsStr;
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 #[cfg(any(feature = "sftp", feature = "webdav", feature = "s3"))]
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use remotefs::fs::{ReadOptions, WriteOptions};
 use remotefs::{File, RemoteError, RemoteErrorType, RemoteFs};
 
 use super::connections::{Protocol, RemoteConfig};
 use super::credentials::{CredentialStore, SystemCredentialStore};
 #[cfg(feature = "sftp")]
+use super::filename;
+#[cfg(feature = "sftp")]
 use super::hostkey;
 use super::process::Program;
 use super::{Capabilities, Control, Item, Listing, Location, Provider, Removal, entries};
+use transfer::{Ctx, Progress, download_item, upload_item};
+
+mod transfer;
+use urls::{
+    encode_url_component, encode_url_path, safe_s3_bucket, safe_uri_path, safe_url_authority,
+    safe_url_host,
+};
+
+mod urls;
 
 /// Size of the blocks that are copied between disk and server.
 pub const CHUNK: usize = 256 * 1024;
@@ -68,11 +78,10 @@ impl RemoteFsProvider {
     }
 
     fn standard_url(&self, location: &Location) -> Option<String> {
-        let path = remote_path(&self.config.root, location);
-        let path = path.to_str()?;
-        let encoded_path = encode_url_path(path);
+        let path = self.path(location);
         match self.config.protocol {
             Protocol::Sftp | Protocol::Ftp | Protocol::Ftps => {
+                let path = path.to_str()?;
                 let scheme = match self.config.protocol {
                     Protocol::Sftp => "sftp",
                     Protocol::Ftp => "ftp",
@@ -94,9 +103,23 @@ impl RemoteFsProvider {
                     .port
                     .map(|p| format!(":{p}"))
                     .unwrap_or_default();
+                let encoded_path = if self.config.protocol == Protocol::Sftp {
+                    #[cfg(feature = "sftp")]
+                    {
+                        filename::url_path(path)
+                    }
+                    #[cfg(not(feature = "sftp"))]
+                    {
+                        encode_url_path(path)
+                    }
+                } else {
+                    encode_url_path(path)
+                };
                 Some(format!("{scheme}://{user}{host}{port}{encoded_path}"))
             }
             Protocol::Webdav => {
+                let path = path.to_str()?;
+                let encoded_path = encode_url_path(path);
                 let base = self.config.url.as_deref()?;
                 let (scheme, rest) = base.split_once("://")?;
                 let (authority, base_path) = rest.split_once('/').unwrap_or((rest, ""));
@@ -121,6 +144,8 @@ impl RemoteFsProvider {
                 Some(format!("{scheme}://{authority}{base}{encoded_path}"))
             }
             Protocol::S3 => {
+                let path = path.to_str()?;
+                let encoded_path = encode_url_path(path);
                 let bucket = self.config.bucket.as_deref()?;
                 safe_s3_bucket(bucket).then(|| format!("s3://{bucket}{encoded_path}"))
             }
@@ -197,97 +222,17 @@ impl RemoteFsProvider {
     }
 
     fn path(&self, location: &Location) -> PathBuf {
+        #[cfg(feature = "sftp")]
+        if self.config.protocol == Protocol::Sftp {
+            let root = filename::escape_literal(&self.config.root);
+            return remote_path(&root, location);
+        }
         remote_path(&self.config.root, location)
     }
 
     fn err(&self, error: RemoteError) -> io::Error {
         remote_error(&self.label, error)
     }
-}
-
-fn safe_url_host(host: &str) -> bool {
-    !host.is_empty()
-        && host.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b':' | b'[' | b']')
-        })
-}
-
-fn safe_url_authority(authority: &str) -> bool {
-    !authority.is_empty()
-        && authority.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b':' | b'[' | b']')
-        })
-}
-
-fn safe_s3_bucket(bucket: &str) -> bool {
-    !bucket.is_empty()
-        && bucket.bytes().all(|byte| {
-            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'-')
-        })
-}
-
-fn safe_uri_path(path: &str) -> bool {
-    let bytes = path.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if byte == b'%' {
-            if index + 2 >= bytes.len()
-                || !bytes[index + 1].is_ascii_hexdigit()
-                || !bytes[index + 2].is_ascii_hexdigit()
-            {
-                return false;
-            }
-            index += 3;
-            continue;
-        }
-        if !(byte.is_ascii_alphanumeric()
-            || matches!(
-                byte,
-                b'/' | b':'
-                    | b'@'
-                    | b'!'
-                    | b'$'
-                    | b'&'
-                    | b'\''
-                    | b'('
-                    | b')'
-                    | b'*'
-                    | b'+'
-                    | b','
-                    | b';'
-                    | b'='
-                    | b'-'
-                    | b'.'
-                    | b'_'
-                    | b'~'
-            ))
-        {
-            return false;
-        }
-        index += 1;
-    }
-    true
-}
-
-fn encode_url_path(path: &str) -> String {
-    path.split('/')
-        .map(encode_url_component)
-        .collect::<Vec<_>>()
-        .join("/")
-}
-
-fn encode_url_component(component: &str) -> String {
-    let mut encoded = String::new();
-    for byte in component.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-            encoded.push(char::from(byte));
-        } else {
-            use std::fmt::Write as _;
-            let _ = write!(encoded, "%{byte:02X}");
-        }
-    }
-    encoded
 }
 
 /// The server path for a panel location: the configured root plus the
@@ -550,122 +495,22 @@ fn root_error() -> io::Error {
     )
 }
 
-/// Bytes done so far in one provider call, reported through [`Control`].
-struct Progress<'a, 'b> {
-    control: &'a Control<'b>,
-    done: u64,
+fn encode_app_name(name: &str, sftp: bool) -> String {
+    #[cfg(feature = "sftp")]
+    if sftp {
+        return filename::escape_literal(name);
+    }
+    let _ = sftp;
+    name.to_owned()
 }
 
-/// Copies `reader` to `writer` in [`CHUNK`]-sized blocks, stopping with an
-/// `Interrupted` error when cancelled and reporting `name` after each block.
-fn copy_chunks(
-    reader: &mut dyn Read,
-    writer: &mut dyn Write,
-    name: &str,
-    progress: &mut Progress,
-) -> io::Result<()> {
-    let mut buffer = vec![0; CHUNK];
-    loop {
-        if progress.control.cancelled() {
-            return Err(Control::cancelled_error());
-        }
-        let read = match reader.read(&mut buffer) {
-            Ok(0) => return Ok(()),
-            Ok(read) => read,
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(error) => return Err(error),
-        };
-        writer.write_all(&buffer[..read])?;
-        progress.done += read as u64;
-        (progress.control.progress)(name, progress.done);
+fn upload_name(name: &OsStr, sftp: bool) -> io::Result<Option<String>> {
+    #[cfg(feature = "sftp")]
+    if sftp {
+        return filename::local_name(name).map(Some);
     }
-}
-
-struct Ctx<'a, 'b, 'c> {
-    label: &'a str,
-    progress: &'a mut Progress<'b, 'c>,
-}
-
-impl Ctx<'_, '_, '_> {
-    fn err(&self, error: RemoteError) -> io::Error {
-        remote_error(self.label, error)
-    }
-}
-
-/// Downloads `remote` to `local`, skipping anything that already exists.
-fn download_item(
-    fs: &dyn RemoteFs,
-    remote: &Path,
-    local: &Path,
-    is_dir: bool,
-    ctx: &mut Ctx,
-) -> io::Result<()> {
-    if local.symlink_metadata().is_ok() {
-        return Ok(());
-    }
-    if is_dir {
-        fs::create_dir(local)?;
-        let mut children = fs.list_dir(remote).map_err(|e| ctx.err(e))?;
-        children.sort_by_key(File::name);
-        for child in children {
-            let name = child.name();
-            if matches!(name.as_str(), "." | "..") || child.is_symlink() {
-                continue;
-            }
-            crate::location::remote::validate_entry_name(&name)?;
-            download_item(fs, child.path(), &local.join(&name), child.is_dir(), ctx)?;
-        }
-        return Ok(());
-    }
-    let name = local.file_name().and_then(OsStr::to_str).unwrap_or("file");
-    let mut part = local.as_os_str().to_owned();
-    part.push(".fyle-part");
-    let part = PathBuf::from(part);
-    let result = (|| {
-        let mut reader = fs
-            .open(remote, &ReadOptions::default())
-            .map_err(|e| ctx.err(e))?;
-        let mut file = fs::File::create(&part)?;
-        copy_chunks(&mut reader, &mut file, name, ctx.progress)?;
-        file.flush()?;
-        reader.finish().map_err(|e| ctx.err(e))?;
-        fs::rename(&part, local)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&part);
-    }
-    result
-}
-
-/// Uploads the local `source` to the server path `remote`, skipping
-/// anything that already exists.
-fn upload_item(fs: &dyn RemoteFs, source: &Path, remote: &Path, ctx: &mut Ctx) -> io::Result<()> {
-    if fs.exists(remote).map_err(|e| ctx.err(e))? {
-        return Ok(());
-    }
-    let meta = fs::metadata(source)?;
-    if meta.is_dir() {
-        fs.create_dir(remote, None).map_err(|e| ctx.err(e))?;
-        let mut children = fs::read_dir(source)?.collect::<io::Result<Vec<_>>>()?;
-        children.sort_by_key(fs::DirEntry::file_name);
-        for child in children {
-            if child.file_type()?.is_symlink() {
-                continue;
-            }
-            let Some(name) = child.file_name().to_str().map(str::to_owned) else {
-                continue;
-            };
-            upload_item(fs, &child.path(), &remote.join(name), ctx)?;
-        }
-        return Ok(());
-    }
-    let name = source.file_name().and_then(OsStr::to_str).unwrap_or("file");
-    let mut reader = fs::File::open(source)?;
-    let options = WriteOptions::default().size_hint(meta.len());
-    let mut writer = fs.create(remote, &options).map_err(|e| ctx.err(e))?;
-    copy_chunks(&mut reader, &mut writer, name, ctx.progress)?;
-    writer.flush()?;
-    writer.finish().map_err(|e| ctx.err(e))
+    let _ = sftp;
+    Ok(name.to_str().map(str::to_owned))
 }
 
 impl Provider for RemoteFsProvider {
@@ -732,17 +577,28 @@ impl Provider for RemoteFsProvider {
 
     fn upload(&self, source: &Path, destination: &Location, control: &Control) -> io::Result<()> {
         let source = absolute(source)?;
-        let name = source.file_name().and_then(OsStr::to_str).ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidInput, "invalid local file name")
-        })?;
-        let remote = self.path(&destination.child(name)?);
+        let name = source
+            .file_name()
+            .map(|name| upload_name(name, self.config.protocol == Protocol::Sftp))
+            .transpose()?
+            .flatten()
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "invalid local file name")
+            })?;
+        let remote = self.path(&destination.child(&name)?);
         let mut progress = Progress { control, done: 0 };
         self.with_client(control, false, |fs| {
             let mut ctx = Ctx {
                 label: &self.label,
                 progress: &mut progress,
             };
-            upload_item(fs, source, &remote, &mut ctx)
+            upload_item(
+                fs,
+                source,
+                &remote,
+                self.config.protocol == Protocol::Sftp,
+                &mut ctx,
+            )
         })
     }
 
@@ -762,18 +618,23 @@ impl Provider for RemoteFsProvider {
     }
 
     fn create_folder(&self, parent: &Location, name: &str, control: &Control) -> io::Result<()> {
-        let path = self.path(&parent.child(name)?);
+        let name = encode_app_name(name, self.config.protocol == Protocol::Sftp);
+        let path = self.path(&parent.child(&name)?);
         self.with_client(control, true, |fs| {
             if fs.exists(&path).map_err(|e| self.err(e))? {
-                return Err(exists_error(name));
+                return Err(exists_error(&name));
             }
             fs.create_dir(&path, None).map_err(|e| self.err(e))
         })
     }
 
     fn rename(&self, target: &Location, new_name: &str, control: &Control) -> io::Result<()> {
+        if target.name() == Some(new_name) {
+            return Ok(());
+        }
         let parent = target.parent().ok_or_else(root_error)?;
-        self.move_path(target, &parent.child(new_name)?, new_name, control)
+        let encoded_name = encode_app_name(new_name, self.config.protocol == Protocol::Sftp);
+        self.move_path(target, &parent.child(&encoded_name)?, new_name, control)
     }
 
     fn move_to(
@@ -816,18 +677,21 @@ impl RemoteFsProvider {
 #[cfg(test)]
 mod tests {
     use super::{
-        CHUNK, Progress, RemoteFsProvider, copy_chunks, is_connection_error, item_from,
-        password_with_store, remote_error, remote_path,
+        RemoteFsProvider, is_connection_error, item_from, password_with_store, remote_error,
+        remote_path,
     };
+    #[cfg(feature = "sftp")]
+    use super::{encode_app_name, upload_name};
     use crate::remote::connections::parse;
     use crate::remote::credentials::CredentialStore;
     use crate::remote::{Control, Location, Provider, Removal};
     use remotefs::fs::{FileType, Metadata};
     use remotefs::{File, RemoteError, RemoteErrorType};
-    use std::io::{self, Cursor};
+    #[cfg(feature = "sftp")]
+    use std::ffi::OsStr;
+    use std::io;
     use std::path::Path;
-    use std::sync::Mutex;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::AtomicBool;
 
     fn provider() -> RemoteFsProvider {
         let (mut remotes, errors) = parse(
@@ -908,6 +772,53 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "sftp")]
+    #[test]
+    fn sftp_paths_preserve_escaped_server_names_and_literal_config_root() {
+        let (mut remotes, errors) = parse(
+            "[[remote]]\nname = \"files\"\nprotocol = \"sftp\"\nhost = \"example.test\"\nroot = \"/srv/~xE9\"\n",
+        )
+        .unwrap();
+        assert!(errors.is_empty());
+        let provider = RemoteFsProvider::new(remotes.remove(0));
+        let location = Location::root("files")
+            .unwrap()
+            .child("caf~xE9.txt")
+            .unwrap();
+        assert_eq!(
+            provider.path(&location),
+            Path::new("/srv/~x7ExE9/caf~xE9.txt")
+        );
+        assert_eq!(
+            provider.standard_url(&location).as_deref(),
+            Some("sftp://example.test/srv/~xE9/caf%E9.txt")
+        );
+    }
+
+    #[cfg(feature = "sftp")]
+    #[test]
+    fn sftp_new_names_escape_marker_literals_and_encode_local_bytes() {
+        assert_eq!(encode_app_name("literal~xE9", true), "literal~x7ExE9");
+        assert_eq!(encode_app_name("literal~xE9", false), "literal~xE9");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            assert_eq!(
+                upload_name(OsStr::from_bytes(b"bad\xE9.txt"), true).unwrap(),
+                Some("bad~xE9.txt".to_owned())
+            );
+            assert_eq!(
+                upload_name(OsStr::from_bytes(b"literal~xE9.txt"), true).unwrap(),
+                Some("literal~x7ExE9.txt".to_owned())
+            );
+            assert_eq!(
+                upload_name(OsStr::from_bytes(b"bad\xE9.txt"), false).unwrap(),
+                None
+            );
+        }
+    }
+
     #[test]
     fn webdav_urls_reject_malformed_base_paths() {
         let parse_provider = |url: &str| {
@@ -961,50 +872,6 @@ mod tests {
     }
 
     #[test]
-    fn copies_in_chunks_with_progress() {
-        let data = vec![7u8; CHUNK * 2 + 10];
-        let mut out = Vec::new();
-        let cancel = AtomicBool::new(false);
-        let reports = Mutex::new(Vec::new());
-        let record = |name: &str, done: u64| reports.lock().unwrap().push((name.to_owned(), done));
-        let control = Control {
-            cancel: &cancel,
-            progress: &record,
-        };
-        let mut progress = Progress {
-            control: &control,
-            done: 0,
-        };
-        copy_chunks(&mut Cursor::new(&data), &mut out, "f", &mut progress).unwrap();
-        assert_eq!(out, data);
-        let reports = reports.into_inner().unwrap();
-        assert_eq!(
-            reports.last().unwrap(),
-            &("f".to_owned(), data.len() as u64)
-        );
-        assert!(reports.len() >= 3);
-    }
-
-    #[test]
-    fn copy_stops_when_cancelled() {
-        let cancel = AtomicBool::new(false);
-        let stop = |_: &str, _: u64| cancel.store(true, Ordering::Relaxed);
-        let control = Control {
-            cancel: &cancel,
-            progress: &stop,
-        };
-        let mut progress = Progress {
-            control: &control,
-            done: 0,
-        };
-        let data = vec![1u8; CHUNK * 4];
-        let mut out = Vec::new();
-        let error = copy_chunks(&mut Cursor::new(&data), &mut out, "f", &mut progress).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
-        assert_eq!(out.len(), CHUNK);
-    }
-
-    #[test]
     fn errors_keep_their_kind_and_label() {
         let missing = remote_error(
             "SFTP (nas)",
@@ -1044,6 +911,12 @@ mod tests {
         let control = Control::new(&cancel);
         let root = Location::root("nas").unwrap();
         let file = root.child("a").unwrap();
+        let escaped_raw_name = root.child("caf~xE9.txt").unwrap();
+        assert!(
+            provider
+                .rename(&escaped_raw_name, "caf~xE9.txt", &control)
+                .is_ok()
+        );
         assert!(
             provider
                 .download(&file, false, Path::new("rel"), &control)

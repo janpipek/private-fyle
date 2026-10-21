@@ -645,6 +645,16 @@ cancel leaves it untrusted. Changed keys remain refused, including conflicts
 added while confirmation is open. Keys can also be accepted first using `ssh`. If `~/.ssh/config` maps the configured `host` to another
 `HostName` or `Port`, the key is checked for that server.
 
+SFTP filenames are carried as bytes. Invalid UTF-8 bytes display as `~xHH`
+(uppercase hex), and every literal `~` displays as `~x7E`; valid UTF-8 remains
+unchanged. For example, raw byte `E9` displays as `~xE9`, a valid UTF-8
+replacement character stays `�`, and literal text `~xE9` displays as
+`~x7ExE9`. Listing, opening, copying, deleting and moving restore the original
+remote bytes. To type a remote path manually, use its panel spelling. Fyle does
+not guess a legacy encoding such as CP1250, and no charset choice is needed to
+copy folders with those names. New names typed for create or rename are literal
+UTF-8; local Unix names keep their bytes when uploaded.
+
 Building needs the OpenSSL development files (WebDAV); see Build
 dependencies (`openssl-devel` on Fedora). Each protocol is its own Cargo
 feature (`sftp`, `ftp`, `webdav`, `s3`; SFTP and FTP on by default) pulling in its own

@@ -3093,6 +3093,7 @@ dependencies = [
  "roxmltree 0.21.1",
  "rusqlite",
  "russh",
+ "russh-sftp",
  "serde",
  "serde_json",
  "ssh2-config",
@@ -7633,8 +7634,6 @@ dependencies = [
 [[package]]
 name = "russh-sftp"
 version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9de67aace74530a29086db0671fa200c470a58eb380081f28ad512ffb0c5356b"
 dependencies = [
  "bitflags 2.13.2",
  "bytes",

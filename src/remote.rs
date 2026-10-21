@@ -4,6 +4,8 @@
 pub mod connections;
 pub mod credentials;
 #[cfg(feature = "sftp")]
+pub mod filename;
+#[cfg(feature = "sftp")]
 pub mod hostkey;
 pub mod jobs;
 pub mod manage;

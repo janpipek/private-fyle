@@ -217,6 +217,21 @@ Protocol support depends on the build. The default build includes SFTP and
 FTP/FTPS; WebDAV and S3 require the `webdav` and `s3` Cargo features. A build
 without the selected protocol reports that when connecting.
 
+### Remote filenames
+
+SFTP names with invalid UTF-8 bytes are shown with lossless escapes: each
+invalid byte is `~xHH` using uppercase hex, and each literal `~` is `~x7E`.
+Valid UTF-8 text stays readable. For example, a legacy CP1250 byte `E9` is
+shown as `~xE9`; a literal SFTP name `~xE9` is shown as `~x7ExE9`. Fyle restores
+these bytes for SFTP listing and file operations, so folders with legacy
+names can be copied without choosing a character set. The escaped panel names
+are also used on the local copies, keeping names distinct: `caf~xE9`, `caf�`
+and `caf~x7ExE9` stay different. Fyle does not guess a server encoding.
+
+When typing a remote path, use the spelling shown in the panel, or copy the
+address from the app. Names typed for create or rename are literal UTF-8 text;
+local Unix filenames keep their original bytes when uploaded.
+
 ## Work with remote files
 
 Remote listings and supported operations run in the background:
