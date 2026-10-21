@@ -112,3 +112,12 @@ refresh replaces the status normally. Pure status-policy tests cover these
 cases. Request tokens, guards, cancellation, history and commit ordering are
 unchanged. Remote startup currently enters through `Navigate` and retains its
 existing status behavior; this presentation fix does not reinterpret that intent.
+
+## SFTP trust retry
+
+An unknown SSH host key completes the failed listing before showing a typed
+trust confirmation. `PanelNavigation::is_current(token)` permits retry after
+acceptance only if no newer navigation has begun, including a newer request
+that has already failed. The source-folder guard is checked again. Saving the
+confirmed key runs in the background; cancellation does not save it. Remote
+connection tests use their existing test generation and draft equality checks.

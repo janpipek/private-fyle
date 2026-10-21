@@ -176,7 +176,7 @@ impl RemoteFsProvider {
         if let Err(error) = client.connect() {
             #[cfg(feature = "sftp")]
             if let Some(reason) = guard.as_ref().and_then(hostkey::Connecting::rejection) {
-                return Err(io::Error::new(io::ErrorKind::PermissionDenied, reason));
+                return Err(reason);
             }
             return Err(remote_error(&self.label, error));
         }

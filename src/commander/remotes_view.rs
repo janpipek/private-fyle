@@ -14,9 +14,11 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::Commander;
-use crate::remote::{Control, Location, Provider, connections, manage};
+use crate::remote::{connections, manage};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+mod connection_test;
 
 const FIELDS: [&str; 12] = [
     "Name",
@@ -374,8 +376,8 @@ impl Render for RemoteManager {
             .label("Test")
             .small()
             .disabled(self.busy)
-            .on_click(move |_, _, cx| {
-                let _ = test_entity.update(cx, |this, cx| this.test(cx));
+            .on_click(move |_, window, cx| {
+                let _ = test_entity.update(cx, |this, cx| this.test(window, cx));
             });
         let connect_entity = weak.clone();
         let connect = Button::new("remote-connect")
@@ -762,58 +764,6 @@ impl RemoteManager {
                 if let Some(list) = this.remote_list.clone() {
                     defer_list_selection(list, this.selected, window, cx);
                 }
-                cx.notify();
-            });
-        });
-    }
-
-    fn test(&mut self, cx: &mut Context<Self>) {
-        self.cancel_test();
-        self.busy = true;
-        self.message = Some("Testing connection…".into());
-        let config = match self.draft(cx).validate() {
-            Ok(config) => config,
-            Err(error) => {
-                self.busy = false;
-                self.message = Some(error.to_string());
-                cx.notify();
-                return;
-            }
-        };
-        let entity = cx.entity().downgrade();
-        self.test_generation = self.test_generation.wrapping_add(1);
-        let generation = self.test_generation;
-        let cancel = Arc::new(AtomicBool::new(false));
-        self.test_cancel = Some(cancel.clone());
-        let tested_config = config.clone();
-        self.test_task = cx.spawn(async move |_, cx| {
-            let result = cx
-                .background_spawn(async move {
-                    let provider = crate::remote::remotefs::RemoteFsProvider::new(config.clone());
-                    let root = Location::root(&config.name)?;
-                    provider
-                        .list(&root, &Control::new(&cancel))
-                        .map(|listing| listing.entries.len())
-                })
-                .await;
-            let _ = entity.update(cx, |this, cx| {
-                if this.test_generation != generation {
-                    return;
-                }
-                this.busy = false;
-                this.test_cancel = None;
-                if !this
-                    .draft(cx)
-                    .validate()
-                    .is_ok_and(|current| current == tested_config)
-                {
-                    cx.notify();
-                    return;
-                }
-                this.message = Some(match result {
-                    Ok(count) => format!("Connection works; {count} items at the root"),
-                    Err(error) => format!("{}: connection failed: {error}", tested_config.name),
-                });
                 cx.notify();
             });
         });

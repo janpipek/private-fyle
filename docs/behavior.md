@@ -602,13 +602,16 @@ the `IdentityFile` entries of `~/.ssh/config`. Passwords are never stored:
 `password_command` is split into words (quotes group a word; no shell, pipes
 or expansion), run when connecting, and its output is the password. Bad
 entries are reported without hiding the good ones. SFTP verifies host keys against
-`~/.ssh/known_hosts` and refuses unknown or changed ones; connect once with `ssh`
-to accept a new host. If `~/.ssh/config` maps the configured `host` to another
+`~/.ssh/known_hosts`. Opening a remote or testing its connection offers explicit
+confirmation for an unknown key, showing the resolved host, port, algorithm and
+SHA256 fingerprint. Accept saves that exact key in the background and retries;
+cancel leaves it untrusted. Changed keys remain refused, including conflicts
+added while confirmation is open. Keys can also be accepted first using `ssh`. If `~/.ssh/config` maps the configured `host` to another
 `HostName` or `Port`, the key is checked for that server.
 
 Building needs the OpenSSL development files (WebDAV); see Build
 dependencies (`openssl-devel` on Fedora). Each protocol is its own Cargo
-feature (`sftp`, `ftp`, `webdav`, `s3`; all on by default) pulling in its own
+feature (`sftp`, `ftp`, `webdav`, `s3`; SFTP and FTP on by default) pulling in its own
 SDK; building with `--no-default-features --features ftp,webdav` (for
 example) drops the others and their crates. A remote configured for a
 disabled protocol fails to connect with a clear message instead of failing

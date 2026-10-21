@@ -142,6 +142,13 @@ not to pursue an item.
 
 ## Done
 
+- [x] First-connection SFTP host-key confirmation when opening a remote or
+      testing it in Manage Remotes: show the resolved host, port, key type and
+      SHA256 fingerprint; save only the explicitly accepted key to known_hosts
+      in the background and retry if the request is still current. Refuse
+      changed keys and persistence conflicts. Expand the user guide with
+      SFTP/FTP/FTPS/WebDAV/S3 setup and password-command examples and semantics.
+
 - [x] Publishable Hugo user guide source in `site/`: getting started,
       navigation, file operations, workspace controls, inspection, search and
       editing, tools, remote storage, settings and keyboard reference. Includes

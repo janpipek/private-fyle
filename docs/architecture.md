@@ -161,7 +161,7 @@ Where things live (`src/`):
 | `workspace.rs`, `inspector_view.rs` | Workspace layout and active panel roles; the inspector tab controller retains View/Properties selection while the inspector is closed or dock layout changes. |
 | `columns.rs`, `columns/` | Persisted `ColumnId`s, mandatory Name/selection normalization, shared descriptor `Catalog` and native provider reader seam; `ColumnKind` retains specialized built-in rendering/sorting. Unknown IDs survive settings changes, provider cells use typed validated values, and provider/unavailable columns remain unsortable. |
 | `fs_ops.rs`, `transfer.rs`, `jobs.rs` | Native metadata/account adapters and file operations; copy/move with conflict resolution; background jobs with progress and cancel |
-| `remote.rs`, `remote/` | Remote providers: `Provider` trait; compatibility `Location` alias to `location::RemoteLocation`; Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`) and management persistence (`manage.rs`), SFTP host key check (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `LocalCopy` keeps a typed source address separate from the cache path used at native I/O boundaries; `model/remote.rs` holds cached listings |
+| `remote.rs`, `remote/` | Remote providers: `Provider` trait; compatibility `Location` alias to `location::RemoteLocation`; Proton Drive (`proton.rs`), rclone (`rclone.rs`), shared CLI runner (`process.rs`), `remotes.toml` parsing (`connections.rs`) and management persistence (`manage.rs`), SFTP host key check and typed unknown-key confirmation/persistence (`hostkey.rs`), SFTP/FTP/WebDAV/S3 (`remotefs.rs`); `remote/jobs.rs` plans and runs transfers, removals and the download cache; `LocalCopy` keeps a typed source address separate from the cache path used at native I/O boundaries; `model/remote.rs` holds cached listings |
 | `archive.rs`, `archive/extraction.rs`, `dirsize.rs`, `links.rs` | Archive index; safe extraction; recursive sizes; symlink state |
 | `preview/`, `preview_view.rs`, `notebook_view.rs`, `presentation_view.rs` | `Previewer`s and their `Registry` (including bounded nbformat 4 notebook parsing, PowerPoint parsing and GPX/FIT outline generation); one render arm per `Content`; notebooks and presentations render through variable-height lazy lists; `PreviewSession` owns target identity, reloads, navigation and stale-result acceptance; GUI resources stay in the pane |
 | `xattr.rs`, `xattr/inspection.rs` | Bounded no-follow native name/value reads shared with columns; UI-independent Properties snapshots, typed text/hex prefixes, budgets and per-attribute failures |
@@ -175,7 +175,7 @@ Where things live (`src/`):
 | `recognition.rs`, `recognition/` | Shared bounded filename/content recognition, ranked MIME candidates and native detector; `properties/recognition.rs` exposes candidates and evidence for local regular files; caller-owned reads and freshness |
 | `apps.rs`, `windows_apps.rs`, `mime.rs`, `desktop.rs`, `mimeapps.rs`, `xdg.rs`, `ini.rs` | Open With model: `apps::Catalog` (Linux and Windows discovery) and `merge` with the openers; Windows registry associations; MIME type from shared-mime-info `globs2`/`subclasses`/`aliases`; `.desktop` parsing and `Exec` expansion; `mimeapps.list`; XDG directories |
 | `*_view.rs`, `menu_bar.rs`, `link_badge.rs`, `theme_picker.rs` | Thin views |
-| `commander/remotes_view.rs` | Remote management dialog, rendering a selectable remote list and edit form |
+| `commander/remotes_view.rs`, `commander/remotes_view/connection_test.rs` | Remote management dialog and background connection testing, rendering a selectable remote list and edit form |
 
 Previews follow the same split. `src/preview/` is the model: a `Registry`
 of `Previewer`s (directory, embedded-JPEG RAW images, image with EXIF, PDF via poppler, audio/video via ffmpeg, archive, DOCX/ODT documents (to Markdown), PPTX/PPTM slide text, Markdown, read-only IPYNB,
@@ -192,3 +192,8 @@ selection (with sheet tabs in the view), and generation checks for full loads,
 page renders and sheet reads. A new file
 type is a new `Previewer` registered before the fallbacks; only a new kind of
 display needs a new `Content` variant and render arm.
+
+`commander/hostkey_view.rs` presents typed unknown-key errors from navigation and
+remote connection tests. Acceptance writes only the confirmed key on a background
+worker, rechecks known_hosts for conflicts, and retries through the original
+controller with its freshness checks. SSH callbacks never wait for the UI.

@@ -24,7 +24,7 @@ impl PanelNavigation {
     /// Clears a current pending request, for either a successful or failed listing.
     /// Obsolete completions leave the newer destination untouched.
     pub fn complete(&mut self, token: RequestToken) -> bool {
-        if !self.is_pending() || token.0 != self.generation {
+        if !self.is_pending() || !self.is_current(token) {
             return false;
         }
         self.pending_target = None;
@@ -38,6 +38,12 @@ impl PanelNavigation {
         }
         self.generation = self.generation.wrapping_add(1);
         true
+    }
+
+    /// Whether no newer navigation has superseded this request, even after completion.
+    /// Used when a failed connection awaits a separate trust confirmation.
+    pub fn is_current(&self, token: RequestToken) -> bool {
+        token.0 == self.generation
     }
 
     /// Whether a listing is still being loaded for this panel.
@@ -88,6 +94,21 @@ mod tests {
         assert_eq!(navigation.pending_target(), None);
         assert!(!navigation.complete(token));
         assert!(!navigation.cancel());
+    }
+
+    #[test]
+    fn trust_retry_stays_current_after_failure_but_not_after_newer_work() {
+        let mut navigation = PanelNavigation::default();
+        let failed = navigation.begin(local("remote"));
+        assert!(navigation.complete(failed));
+        assert!(navigation.is_current(failed));
+        let newer = navigation.begin(local("other"));
+        assert!(!navigation.is_current(failed));
+        assert!(navigation.complete(newer));
+        assert!(!navigation.is_current(failed));
+        let cancelled = navigation.begin(local("remote"));
+        navigation.cancel();
+        assert!(!navigation.is_current(cancelled));
     }
 
     #[test]

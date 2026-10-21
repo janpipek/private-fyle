@@ -191,7 +191,43 @@ impl Commander {
                         this.update_preview(window, cx);
                     }
                     Err(error) => {
-                        this.status = format!("{}: {error}", fs_ops::display_path(&path)).into()
+                        this.status = format!("{}: {error}", fs_ops::display_path(&path)).into();
+                        #[cfg(feature = "sftp")]
+                        if let Some(key) = crate::remote::hostkey::UnknownKey::from_error(&error) {
+                            let entity = cx.entity().downgrade();
+                            super::hostkey_view::confirm(
+                                key,
+                                window,
+                                cx,
+                                move |result, window, cx| {
+                                    let _ = entity.update(cx, |this, cx| {
+                                        if !this.navigation[panel].is_current(request) {
+                                            return;
+                                        }
+                                        let live = this.folders[panel].read(cx);
+                                        if !guard.matches(&live.target(), live.generation()) {
+                                            return;
+                                        }
+                                        match result {
+                                            Ok(()) => this.load_panel_listing(
+                                                panel,
+                                                target.clone(),
+                                                commit.clone(),
+                                                fallback,
+                                                window,
+                                                cx,
+                                            ),
+                                            Err(error) => {
+                                                this.status =
+                                                    format!("Cannot save SSH host key: {error}")
+                                                        .into();
+                                                cx.notify();
+                                            }
+                                        }
+                                    });
+                                },
+                            );
+                        }
                     }
                 }
                 cx.notify();

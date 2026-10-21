@@ -4,6 +4,8 @@
 mod appearance;
 mod drag_drop;
 mod files;
+#[cfg(feature = "sftp")]
+mod hostkey_view;
 mod jobs;
 mod keymap_view;
 mod keys;

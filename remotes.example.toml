@@ -12,7 +12,11 @@
 #
 # Passwords are never stored here. password_command is split into words
 # (single or double quotes group a word; no shell, no pipes) and run when
-# connecting; its output, without the final newline, is the password.
+# connecting; its complete output, without trailing CR/LF, is the password.
+# Use entries containing only the password (no notes). No terminal input,
+# variable or ~ expansion; use an executable script for custom logic.
+# First-time SFTP keys require fingerprint confirmation in fyle; changed
+# keys are refused. See site/content/remotes.md for setup instructions.
 # SFTP tries ssh-agent and the IdentityFile entries of ~/.ssh/config first,
 # so it usually needs no password. S3 takes credentials from the AWS
 # environment or the named profile.
