@@ -235,6 +235,7 @@ fn action_id(cmd: Cmd) -> &'static str {
         Cmd::SelectAll => "SelectAll",
         Cmd::InvertSelection => "InvertSelection",
         Cmd::SelectPattern => "SelectPattern",
+        Cmd::DeselectPattern => "DeselectPattern",
         Cmd::Unmark => "Unmark",
         Cmd::ClearSelection => "ClearSelection",
         Cmd::Filter => "Filter",
@@ -311,6 +312,7 @@ fn default_binding(cmd: Cmd) -> (&'static str, KeyContext) {
         Cmd::SelectAll => ("secondary-a", panel),
         Cmd::InvertSelection => ("*", panel),
         Cmd::SelectPattern => ("+", panel),
+        Cmd::DeselectPattern => ("-", panel),
         Cmd::Unmark => ("escape", panel),
         Cmd::ToolsMenu => ("f2", panel),
         Cmd::YankFiles => ("secondary-c", panel),
@@ -409,7 +411,12 @@ fn normalize_keys(keys: &str) -> Option<String> {
         return None;
     }
     for token in &tokens {
-        if token == "alt--" || token == "shift--" || token == "ctrl--" || token == "secondary--" {
+        if token == "-"
+            || token == "alt--"
+            || token == "shift--"
+            || token == "ctrl--"
+            || token == "secondary--"
+        {
             continue;
         }
         let parts: Vec<&str> = token.split('-').collect();
@@ -432,7 +439,7 @@ fn normalize_keys(keys: &str) -> Option<String> {
     let mut normalized = Vec::with_capacity(tokens.len());
     for token in tokens {
         let parts = token.split('-').collect::<Vec<_>>();
-        if parts.len() < 2 || token.ends_with("--") {
+        if token == "-" || parts.len() < 2 || token.ends_with("--") {
             normalized.push(token);
             continue;
         }
@@ -588,6 +595,15 @@ mod tests {
                 .any(|command| command.action == "RemoveColumn")
         );
         assert!(commands().iter().any(|command| command.action == "Copy"));
+    }
+
+    #[test]
+    fn accepts_plain_hyphen_shortcut() {
+        let mut editor = Editor::default();
+        editor
+            .set("DeselectPattern", "-", KeyContext::Panel)
+            .expect("valid binding");
+        assert_eq!(super::normalize_keys("-"), Some("-".to_string()));
     }
 
     #[test]

@@ -32,6 +32,7 @@ pub enum Cmd {
     SelectAll,
     InvertSelection,
     SelectPattern,
+    DeselectPattern,
     Unmark,
     ClearSelection,
     Filter,
@@ -160,7 +161,7 @@ pub struct State {
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 75] = [
+    pub const ALL: [Cmd; 76] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::OpenInBrowser,
@@ -178,6 +179,7 @@ impl Cmd {
         Cmd::SelectAll,
         Cmd::InvertSelection,
         Cmd::SelectPattern,
+        Cmd::DeselectPattern,
         Cmd::Unmark,
         Cmd::ClearSelection,
         Cmd::Filter,
@@ -261,6 +263,7 @@ impl Cmd {
             Cmd::SelectAll => "Select All",
             Cmd::InvertSelection => "Invert Selection",
             Cmd::SelectPattern => "Select by Pattern…",
+            Cmd::DeselectPattern => "Deselect by Pattern…",
             Cmd::Unmark => "Clear Filter or Marks",
             Cmd::ClearSelection => "Clear Selection",
             Cmd::Filter => "Filter…",
@@ -604,6 +607,7 @@ pub fn context_menu() -> Vec<Item> {
                 SelectAll,
                 InvertSelection,
                 SelectPattern,
+                DeselectPattern,
                 ClearSelection,
                 Unmark,
                 Filter,
@@ -654,7 +658,13 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
             "Edit",
             items(&[
                 &[CutFiles, YankFiles, CopyName, PasteFiles],
-                &[ToggleMark, SelectAll, InvertSelection, SelectPattern],
+                &[
+                    ToggleMark,
+                    SelectAll,
+                    InvertSelection,
+                    SelectPattern,
+                    DeselectPattern,
+                ],
                 &[ClearSelection, Unmark, Filter],
             ]),
         ),
@@ -914,6 +924,7 @@ mod tests {
                 if commands.contains(&Cmd::SelectAll)
                     && commands.contains(&Cmd::InvertSelection)
                     && commands.contains(&Cmd::SelectPattern)
+                    && commands.contains(&Cmd::DeselectPattern)
         )));
         let commands: Vec<_> = context_menu()
             .into_iter()

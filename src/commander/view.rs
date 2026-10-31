@@ -13,8 +13,9 @@ use gpui_kit::*;
 use super::Commander;
 use super::jobs::first_of;
 use super::keys::{
-    CalculateSizes, ClearSelection, Collapse, Expand, Filter, InvertSelection, Refresh, SelectAll,
-    SelectPattern, ShowProperties, ToggleHidden, ToggleMark, TogglePreview, ToggleTree, Unmark,
+    CalculateSizes, ClearSelection, Collapse, DeselectPattern, Expand, Filter, InvertSelection,
+    Refresh, SelectAll, SelectPattern, ShowProperties, ToggleHidden, ToggleMark, TogglePreview,
+    ToggleTree, Unmark,
 };
 use super::location::ListingCommit;
 use crate::dirsize::{self, DirSize};
@@ -307,6 +308,27 @@ impl Commander {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.pattern_dialog(true, window, cx);
+    }
+
+    /// Deselect by pattern: like `select_pattern`, but removes the marks of
+    /// the matching entries.
+    pub fn deselect_pattern(
+        &mut self,
+        _: &DeselectPattern,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.pattern_dialog(false, window, cx);
+    }
+
+    /// Shared pattern dialog; `mark` chooses between marking and unmarking.
+    fn pattern_dialog(&mut self, mark: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let (title, ok_text) = if mark {
+            ("Select by pattern", "Select")
+        } else {
+            ("Deselect by pattern", "Deselect")
+        };
         let input = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("e.g. *.jpg or report")
@@ -317,10 +339,10 @@ impl Commander {
         self._pattern_subscription = Some(cx.subscribe_in(
             &input,
             window,
-            |this, input, event: &InputEvent, window, cx| {
+            move |this, input, event: &InputEvent, window, cx| {
                 if let InputEvent::PressEnter { .. } = event {
                     let pattern = input.read(cx).value();
-                    this.mark_matching(&pattern, cx);
+                    this.apply_pattern(&pattern, mark, cx);
                     window.close_dialog(cx);
                     this.focus_active(window, cx);
                 }
@@ -330,14 +352,14 @@ impl Commander {
         window.open_alert_dialog(cx, move |dialog, _, _| {
             let (this, input) = (this.clone(), dialog_input.clone());
             dialog
-                .title("Select by pattern")
+                .title(title)
                 .description(Input::new(&dialog_input))
-                .ok_text("Select")
+                .ok_text(ok_text)
                 .show_cancel(true)
                 .on_ok(move |_, window, cx| {
                     let pattern = input.read(cx).value();
                     let _ = this.update(cx, |this, cx| {
-                        this.mark_matching(&pattern, cx);
+                        this.apply_pattern(&pattern, mark, cx);
                         this.focus_active(window, cx);
                     });
                     true
@@ -349,9 +371,17 @@ impl Commander {
         });
     }
 
-    pub fn mark_matching(&mut self, pattern: &str, cx: &mut Context<Self>) {
-        self.status = match self.update_folder(cx, |f| f.mark_matching(pattern)) {
-            Ok(n) => format!("{n} matching \"{pattern}\" marked").into(),
+    /// Marks (`mark`) or unmarks the entries matching `pattern` and reports
+    /// the count in the status line.
+    pub fn apply_pattern(&mut self, pattern: &str, mark: bool, cx: &mut Context<Self>) {
+        let result = if mark {
+            self.update_folder(cx, |f| f.mark_matching(pattern))
+        } else {
+            self.update_folder(cx, |f| f.unmark_matching(pattern))
+        };
+        let verb = if mark { "marked" } else { "unmarked" };
+        self.status = match result {
+            Ok(n) => format!("{n} matching \"{pattern}\" {verb}").into(),
             Err(e) => e.into(),
         };
         cx.notify();

@@ -30,7 +30,7 @@ palette. The bottom area shows status messages and running jobs.
 | Alt-Left / Alt-Right | Back / forward through visited directories (per panel) |
 | Tab                 | Switch active panel                       |
 | Space / Insert      | Mark entry                                |
-| Ctrl-A / * / +      | Select all / invert selection / select by pattern (glob or substring) |
+| Ctrl-A / * / + / -  | Select all / invert selection / select or deselect by pattern (glob or substring) |
 | / or Ctrl-F         | Filter as you type (Enter keeps the filter, Esc clears it) |
 | Esc                 | Clear the filter, else the marks          |
 | (no key)            | Clear Selection (Edit menu, palette, F1): unmark everything in the active panel, leaving the filter; unavailable when nothing is marked |

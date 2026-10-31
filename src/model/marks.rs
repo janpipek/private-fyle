@@ -242,18 +242,32 @@ impl Folder {
     /// has `*`, `?` or `[`, else a substring; case-insensitive). Returns
     /// how many matched.
     pub fn mark_matching(&mut self, pattern: &str) -> Result<usize, String> {
+        let locations = self.matching_locations(pattern)?;
+        let count = locations.len();
+        self.marked.extend(locations);
+        Ok(count)
+    }
+
+    /// Removes the marks of the shown entries whose name matches `pattern`
+    /// (same matching as `mark_matching`). Returns how many matched.
+    pub fn unmark_matching(&mut self, pattern: &str) -> Result<usize, String> {
+        let locations = self.matching_locations(pattern)?;
+        for location in &locations {
+            self.marked.remove(location);
+        }
+        Ok(locations.len())
+    }
+
+    fn matching_locations(&self, pattern: &str) -> Result<Vec<Location>, String> {
         let matcher = crate::search::NameMatcher::new(pattern)?;
-        let locations: Vec<_> = self
+        Ok(self
             .entries
             .iter()
             .filter(|e| !e.is_parent)
             // Search results show relative paths; match the file name.
             .filter(|e| matcher.matches(e.name.rsplit('/').next().unwrap_or(&e.name)))
             .map(|e| e.location.clone())
-            .collect();
-        let count = locations.len();
-        self.marked.extend(locations);
-        Ok(count)
+            .collect())
     }
 }
 
@@ -421,6 +435,13 @@ mod tests {
         assert_eq!(folder.mark_matching("su"), Ok(1)); // substring
         assert_eq!(marked(&folder), ["sub"]);
         assert!(folder.mark_matching("[").is_err());
+
+        folder.mark_all();
+        assert_eq!(folder.unmark_matching("*.TXT"), Ok(2));
+        assert_eq!(marked(&folder), ["sub"]);
+        assert_eq!(folder.unmark_matching("zzz"), Ok(0));
+        assert!(folder.unmark_matching("[").is_err());
+        assert_eq!(marked(&folder), ["sub"]);
 
         // Only what the filter shows.
         folder.clear_marks();

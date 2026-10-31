@@ -666,6 +666,7 @@ impl Render for Commander {
             .on_action(cx.listener(Self::select_all))
             .on_action(cx.listener(Self::invert_selection))
             .on_action(cx.listener(Self::select_pattern))
+            .on_action(cx.listener(Self::deselect_pattern))
             .on_action(cx.listener(|this, _: &SortByName, _, cx| this.sort_by(Cmd::SortByName, cx)))
             .on_action(cx.listener(|this, _: &SortByExt, _, cx| this.sort_by(Cmd::SortByExt, cx)))
             .on_action(cx.listener(|this, _: &SortBySize, _, cx| this.sort_by(Cmd::SortBySize, cx)))

@@ -38,7 +38,7 @@ means Alt.
 | {{< key "Alt" "Left" >}} / {{< key "Alt" "Right" >}} | Back / forward in panel history |
 | {{< key "Tab" >}} | Switch active panel |
 | {{< key "Space" >}} / {{< key "Insert" >}} | Mark or unmark entry |
-| {{< key "Ctrl" "A" >}} / {{< key "*" >}} / {{< key "+" >}} | Select all / invert / select by pattern |
+| {{< key "Ctrl" "A" >}} / {{< key "*" >}} / {{< key "+" >}} / {{< key "-" >}} | Select all / invert / select / deselect by pattern |
 | {{< key "/" >}} or {{< key "Ctrl" "F" >}} | Filter the current listing |
 | {{< key "Esc" >}} | Clear filter, then marks; stop a running search |
 | {{< key "Ctrl" "L" >}} | Edit active location |
