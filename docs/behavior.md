@@ -54,7 +54,7 @@ palette. The bottom area shows status messages and running jobs.
 | Ctrl-Left / Ctrl-Right | Go to Other Panel's Folder: the active panel shows the other panel's folder (local, remote or archive location kept; search results lead to their root; a navigation still loading there is followed to its destination; unavailable when the other panel shows Places) |
 | Ctrl-D              | Add or remove the current directory's bookmark (saved in `config.toml`); the star in the location bar shows and toggles it |
 | F9                  | Open a terminal in the panel directory (`[terminal]` in `config.toml`) |
-| F3                  | Toggle Preview in the inspector; it follows the active panel's cursor and does not replace the inactive folder panel |
+| F3                  | Toggle Preview in the inspector; it follows the active panel's cursor and does not replace the inactive folder panel; images, PDF pages and video frames fit entirely inside the preview area (scaled to width and height, aspect ratio kept, centered) |
 | Alt-Enter           | Open Properties for the cursor entry in the inspector |
 | F4                  | Open the cursor file (UTF-8 text, up to 8 MiB) in its own editor window; each file gets its own window. Ctrl-S saves, Esc/Ctrl-W closes (with unsaved changes it asks: Save, Discard or Cancel); saving asks before overwriting a file changed on disk. `[editor] command` in `config.toml` uses an external editor instead |
 | Ctrl-P              | Command palette: all commands with their keys, filtered by typing |

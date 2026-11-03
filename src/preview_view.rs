@@ -445,8 +445,10 @@ impl PreviewPane {
                 .p_2()
                 .gap_2()
                 .child(
-                    div().flex_1().min_h_0().child(
+                    div().flex_1().min_h_0().relative().child(
                         img(path.clone())
+                            .absolute()
+                            .inset_0()
                             .size_full()
                             .object_fit(ObjectFit::Contain)
                             .with_fallback(|| {
@@ -493,12 +495,15 @@ impl PreviewPane {
                         div()
                             .flex_1()
                             .min_h_0()
+                            .relative()
                             .flex()
                             .items_center()
                             .justify_center()
                             .when_some(image, |view, path| {
                                 view.child(
                                     img(path)
+                                        .absolute()
+                                        .inset_0()
                                         .size_full()
                                         .object_fit(ObjectFit::Contain)
                                         .with_fallback(|| {
@@ -570,11 +575,18 @@ impl PreviewPane {
                     div()
                         .flex_1()
                         .min_h_0()
+                        .relative()
                         .flex()
                         .items_center()
                         .justify_center()
                         .when_some(outline.clone(), |view, path| {
-                            view.child(img(path).size_full().object_fit(ObjectFit::Contain))
+                            view.child(
+                                img(path)
+                                    .absolute()
+                                    .inset_0()
+                                    .size_full()
+                                    .object_fit(ObjectFit::Contain),
+                            )
                         })
                         .when(outline.is_none(), |view| {
                             view.child(
