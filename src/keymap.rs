@@ -293,6 +293,10 @@ fn action_id(cmd: Cmd) -> &'static str {
         Cmd::ZoomIn => "ZoomIn",
         Cmd::ZoomOut => "ZoomOut",
         Cmd::ZoomReset => "ZoomReset",
+        Cmd::ImageZoomIn => "ImageZoomIn",
+        Cmd::ImageZoomOut => "ImageZoomOut",
+        Cmd::ImageFit => "ImageFit",
+        Cmd::ImageActualSize => "ImageActualSize",
     }
 }
 
@@ -348,6 +352,10 @@ fn default_binding(cmd: Cmd) -> (&'static str, KeyContext) {
         Cmd::ZoomIn => ("secondary-=", global),
         Cmd::ZoomOut => ("secondary--", global),
         Cmd::ZoomReset => ("secondary-0", global),
+        Cmd::ImageZoomIn => ("+", KeyContext::Preview),
+        Cmd::ImageZoomOut => ("-", KeyContext::Preview),
+        Cmd::ImageFit => ("0", KeyContext::Preview),
+        Cmd::ImageActualSize => ("1", KeyContext::Preview),
         Cmd::Quit => ("f10", global),
         Cmd::Help => ("f1", global),
         Cmd::CancelJobs => ("ctrl-shift-c", global),
@@ -379,6 +387,7 @@ fn default_keys(action: &str) -> Vec<&'static str> {
             keys.push("secondary-+");
             keys.push("secondary-shift-=");
         }
+        Cmd::ImageZoomIn => keys.push("="),
         Cmd::Quit => keys.push("secondary-q"),
         _ => {}
     }

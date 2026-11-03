@@ -22,7 +22,7 @@ bookmarks = []
 # as listed by F1 / Ctrl-P in its code form (Copy, Move, MakeDir, Delete,
 # DeletePermanently, Rename, EditFile, TogglePreview, ToggleTree, ToggleHidden,
 # Filter, GoTo, AddBookmark, FindFiles, ToolsMenu, SelectTheme, Refresh, Quit,
-# ...), or "none" to unbind. `context`: "panel" (default), "global", "editor".
+# ...), or "none" to unbind. `context`: "panel" (default), "global", "editor", "preview".
 # Programs opening files. Enter uses the first matching rule (else the system
 # default); Shift-Enter offers all matching ones. The path is appended to
 # `command`, or substituted for "{path}". Match by `exts`, `kinds` (image,

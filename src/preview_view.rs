@@ -16,8 +16,10 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use crate::fs_ops;
+use crate::image_zoom_view::ImageState;
 use crate::preview::session::{PreviewSession, Request, State, TargetChange};
 use crate::preview::{Content, Preview, PreviewStyle, Registry};
+use crate::view_zoom::Vec2;
 
 /// A Ctrl-wheel gesture over preview content, forwarded to the window zoom.
 pub struct PreviewZoom(pub i32);
@@ -25,6 +27,8 @@ pub struct PreviewZoom(pub i32);
 struct LoadedPreview {
     preview: Preview,
     notebook_images: HashMap<(usize, usize), Arc<RenderImage>>,
+    /// Pixel size of an image preview, read with the header only.
+    image_size: Option<Vec2>,
 }
 
 /// How long the cursor must rest on an entry before its preview loads.
@@ -50,9 +54,20 @@ pub struct PreviewPane {
     _reveal: Task<()>,
     resume_pdf: bool,
     resume_sheet: bool,
+    /// Zoom, pan and focus of the previewed image.
+    image: ImageState,
 }
 
 impl EventEmitter<PreviewZoom> for PreviewPane {}
+
+/// An image zoom command from the keyboard, menu or palette.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ImageZoomCommand {
+    In,
+    Out,
+    Fit,
+    ActualSize,
+}
 
 impl PreviewPane {
     pub fn new(registry: Arc<Registry>, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -77,7 +92,50 @@ impl PreviewPane {
             _reveal: Task::ready(()),
             resume_pdf: false,
             resume_sheet: false,
+            image: ImageState::new(cx.focus_handle()),
         }
+    }
+
+    /// Whether the preview shows an image that the zoom commands can act on.
+    pub fn image_zoomable(&self) -> bool {
+        matches!(
+            self.session.state(),
+            State::Ready(Preview {
+                content: Content::Image { .. },
+                ..
+            })
+        ) && self.image.size().is_some()
+    }
+
+    /// Applies an image zoom command around the viewport center.
+    pub fn zoom_image(&mut self, command: ImageZoomCommand, cx: &mut Context<Self>) {
+        if self.image_zoomable() && self.image.command(command) {
+            cx.notify();
+        }
+    }
+
+    /// Zooms by wheel steps around a point of the viewport.
+    pub fn zoom_image_at(&mut self, steps: i32, anchor: Vec2, cx: &mut Context<Self>) {
+        if self.image_zoomable() && self.image.zoom_at(steps, anchor) {
+            cx.notify();
+        }
+    }
+
+    /// Starts dragging the image from a window position.
+    pub fn begin_drag(&mut self, position: Point<Pixels>) {
+        self.image.begin_drag(position);
+    }
+
+    /// Pans the image while the pointer is dragged.
+    pub fn drag_to(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        if self.image.drag_to(position) {
+            cx.notify();
+        }
+    }
+
+    /// Stops dragging.
+    pub fn end_drag(&mut self) {
+        self.image.end_drag();
     }
 
     /// Returns the original source identity for the retained Preview target.
@@ -159,6 +217,7 @@ impl PreviewPane {
         };
         gpui_kit::base::TextSelection::clear(window, cx);
         self.table_scroll.set_offset(point(px(0.), px(0.)));
+        self.image.clear();
         self.release_notebook_images(window, cx);
         self._pdf_render = Task::ready(());
         self._sheet_load = Task::ready(());
@@ -188,9 +247,16 @@ impl PreviewPane {
                         }
                         _ => HashMap::new(),
                     };
+                    let image_size = match &preview.content {
+                        Content::Image { path } => image::image_dimensions(path)
+                            .ok()
+                            .map(|(w, h)| Vec2::new(w as f32, h as f32)),
+                        _ => None,
+                    };
                     Ok(LoadedPreview {
                         preview,
                         notebook_images: images,
+                        image_size,
                     })
                 })
                 .await;
@@ -247,15 +313,20 @@ impl PreviewPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let (result, images) = match result {
-            Ok(loaded) => (Ok(loaded.preview), loaded.notebook_images),
-            Err(error) => (Err(error), HashMap::new()),
+        let (result, images, image_size) = match result {
+            Ok(loaded) => (
+                Ok(loaded.preview),
+                loaded.notebook_images,
+                loaded.image_size,
+            ),
+            Err(error) => (Err(error), HashMap::new(), None),
         };
         if !self.session.complete(request, result) {
             return;
         }
         self.release_notebook_images(window, cx);
         self.notebook_images = Arc::new(images);
+        self.image.set_size(image_size);
         if let State::Ready(preview) = self.session.state() {
             if let Content::Notebook(notebook) = &preview.content {
                 self.notebook_list =
@@ -416,6 +487,38 @@ impl PreviewPane {
             .into_any_element()
     }
 
+    fn render_image(&self, path: &std::path::Path, cx: &Context<Self>) -> AnyElement {
+        let theme = cx.theme();
+        let stage = match self.image.size() {
+            Some(size) => {
+                self.image
+                    .element(path.to_path_buf(), size, cx.entity().downgrade(), theme)
+            }
+            // Dimensions unknown: let gpui decode it and fit it unscaled-up.
+            None => div()
+                .size_full()
+                .relative()
+                .child(
+                    img(path.to_path_buf())
+                        .absolute()
+                        .inset_0()
+                        .size_full()
+                        .object_fit(ObjectFit::ScaleDown)
+                        .with_fallback(|| div().child("Cannot decode image").into_any_element()),
+                )
+                .into_any_element(),
+        };
+        v_flex()
+            .id("image-preview")
+            .size_full()
+            .p_2()
+            .gap_2()
+            .key_context(crate::commander::keys::PREVIEW_CONTEXT)
+            .track_focus(self.image.focus())
+            .child(div().flex_1().min_h_0().relative().child(stage))
+            .into_any_element()
+    }
+
     fn render_content(&self, preview: &Preview, cx: &Context<Self>) -> AnyElement {
         let theme = cx.theme();
         let note = |text: String| {
@@ -440,23 +543,7 @@ impl PreviewPane {
                     d.child(note("Showing the first 512 KiB.".into()))
                 })
                 .into_any_element(),
-            Content::Image { path } => v_flex()
-                .size_full()
-                .p_2()
-                .gap_2()
-                .child(
-                    div().flex_1().min_h_0().relative().child(
-                        img(path.clone())
-                            .absolute()
-                            .inset_0()
-                            .size_full()
-                            .object_fit(ObjectFit::Contain)
-                            .with_fallback(|| {
-                                div().child("Cannot decode image").into_any_element()
-                            }),
-                    ),
-                )
-                .into_any_element(),
+            Content::Image { path } => self.render_image(path, cx),
             Content::Pdf { pages, .. } => {
                 let page = self.session.pdf_page();
                 let (image, error) = match self.session.pdf_result() {
@@ -861,90 +948,11 @@ impl Render for PreviewPane {
                     .overflow_hidden()
                     .child(body),
             );
-        PreviewWheelCapture {
+        crate::preview_wheel::PreviewWheelCapture {
             content: content.into_any_element(),
             view: cx.entity().downgrade(),
+            image: self.image.geometry(),
         }
-    }
-}
-
-/// Captures Ctrl-wheel before nested preview scroll areas consume it.
-struct PreviewWheelCapture {
-    content: AnyElement,
-    view: WeakEntity<PreviewPane>,
-}
-
-impl IntoElement for PreviewWheelCapture {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
-    }
-}
-
-impl Element for PreviewWheelCapture {
-    type RequestLayoutState = ();
-    type PrepaintState = Hitbox;
-
-    fn id(&self) -> Option<ElementId> {
-        None
-    }
-    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
-        None
-    }
-
-    fn request_layout(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> (LayoutId, ()) {
-        (self.content.request_layout(window, cx), ())
-    }
-
-    fn prepaint(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        bounds: Bounds<Pixels>,
-        _: &mut (),
-        window: &mut Window,
-        cx: &mut App,
-    ) -> Hitbox {
-        self.content.prepaint(window, cx);
-        window.insert_hitbox(bounds, HitboxBehavior::Normal)
-    }
-
-    fn paint(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        _: Bounds<Pixels>,
-        _: &mut (),
-        hitbox: &mut Hitbox,
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        let hitbox = hitbox.clone();
-        let view = self.view.clone();
-        window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, cx| {
-            if !phase.capture()
-                || !hitbox.should_handle_scroll(window)
-                || !(event.modifiers.control || event.modifiers.platform)
-            {
-                return;
-            }
-            let delta_y = match event.delta {
-                ScrollDelta::Pixels(delta) => f32::from(delta.y),
-                ScrollDelta::Lines(delta) => delta.y,
-            };
-            if let Some(steps) = crate::zoom::wheel_steps(delta_y) {
-                cx.stop_propagation();
-                let _ = view.update(cx, |_, cx| cx.emit(PreviewZoom(steps)));
-            }
-        });
-        self.content.paint(window, cx);
     }
 }
 

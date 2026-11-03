@@ -8,7 +8,7 @@ mod files;
 mod hostkey_view;
 mod jobs;
 mod keymap_view;
-mod keys;
+pub mod keys;
 mod location;
 mod menus;
 mod navigation;
@@ -689,6 +689,18 @@ impl Render for Commander {
             .on_action(cx.listener(Self::zoom_in))
             .on_action(cx.listener(Self::zoom_out))
             .on_action(cx.listener(Self::zoom_reset))
+            .on_action(cx.listener(|this, _: &keys::ImageZoomIn, _, cx| {
+                this.zoom_image(crate::preview_view::ImageZoomCommand::In, cx)
+            }))
+            .on_action(cx.listener(|this, _: &keys::ImageZoomOut, _, cx| {
+                this.zoom_image(crate::preview_view::ImageZoomCommand::Out, cx)
+            }))
+            .on_action(cx.listener(|this, _: &keys::ImageFit, _, cx| {
+                this.zoom_image(crate::preview_view::ImageZoomCommand::Fit, cx)
+            }))
+            .on_action(cx.listener(|this, _: &keys::ImageActualSize, _, cx| {
+                this.zoom_image(crate::preview_view::ImageZoomCommand::ActualSize, cx)
+            }))
             .on_action(cx.listener(Self::quit))
             .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, cx| {
                 // Ctrl-wheel zooms like Ctrl-+ / Ctrl--.

@@ -27,6 +27,16 @@ use crate::settings;
 use crate::workspace::{LayoutMode, Perspective};
 
 impl Commander {
+    /// Forwards an image zoom command to the preview pane.
+    pub fn zoom_image(
+        &mut self,
+        command: crate::preview_view::ImageZoomCommand,
+        cx: &mut Context<Self>,
+    ) {
+        self.preview
+            .update(cx, |preview, cx| preview.zoom_image(command, cx));
+    }
+
     pub fn filter(&mut self, _: &Filter, window: &mut Window, cx: &mut Context<Self>) {
         self.views[self.active].update(cx, |view, cx| view.open_filter(window, cx));
     }

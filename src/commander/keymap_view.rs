@@ -262,7 +262,7 @@ fn edit_shortcut(
         keys.update(cx, |input, cx| input.set_value(current, window, cx));
     }
     let context_input =
-        cx.new(|cx| InputState::new(window, cx).placeholder("panel, global, or editor"));
+        cx.new(|cx| InputState::new(window, cx).placeholder("panel, global, editor, or preview"));
     context_input.update(cx, |input, cx| {
         input.set_value(context_name(context), window, cx)
     });
@@ -278,7 +278,7 @@ fn edit_shortcut(
                     .gap_2()
                     .child("Shortcut keys")
                     .child(Input::new(&dialog_keys))
-                    .child("Context (panel, global, editor)")
+                    .child("Context (panel, global, editor, preview)")
                     .child(Input::new(&dialog_context)),
             )
             .ok_text("Apply")
@@ -289,8 +289,9 @@ fn edit_shortcut(
                     Some(context) => context,
                     None => {
                         let _ = draft.update(cx, |draft, cx| {
-                            draft.error =
-                                Some("Context must be panel, global, or editor".to_owned());
+                            draft.error = Some(
+                                "Context must be panel, global, editor, or preview".to_owned(),
+                            );
                             cx.notify();
                         });
                         return false;
@@ -323,6 +324,7 @@ fn context_name(context: KeyContext) -> &'static str {
         KeyContext::Panel => "panel",
         KeyContext::Global => "global",
         KeyContext::Editor => "editor",
+        KeyContext::Preview => "preview",
     }
 }
 
@@ -331,6 +333,7 @@ fn parse_context(value: &str) -> Option<KeyContext> {
         "panel" => Some(KeyContext::Panel),
         "global" => Some(KeyContext::Global),
         "editor" => Some(KeyContext::Editor),
+        "preview" => Some(KeyContext::Preview),
         _ => None,
     }
 }

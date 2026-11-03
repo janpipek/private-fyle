@@ -80,6 +80,10 @@ actions!(
         ZoomIn,
         ZoomOut,
         ZoomReset,
+        ImageZoomIn,
+        ImageZoomOut,
+        ImageFit,
+        ImageActualSize,
         EditShortcuts,
         ManageRemotes,
         Quit,
@@ -119,6 +123,8 @@ pub const CONTEXT: &str = "Commander";
 pub const TABLE_CONTEXT: &str = "Commander > DataTable";
 /// The icon grid's equivalent of [`TABLE_CONTEXT`].
 pub const GRID_CONTEXT: &str = "Commander > IconGrid";
+/// The focused image preview, whose keys must not reach the panels.
+pub const PREVIEW_CONTEXT: &str = "ImagePreview";
 
 /// The range occupied by user bindings in the app's ordered keymap.
 #[derive(Default)]
@@ -156,6 +162,7 @@ fn user_key_bindings(
             KeyContext::Panel => &[TABLE_CONTEXT, GRID_CONTEXT],
             KeyContext::Global => &[CONTEXT],
             KeyContext::Editor => &["EditorPane"],
+            KeyContext::Preview => &[PREVIEW_CONTEXT],
         };
         for context in contexts {
             // The built-in quit shortcut has no context so it also works in dialogs.
@@ -321,6 +328,14 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-q", Quit, None),
         KeyBinding::new("ctrl-shift-c", CancelJobs, ctx),
     ]);
+    let preview = Some(PREVIEW_CONTEXT);
+    cx.bind_keys([
+        KeyBinding::new("+", ImageZoomIn, preview),
+        KeyBinding::new("=", ImageZoomIn, preview),
+        KeyBinding::new("-", ImageZoomOut, preview),
+        KeyBinding::new("0", ImageFit, preview),
+        KeyBinding::new("1", ImageActualSize, preview),
+    ]);
 }
 
 /// The gpui action behind a [`Cmd`].
@@ -402,6 +417,10 @@ pub fn action_for(cmd: Cmd) -> Box<dyn Action> {
         Cmd::ZoomIn => Box::new(ZoomIn),
         Cmd::ZoomOut => Box::new(ZoomOut),
         Cmd::ZoomReset => Box::new(ZoomReset),
+        Cmd::ImageZoomIn => Box::new(ImageZoomIn),
+        Cmd::ImageZoomOut => Box::new(ImageZoomOut),
+        Cmd::ImageFit => Box::new(ImageFit),
+        Cmd::ImageActualSize => Box::new(ImageActualSize),
         Cmd::EditShortcuts => Box::new(EditShortcuts),
         Cmd::ManageRemotes => Box::new(ManageRemotes),
     }

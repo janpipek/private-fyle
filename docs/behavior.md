@@ -55,6 +55,7 @@ palette. The bottom area shows status messages and running jobs.
 | Ctrl-D              | Add or remove the current directory's bookmark (saved in `config.toml`); the star in the location bar shows and toggles it |
 | F9                  | Open a terminal in the panel directory (`[terminal]` in `config.toml`) |
 | F3                  | Toggle Preview in the inspector; it follows the active panel's cursor and does not replace the inactive folder panel; images, PDF pages and video frames fit entirely inside the preview area (scaled to width and height, aspect ratio kept, centered) |
+| Click on an image preview, then `+` / `=`, `-`, `0`, `1` | Zoom the previewed image in / out, fit, 100% (View menu and palette: Zoom Image In, Zoom Image Out, Fit Image, Image Actual Size; available only for image previews, also from the menu while a panel has focus). Ctrl-wheel over the image zooms it around the pointer instead of the UI; dragging pans a zoomed image. Fit never enlarges an image above 100% (1 image pixel = 1 logical pixel); zooming out to the fitted size returns to Fit; zoom is 5%-3200%. A corner label shows `Fit` or the percentage. Zoom resets to Fit when the file changes and is not saved. The keys live in the focusable preview's own `preview` key context, so they do not clash with the panel keys `+` / `-` (select / deselect by pattern); click a panel to give it focus back. Images whose size cannot be read stay fitted without zoom |
 | Alt-Enter           | Open Properties for the cursor entry in the inspector |
 | F4                  | Open the cursor file (UTF-8 text, up to 8 MiB) in its own editor window; each file gets its own window. Ctrl-S saves, Esc/Ctrl-W closes (with unsaved changes it asks: Save, Discard or Cancel); saving asks before overwriting a file changed on disk. `[editor] command` in `config.toml` uses an external editor instead |
 | Ctrl-P              | Command palette: all commands with their keys, filtered by typing |
@@ -455,7 +456,7 @@ Help › Edit Keyboard Shortcuts edits existing fyle commands, checks shortcut
 conflicts across overlapping contexts, and saves changes to `config.toml`.
 Reset restores a command's default; Disable removes its shortcut. The
 underlying `[[keymap]]` entries add or override bindings (`keys`, `action` such
-as `"Copy"` or `"none"` to unbind, `context` = `panel` / `global` / `editor`);
+as `"Copy"` or `"none"` to unbind, `context` = `panel` / `global` / `editor` / `preview`);
 see `config.example.toml`.
 
 ### Themes

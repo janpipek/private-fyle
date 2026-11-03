@@ -88,6 +88,10 @@ pub enum Cmd {
     ZoomIn,
     ZoomOut,
     ZoomReset,
+    ImageZoomIn,
+    ImageZoomOut,
+    ImageFit,
+    ImageActualSize,
     EditShortcuts,
     ManageRemotes,
 }
@@ -129,6 +133,8 @@ pub struct State {
     pub icon_size: u32,
     pub hidden: bool,
     pub preview: bool,
+    /// The preview shows an image that can be zoomed.
+    pub image_preview: bool,
     /// Whether the Properties perspective is selected in the inspector.
     pub properties: bool,
     /// The selected folder/inspector arrangement.
@@ -161,7 +167,7 @@ pub struct State {
 
 impl Cmd {
     /// Every command, in palette order.
-    pub const ALL: [Cmd; 76] = [
+    pub const ALL: [Cmd; 80] = [
         Cmd::Open,
         Cmd::OpenWith,
         Cmd::OpenInBrowser,
@@ -214,6 +220,10 @@ impl Cmd {
         Cmd::ZoomIn,
         Cmd::ZoomOut,
         Cmd::ZoomReset,
+        Cmd::ImageZoomIn,
+        Cmd::ImageZoomOut,
+        Cmd::ImageFit,
+        Cmd::ImageActualSize,
         Cmd::SelectTheme,
         Cmd::ToggleCustomTitlebar,
         Cmd::SelectColumns,
@@ -319,6 +329,10 @@ impl Cmd {
             Cmd::ZoomIn => "Zoom In",
             Cmd::ZoomOut => "Zoom Out",
             Cmd::ZoomReset => "Reset Zoom",
+            Cmd::ImageZoomIn => "Zoom Image In",
+            Cmd::ImageZoomOut => "Zoom Image Out",
+            Cmd::ImageFit => "Fit Image",
+            Cmd::ImageActualSize => "Image Actual Size",
             Cmd::EditShortcuts => "Edit Keyboard Shortcuts…",
             Cmd::ManageRemotes => "Manage Remotes…",
         }
@@ -375,6 +389,10 @@ impl Cmd {
             Cmd::ZoomIn => "Zoom in UI",
             Cmd::ZoomOut => "Zoom out UI",
             Cmd::ZoomReset => "Reset UI zoom",
+            Cmd::ImageZoomIn => "Zoom in the image preview",
+            Cmd::ImageZoomOut => "Zoom out the image preview",
+            Cmd::ImageFit => "Fit the image preview to the pane",
+            Cmd::ImageActualSize => "Show the image preview at 100%",
             other => other.label(),
         }
     }
@@ -473,6 +491,13 @@ impl Cmd {
             if !state.header_filter_active {
                 return Some("This column has no filter");
             }
+        }
+        if matches!(
+            self,
+            Cmd::ImageZoomIn | Cmd::ImageZoomOut | Cmd::ImageFit | Cmd::ImageActualSize
+        ) && !state.image_preview
+        {
+            return Some("Only for image previews");
         }
         if self == Cmd::ClearColumnFilters && !state.has_column_filters {
             return Some("There are no column filters");
@@ -694,6 +719,7 @@ pub fn menu_bar() -> Vec<(&'static str, Vec<Item>)> {
             view.extend(items(&[
                 &[],
                 &[ZoomIn, ZoomOut, ZoomReset],
+                &[ImageZoomIn, ImageZoomOut, ImageFit, ImageActualSize],
                 &[SelectColumns, SelectTheme, ToggleCustomTitlebar],
                 &[CalculateSizes, Refresh],
             ]));
@@ -1090,6 +1116,24 @@ mod tests {
             ..remote
         };
         assert!(Cmd::ToggleBookmark.unavailable(&remote_archive).is_some());
+    }
+
+    #[test]
+    fn image_zoom_commands_need_an_image_preview() {
+        let idle = State::default();
+        let image = State {
+            image_preview: true,
+            ..State::default()
+        };
+        for cmd in [
+            Cmd::ImageZoomIn,
+            Cmd::ImageZoomOut,
+            Cmd::ImageFit,
+            Cmd::ImageActualSize,
+        ] {
+            assert_eq!(cmd.unavailable(&idle), Some("Only for image previews"));
+            assert_eq!(cmd.unavailable(&image), None);
+        }
     }
 
     #[test]

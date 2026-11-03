@@ -30,6 +30,7 @@ mod glyphs;
 mod grid;
 mod icon_view;
 mod icons;
+mod image_zoom_view;
 #[cfg_attr(windows, allow(dead_code))]
 mod ini;
 mod inspector_view;
@@ -62,6 +63,7 @@ mod preview;
 pub mod preview_scene;
 mod preview_scene_view;
 mod preview_view;
+mod preview_wheel;
 pub mod properties;
 mod properties_view;
 mod raw_preview;
@@ -79,6 +81,7 @@ mod thumbnails;
 mod tools;
 mod tools_view;
 mod transfer;
+mod view_zoom;
 mod window_chrome_view;
 #[cfg(windows)]
 mod windows_apps;

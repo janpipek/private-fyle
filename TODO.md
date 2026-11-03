@@ -142,6 +142,12 @@ not to pursue an item.
 
 ## Done
 
+- [x] Image preview zoom (`view_zoom.rs`, `image_zoom_view.rs`): Ctrl-wheel over
+      the image zooms around the cursor, dragging pans, and `+` / `=`, `-`, `0`,
+      `1` zoom in, out, fit and 100% while the preview has focus (click it).
+      Fit never enlarges small images; a corner label shows `Fit` or the scale.
+      Resets to Fit for each file; not saved. The model is content-agnostic so
+      PDF pages and video frames can reuse it; rotation is not implemented yet.
 - [x] First-connection SFTP host-key confirmation when opening a remote or
       testing it in Manage Remotes: show the resolved host, port, key type and
       SHA256 fingerprint; save only the explicitly accepted key to known_hosts

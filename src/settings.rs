@@ -90,6 +90,8 @@ pub enum KeyContext {
     Global,
     /// In the F4 editor.
     Editor,
+    /// While the image preview has focus.
+    Preview,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]

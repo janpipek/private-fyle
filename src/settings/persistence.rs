@@ -172,6 +172,7 @@ pub fn save_keymap_to(path: &Path, entries: &[KeymapEntry]) -> Result<(), String
                     KeyContext::Panel => "panel",
                     KeyContext::Global => "global",
                     KeyContext::Editor => "editor",
+                    KeyContext::Preview => "preview",
                 },
             );
         }
