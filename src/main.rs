@@ -73,6 +73,7 @@ mod remote_labels;
 mod rename;
 mod search;
 mod settings;
+mod svg_raster;
 mod terminal;
 mod theme_picker;
 mod themes;

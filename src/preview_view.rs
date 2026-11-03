@@ -29,6 +29,8 @@ struct LoadedPreview {
     notebook_images: HashMap<(usize, usize), Arc<RenderImage>>,
     /// Pixel size of an image preview, read with the header only.
     image_size: Option<Vec2>,
+    /// The parsed SVG, when the image is one.
+    svg: Option<Arc<usvg::Tree>>,
 }
 
 /// How long the cursor must rest on an entry before its preview loads.
@@ -119,6 +121,36 @@ impl PreviewPane {
         if self.image_zoomable() && self.image.zoom_at(steps, anchor) {
             cx.notify();
         }
+    }
+
+    /// Asks for a sharp tile of the zoomed SVG (see [`crate::svg_raster`]).
+    pub fn request_svg_tile(
+        &mut self,
+        plan: crate::svg_raster::Plan,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.image
+            .request_tile(plan, cx.entity().downgrade(), window, cx);
+    }
+
+    /// Stores a rendered SVG tile.
+    pub fn install_svg_tile(
+        &mut self,
+        generation: u64,
+        tile: crate::svg_raster::Tile,
+        rendered: Option<Arc<RenderImage>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.image
+            .install_tile(generation, tile, rendered, window, cx);
+        cx.notify();
+    }
+
+    /// Drops the SVG tile once the zoom no longer needs one.
+    pub fn clear_svg_tile(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.image.clear_tile(window, cx);
     }
 
     /// Starts dragging the image from a window position.
@@ -217,7 +249,7 @@ impl PreviewPane {
         };
         gpui_kit::base::TextSelection::clear(window, cx);
         self.table_scroll.set_offset(point(px(0.), px(0.)));
-        self.image.clear();
+        self.image.clear(window, cx);
         self.release_notebook_images(window, cx);
         self._pdf_render = Task::ready(());
         self._sheet_load = Task::ready(());
@@ -247,8 +279,13 @@ impl PreviewPane {
                         }
                         _ => HashMap::new(),
                     };
-                    let image_size = match &preview.content {
-                        Content::Image { path } => image::image_dimensions(path)
+                    let svg = match &preview.content {
+                        Content::Image { path } => crate::svg_raster::load(path),
+                        _ => None,
+                    };
+                    let image_size = match (&svg, &preview.content) {
+                        (Some(svg), _) => Some(svg.size),
+                        (None, Content::Image { path }) => image::image_dimensions(path)
                             .ok()
                             .map(|(w, h)| Vec2::new(w as f32, h as f32)),
                         _ => None,
@@ -257,6 +294,7 @@ impl PreviewPane {
                         preview,
                         notebook_images: images,
                         image_size,
+                        svg: svg.map(|svg| svg.tree),
                     })
                 })
                 .await;
@@ -313,13 +351,14 @@ impl PreviewPane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let (result, images, image_size) = match result {
+        let (result, images, image_size, svg) = match result {
             Ok(loaded) => (
                 Ok(loaded.preview),
                 loaded.notebook_images,
                 loaded.image_size,
+                loaded.svg,
             ),
-            Err(error) => (Err(error), HashMap::new(), None),
+            Err(error) => (Err(error), HashMap::new(), None, None),
         };
         if !self.session.complete(request, result) {
             return;
@@ -327,6 +366,7 @@ impl PreviewPane {
         self.release_notebook_images(window, cx);
         self.notebook_images = Arc::new(images);
         self.image.set_size(image_size);
+        self.image.set_svg(svg);
         if let State::Ready(preview) = self.session.state() {
             if let Content::Notebook(notebook) = &preview.content {
                 self.notebook_list =

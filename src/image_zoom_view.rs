@@ -5,12 +5,17 @@
 use std::cell::Cell;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui_kit::component::Theme;
 use gpui_kit::*;
 
 use crate::preview_view::{ImageZoomCommand, PreviewPane};
+use crate::svg_raster::{self, Plan, Tile};
 use crate::view_zoom::{Vec2, ViewZoom};
+
+/// How long the zoom must rest before a sharp SVG tile is rendered.
+const TILE_DELAY: std::time::Duration = std::time::Duration::from_millis(120);
 
 /// Geometry the element reports back to the pane after each paint, so key
 /// commands can zoom around the viewport center and the pane can leave
@@ -32,6 +37,10 @@ pub struct ZoomableImage {
     pub geometry: Rc<ImageGeometry>,
     /// Shown instead of the image when it cannot be decoded.
     pub failure: &'static str,
+    /// Whether the image is an SVG that is re-rasterized when zoomed in.
+    pub svg: bool,
+    /// The sharp tile rendered so far, if any.
+    pub tile: Option<(Tile, Arc<RenderImage>)>,
 }
 
 impl IntoElement for ZoomableImage {
@@ -44,7 +53,7 @@ impl IntoElement for ZoomableImage {
 
 impl Element for ZoomableImage {
     type RequestLayoutState = ();
-    type PrepaintState = AnyElement;
+    type PrepaintState = Vec<AnyElement>;
 
     fn id(&self) -> Option<ElementId> {
         None
@@ -78,7 +87,7 @@ impl Element for ZoomableImage {
         _: &mut (),
         window: &mut Window,
         cx: &mut App,
-    ) -> AnyElement {
+    ) -> Vec<AnyElement> {
         let viewport = Vec2::new(f32::from(bounds.size.width), f32::from(bounds.size.height));
         self.geometry.viewport.set(viewport);
         self.geometry.bounds.set(Some(bounds));
@@ -100,7 +109,35 @@ impl Element for ZoomableImage {
             window,
             cx,
         );
-        image
+        let mut layers = vec![image];
+        if self.svg {
+            let plan = svg_raster::plan(&placement, viewport, self.content, window.scale_factor());
+            match (plan, &self.tile) {
+                (Some(plan), have) => {
+                    if !have
+                        .as_ref()
+                        .is_some_and(|(tile, _)| plan.satisfied_by(tile))
+                    {
+                        let pane = self.pane.clone();
+                        window.defer(cx, move |window, cx| {
+                            let _ =
+                                pane.update(cx, |pane, cx| pane.request_svg_tile(plan, window, cx));
+                        });
+                    }
+                    if let Some((tile, render)) = have {
+                        layers.push(tile_element(tile, render, &placement, bounds, window, cx));
+                    }
+                }
+                (None, Some(_)) => {
+                    let pane = self.pane.clone();
+                    window.defer(cx, move |window, cx| {
+                        let _ = pane.update(cx, |pane, cx| pane.clear_svg_tile(window, cx));
+                    });
+                }
+                (None, None) => {}
+            }
+        }
+        layers
     }
 
     fn paint(
@@ -109,12 +146,14 @@ impl Element for ZoomableImage {
         _: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         _: &mut (),
-        image: &mut AnyElement,
+        layers: &mut Vec<AnyElement>,
         window: &mut Window,
         cx: &mut App,
     ) {
         window.with_content_mask(Some(ContentMask { bounds }), |window| {
-            image.paint(window, cx);
+            for layer in layers.iter_mut() {
+                layer.paint(window, cx);
+            }
         });
         let local = move |position: Point<Pixels>| {
             Vec2::new(
@@ -170,6 +209,34 @@ impl Element for ZoomableImage {
     }
 }
 
+/// The sharp SVG tile, laid over the base image at the tile's region.
+fn tile_element(
+    tile: &Tile,
+    render: &Arc<RenderImage>,
+    placement: &crate::view_zoom::Placement,
+    bounds: Bounds<Pixels>,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let region = tile.region();
+    let zoom = placement.scale;
+    let mut element = img(ImageSource::Render(render.clone()))
+        .w(px(region.x1 * zoom - region.x0 * zoom))
+        .h(px(region.y1 * zoom - region.y0 * zoom))
+        .object_fit(ObjectFit::Fill)
+        .into_any_element();
+    element.prepaint_as_root(
+        point(
+            bounds.origin.x + px(placement.origin.x + region.x0 * zoom),
+            bounds.origin.y + px(placement.origin.y + region.y0 * zoom),
+        ),
+        size(AvailableSpace::MinContent, AvailableSpace::MinContent),
+        window,
+        cx,
+    );
+    element
+}
+
 /// The pane's per-image state: zoom, pan, drag and focus.
 pub struct ImageState {
     focus: FocusHandle,
@@ -177,6 +244,14 @@ pub struct ImageState {
     size: Option<Vec2>,
     geometry: Rc<ImageGeometry>,
     drag_last: Option<Point<Pixels>>,
+    /// Parsed SVG, rendered again for sharp zoom.
+    svg: Option<Arc<usvg::Tree>>,
+    tile: Option<(Tile, Arc<RenderImage>)>,
+    /// The tile being rendered, so repaints do not restart it.
+    pending: Option<Tile>,
+    /// Bumped on every new request; older results are dropped.
+    generation: u64,
+    render_task: Task<()>,
 }
 
 impl ImageState {
@@ -187,6 +262,11 @@ impl ImageState {
             size: None,
             geometry: Rc::new(ImageGeometry::default()),
             drag_last: None,
+            svg: None,
+            tile: None,
+            pending: None,
+            generation: 0,
+            render_task: Task::ready(()),
         }
     }
 
@@ -200,7 +280,9 @@ impl ImageState {
     }
 
     /// Forgets the previous file: back to fit, no size.
-    pub fn clear(&mut self) {
+    pub fn clear(&mut self, window: &mut Window, cx: &mut App) {
+        self.clear_tile(window, cx);
+        self.svg = None;
         self.zoom.reset();
         self.size = None;
         self.drag_last = None;
@@ -209,6 +291,76 @@ impl ImageState {
 
     pub fn set_size(&mut self, size: Option<Vec2>) {
         self.size = size;
+    }
+
+    /// Keeps the parsed SVG for re-rendering when zoomed in.
+    pub fn set_svg(&mut self, svg: Option<Arc<usvg::Tree>>) {
+        self.svg = svg;
+    }
+
+    /// Frees the sharp tile and cancels a pending render.
+    pub fn clear_tile(&mut self, window: &mut Window, cx: &mut App) {
+        self.generation += 1;
+        self.pending = None;
+        self.render_task = Task::ready(());
+        if let Some((_, old)) = self.tile.take() {
+            cx.drop_image(old, Some(window));
+        }
+    }
+
+    /// Renders the planned tile after a short pause, replacing any earlier
+    /// request; a newer request makes older results stale.
+    pub fn request_tile(
+        &mut self,
+        plan: Plan,
+        pane: WeakEntity<PreviewPane>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let Some(tree) = self.svg.clone() else {
+            return;
+        };
+        if self.pending == Some(plan.tile) {
+            return;
+        }
+        self.generation += 1;
+        let generation = self.generation;
+        self.pending = Some(plan.tile);
+        let tile = plan.tile;
+        self.render_task = window.spawn(cx, async move |cx| {
+            cx.background_executor().timer(TILE_DELAY).await;
+            let rendered = cx
+                .background_spawn(async move { svg_raster::render(&tree, &tile) })
+                .await;
+            let _ = cx.update(|window, cx| {
+                let _ = pane.update(cx, |pane, cx| {
+                    pane.install_svg_tile(generation, tile, rendered, window, cx)
+                });
+                window.refresh();
+            });
+        });
+    }
+
+    /// Stores a rendered tile unless a newer request superseded it.
+    pub fn install_tile(
+        &mut self,
+        generation: u64,
+        tile: Tile,
+        rendered: Option<Arc<RenderImage>>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if generation != self.generation {
+            if let Some(stale) = rendered {
+                cx.drop_image(stale, Some(window));
+            }
+            return;
+        }
+        if let Some(render) = rendered
+            && let Some((_, old)) = self.tile.replace((tile, render))
+        {
+            cx.drop_image(old, Some(window));
+        }
     }
 
     /// Applies a command around the viewport center; true when it changed.
@@ -288,6 +440,8 @@ impl ImageState {
                 focus: self.focus.clone(),
                 geometry: self.geometry.clone(),
                 failure: "Cannot decode image",
+                svg: self.svg.is_some(),
+                tile: self.tile.clone(),
             })
             .child(
                 div()

@@ -44,6 +44,8 @@ tokio = { version = "1", default-features = false, features = ["rt-multi-thread"
 toml = "0.9"
 toml_edit = "0.25.15"
 trash = "5"
+usvg = { version = "0.46", default-features = false, features = ["text"] }
+resvg = { version = "0.46", default-features = false, features = ["text", "system-fonts", "memmap-fonts", "raster-images"] }
 uuid = { version = "1.28", features = ["v4"] }
 zip = { version = "8.6.0", default-features = false, features = ["deflate-flate2"] }
 zstd = { version = "0.13.3", default-features = false }

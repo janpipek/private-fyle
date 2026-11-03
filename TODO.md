@@ -148,6 +148,9 @@ not to pursue an item.
       Fit never enlarges small images; a corner label shows `Fit` or the scale.
       Resets to Fit for each file; not saved. The model is content-agnostic so
       PDF pages and video frames can reuse it; rotation is not implemented yet.
+- [x] Zoomable, sharp SVG previews (`svg_raster.rs`): the size comes from the
+      SVG itself (usvg, files up to 16 MB). Above 200% the visible part is
+      rendered again by resvg at screen density, as one tile capped at 16 Mpx.
 - [x] First-connection SFTP host-key confirmation when opening a remote or
       testing it in Manage Remotes: show the resolved host, port, key type and
       SHA256 fingerprint; save only the explicitly accepted key to known_hosts
